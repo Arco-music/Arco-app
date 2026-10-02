@@ -2,6 +2,7 @@
 // ARCO --selftest: plays a test tone into the real engine and checks recording, looping, scenes,
 // scene memory, saving / opening a song, importing a file and the show recorder. Prints a report, returns failures.
 #include "AudioHost.h"
+#include "../UI/SynthPanel.h"
 #include <cstdio>
 #include <cmath>
 
@@ -233,6 +234,52 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         run(1.0, 0.3f);
         float p[9]; for (int k = 1; k <= 8; ++k) p[k] = e.peak("spk" + std::to_string(k));
         check(p[1] > 2 * p[5] && p[2] > 2 * p[5] && p[1] > 2 * p[4], "8-speaker ring: 1-2 in front (main mix), 4-5 behind", p[1]);
+    }
+    // the SYNTH: notes make sound, it plays into LIVE 2, a track records it, every preset is clean
+    {
+        for (auto k : { "halo0", "shd0", "dly0", "spc0", "rev0", "cho0", "grn0", "res0", "frz0", "fxb0", "orb0" }) m.set(k, 0);
+        m.set("drm_on", 0); h.setSynthInto(0); h.model.set("spk_n", 2); h.applySpeakers();
+        m.press("st_looper", "rstall"); run(0.5, 0);
+        applyFactorySynthPreset(m, 0);
+        h.keys.noteOn(1, 57, 0.9f);
+        check(h.synthInto == 1, "SYNTH: the first note sends it into LIVE 2");
+        float sp = run(0.8, 0);
+        check(sp > 0.02f, "  a note sounds (main out)", sp);
+        check(e.snap("syn_n").v.load() >= 1, "  one voice sounding", e.snap("syn_n").v.load());
+        h.keys.noteOn(1, 61, 0.9f); h.keys.noteOn(1, 64, 0.9f); run(0.3, 0);
+        check(e.snap("syn_n").v.load() >= 3, "  a chord: 3 voices", e.snap("syn_n").v.load());
+        h.keys.noteOff(1, 57, 0); h.keys.noteOff(1, 61, 0); h.keys.noteOff(1, 64, 0);
+        run(3.0, 0);
+        check(e.snap("syn_n").v.load() < 0.5f, "  released: silence again", e.snap("syn_n").v.load());
+        // record it on TRACK 3
+        h.recordSynthOn(3);
+        h.keys.noteOn(1, 52, 0.8f);
+        check(waitFor([&] { return trk(2) == 7; }, 5.0), "  RECORD ON TRACK 3: recording the synth", trk(2));
+        run(2.0, 0);
+        h.keys.noteOff(1, 52, 0);
+        m.press("st_looper", "rec3");
+        check(waitFor([&] { return trk(2) == 3; }, 5.0), "  track 3 plays it back", trk(2));
+        run(3.0, 0);
+        check(run(3.0, 0) > 0.01f, "  and you hear the recorded synth (no key held)");
+        m.press("st_looper", "rstall"); run(0.3, 0);
+        // mono + glide: one voice
+        m.set("mono", 1); m.set("s_glide", 40);
+        h.keys.noteOn(1, 60, 0.8f); h.keys.noteOn(1, 67, 0.8f); run(0.4, 0);
+        check(e.snap("syn_n").v.load() < 1.5f && run(0.3, 0) > 0.01f, "  MONO: one voice, gliding");
+        h.keys.allNotesOff(0); h.synth.allOff(); run(2.0, 0);
+        // every factory sound, a chord each: sounds, no NaN, not too loud
+        bool allOk = true; float worst = 0;
+        for (int p = 0; p < numFactorySynthPresets(); ++p) {
+            applyFactorySynthPreset(m, p);
+            bool fol = m.get("follow") > 0.5;
+            if (!fol) for (int nn : { 48, 55, 60, 64 }) h.keys.noteOn(1, nn, 0.8f);
+            float pk2 = run(1.5, fol ? 0.3f : 0.0f);
+            h.keys.allNotesOff(0); h.synth.allOff(); run(1.5, 0);
+            if (!(pk2 > 0.01f && pk2 < 3.5f) || nan) { allOk = false; std::printf("    sound %d: peak %.3f\n", p, pk2); }
+            worst = std::max(worst, pk2);
+        }
+        check(allOk, "  every factory sound plays cleanly (loudest peak)", worst);
+        applyFactorySynthPreset(m, 0); h.setSynthInto(0);
     }
     // the sound card settings: what happens when a device does not open
     {

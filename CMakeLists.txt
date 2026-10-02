@@ -35,7 +35,8 @@ target_sources(ARCO PRIVATE
     Source/App/AudioHost.cpp
     Source/App/PhoneLink.cpp
     Source/UI/MainView.cpp
-    Source/UI/Panels.cpp)
+    Source/UI/Panels.cpp
+    Source/UI/SynthPanel.cpp)
 
 target_compile_definitions(ARCO PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"

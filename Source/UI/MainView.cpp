@@ -1,5 +1,6 @@
 #include "MainView.h"
 #include "Panels.h"
+#include "SynthPanel.h"
 
 namespace arco {
 
@@ -263,10 +264,15 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     }
     setup = std::make_unique<SetupPanel>(*this);
     addChildComponent(setup.get()); setup->setBounds(0, 0, 1440, 880);
+    synthWin = std::make_unique<SynthPanel>(*this);
+    addChildComponent(synthWin.get()); synthWin->setBounds(0, 0, 1440, 880);
+    setWantsKeyboardFocus(true);
+    host.onAction = [this](int a) { const char* W[4] = { "REC", U("PLAY / STOP").toRawUTF8(), "UNDO", "NEXT SCENE" };
+        flash = a == 1 ? U("PLAY / STOP") : juce::String(W[a]); flashUntil = juce::Time::getMillisecondCounterHiRes() + 900; };
     layoutStrips();
     startTimerHz(30);
 }
-Canvas::~Canvas() { stopTimer(); }
+Canvas::~Canvas() { stopTimer(); host.onAction = nullptr; }
 
 void Canvas::chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs) {
     chooser = std::make_unique<juce::FileChooser>(title, juce::File::getSpecialLocation(juce::File::userMusicDirectory), pattern);
@@ -309,9 +315,8 @@ void Canvas::buildTopBar() {
     ro({ 654, 27, 34, 24 }, "barno"); ro({ 690, 27, 34, 24 }, "beatno"); ro({ 726, 27, 36, 24 }, "loopbars");
     // song
     auto* save = add<Pill>({ 978, 13, 32, 20 }, "SAVE", [] { return Theme::c(Theme::rgb(0.20f, 0.36f, 0.60f)); }, 7.5f, 6.0f);
-    auto saveAs = [this] { chooseFile("Save the song: choose a name (a folder with that name is made)", "*", true,
-                                      [this](juce::File f) { host.saveSong(f.withFileExtension("")); }); };
-    save->onClick = [this, saveAs] { if (host.songFolder.isDirectory()) host.saveSong(host.songFolder); else saveAs(); };
+    auto saveAs = [this] { doSave(true); };
+    save->onClick = [this] { doSave(false); };
     auto* as = add<Pill>({ 1012, 13, 18, 20 }, U("AS…"), [] { return Theme::c(Theme::rgb(0.20f, 0.36f, 0.60f)); }, 6.0f, 6.0f);
     as->onClick = saveAs;
     auto* open = add<Pill>({ 978, 36, 52, 20 }, "OPEN", [] { return Theme::btn(); }, 8.5f, 6.0f);
@@ -331,7 +336,7 @@ void Canvas::buildTopBar() {
     meters.add(add<Meter>({ 1270, 40, 42, 5 }, [this] { return engine().peak("mainR"); }));
     // windows
     auto* syn = add<Pill>({ 1326, 9, 50, 22 }, "SYNTH", [] { return Theme::c(Theme::rgb(0.40f, 0.30f, 0.70f)); }, 8.5f, 7.0f);
-    syn->onClick = [this] { showMessage("the SYNTH window comes with the full version"); };
+    syn->onClick = [this] { openSynth(true); };
     auto* room = add<Pill>({ 1380, 9, 48, 22 }, "ROOM", [] { return Theme::off(); }, 8.5f, 7.0f);
     room->onClick = [this] { openSetup(true); };
     auto* st = add<Pill>({ 1326, 35, 42, 20 }, "SETUP", [] { return Theme::off(); }, 7.5f, 7.0f);
@@ -363,13 +368,37 @@ void Canvas::layoutStrips() {
     int ntn = juce::jlimit(1, 8, (int) snap("ntn")); if (snap("ntn") < 1) ntn = 4;
     int idx = 0;
     for (int s = 0; s < NSTRIP; ++s) {
-        bool vis = s < 4 ? s < host.nLive : (s - 4) < ntn;
+        bool vis = s < 4 ? (s < host.nLive || (host.synthInto > 0 && s == host.synthInto)) : (s - 4) < ntn;
         strips[s]->setVisible(vis);
         if (vis) { strips[s]->setBounds(16 + idx * 118, 100, 112, 298); ++idx; }
     }
 }
 
 void Canvas::openSetup(bool show) { setup->setVisible(show); if (show) setup->toFront(true); }
+void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
+
+void Canvas::doSave(bool askName) {
+    if (!askName && host.songFolder.isDirectory()) { host.saveSong(host.songFolder); return; }
+    chooseFile("Save the song: choose a name (a folder with that name is made)", "*", true,
+               [this](juce::File f) { host.saveSong(f.withFileExtension("")); });
+}
+
+// keys and page-turner pedals (they send arrow / page keys): the hands stay on the instrument
+bool Canvas::keyPressed(const juce::KeyPress& k) {
+    if (setup->isVisible() || synthWin->isVisible()) return false;
+    const auto code = k.getKeyCode(); const bool cmd = k.getModifiers().isCommandDown();
+    if (cmd && code == 'S') { doSave(k.getModifiers().isShiftDown()); return true; }
+    if (cmd && code == 'O') { chooseFile("Open a song (its folder, or its -settings.json)", "*-settings.json", false, [this](juce::File f) { host.openSong(f); }, true); return true; }
+    if (cmd && code == 'Z') { host.doAction(AudioHost::ActUndo); return true; }
+    if (cmd) return false;
+    if (code == juce::KeyPress::spaceKey || code == juce::KeyPress::downKey) { host.doAction(AudioHost::ActPlay); return true; }
+    if (code == juce::KeyPress::rightKey || code == juce::KeyPress::pageDownKey || code == juce::KeyPress::returnKey) { host.doAction(AudioHost::ActRec); return true; }
+    if (code == juce::KeyPress::leftKey || code == juce::KeyPress::pageUpKey || code == juce::KeyPress::backspaceKey) { host.doAction(AudioHost::ActUndo); return true; }
+    if (code == juce::KeyPress::upKey || code == juce::KeyPress::tabKey) { host.doAction(AudioHost::ActScene); return true; }
+    if (code >= '1' && code <= '4') { model().press("st_looper", "scene", 8, code - '0'); return true; }
+    if (k.getTextCharacter() == 'k' || k.getTextCharacter() == 'K') { openSynth(true); return true; }
+    return false;
+}
 
 void Canvas::timerCallback() {
     model().tick();
@@ -380,6 +409,7 @@ void Canvas::timerCallback() {
     if (!inputSeen && engine().peak("live_in1") > 0.003f) inputSeen = true;
     if (snap("imp_busy") < 0.5f && host.status.startsWith("copying")) host.status = U("file imported ✓");
     for (auto* o : owned) o->repaint();
+    if (isShowing() && !setup->isVisible() && !synthWin->isVisible() && juce::Component::getCurrentlyFocusedComponent() == nullptr) grabKeyboardFocus();
     repaint(0, 0, 1440, 100);
 }
 
@@ -408,10 +438,14 @@ void Canvas::paint(juce::Graphics& g) {
     label(g, "CPU " + juce::String((int) std::round(engine().cpu.load() * 100)) + "%", { 1250, 47, 64, 12 }, 6.5f, Theme::sub());
     // scenes row
     label(g, "SCENE", { 16, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
+    if (juce::Time::getMillisecondCounterHiRes() < flashUntil) {
+        g.setColour(Theme::amber()); g.fillRoundedRectangle(1290, 68, 134, 24, 6.0f);
+        label(g, flash, { 1290, 68, 134, 24 }, 9.5f, juce::Colours::black, 2, juce::Justification::centred);
+    }
     label(g, "TRACKS", { 462, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
     int s = model().selected;
     label(g, juce::String(U("SEND ▸ ")) + (s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3)), { 566, 72, 260, 16 }, 9.0f, Theme::txt(), 2);
-    label(g, U("← click a strip's name: the SEND knobs on the effect cards are for that strip"), { 836, 73, 440, 16 }, 8.0f, Theme::sub());
+    label(g, U("← click a strip's name: the SEND knobs are for that strip   ·   SPACE play/stop  → rec  ← undo  ↑ scene  K synth"), { 836, 73, 450, 16 }, 7.5f, Theme::sub());
 }
 
 } // namespace arco

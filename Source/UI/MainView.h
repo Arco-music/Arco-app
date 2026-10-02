@@ -8,6 +8,7 @@ namespace arco {
 class StripView;
 class CardView;
 class SetupPanel;
+class SynthPanel;
 
 // The instrument: drawn in a 1440 x 880 design space (the PDF layout) and scaled to the window.
 class Canvas : public juce::Component, private juce::Timer {
@@ -21,6 +22,10 @@ public:
     Engine& engine() { return host.engine; }
     float snap(const char* n) { return engine().snap(n).v.load(); }
     void openSetup(bool show);
+    void openSynth(bool show);
+    bool keyPressed(const juce::KeyPress& k) override;
+    void doSave(bool askName);
+    juce::String flash; double flashUntil = 0;     // a short word after a pedal / key (REC, PLAY ...)
     void showMessage(const juce::String& s) { host.status = s; }
     int pvw = 0;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -36,11 +41,13 @@ private:
     juce::OwnedArray<StripView> strips;
     juce::OwnedArray<CardView> cards;
     std::unique_ptr<SetupPanel> setup;
+    std::unique_ptr<SynthPanel> synthWin;
     juce::Array<Meter*> meters;
     bool inputSeen = false;
     juce::String songLine;
     friend class StripView;
     friend class CardView;
+    friend class SynthPanel;
 };
 
 class MainComponent : public juce::Component {

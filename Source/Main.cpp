@@ -35,6 +35,7 @@ public:
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
+        if (cmd.contains("synth")) mc->canvas.openSynth(true);
         juce::Timer::callAfterDelay(1500, [this, mc, out] {
             auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
             juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);
