@@ -3,6 +3,7 @@
 #include "App/AudioHost.h"
 #include "UI/MainView.h"
 #include "App/SelfTest.h"
+#include "App/Updater.h"
 
 class ARCOApplication : public juce::JUCEApplication {
 public:
@@ -12,9 +13,16 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check");
         host = std::make_unique<arco::AudioHost>(!test);
         if (cmd.contains("--screenshot")) { screenshot(cmd); return; }
+        if (cmd.contains("--update-check")) {          // for testing the UPDATE button
+            updater = std::make_unique<arco::Updater>();
+            updater->onChecked = [this](const juce::String& m, int b, const juce::String& n) {
+                std::printf("update check: %s, latest build %d (this is %d)\n%s\n", m.toRawUTF8(), b, arco::Updater::build(), n.substring(0, 200).toRawUTF8());
+                std::fflush(stdout); quit(); };
+            updater->check(); return;
+        }
         if (cmd.contains("--selftest")) {
             auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("ARCO selftest");
             dir.createDirectory();
@@ -85,6 +93,7 @@ public:
     };
 private:
     std::unique_ptr<arco::AudioHost> host;
+    std::unique_ptr<arco::Updater> updater;
     std::unique_ptr<MainWindow> window;
 };
 

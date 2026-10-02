@@ -22,7 +22,9 @@ public:
     static int build() { return ARCO_BUILD; }
     static juce::String releasesPage() { return "https://github.com/" + juce::String(repo) + "/releases/latest"; }
 
-    juce::String key() const { return keyFile().loadFileAsString().trim(); }
+    juce::String key() const {
+        auto env = juce::SystemStats::getEnvironmentVariable("ARCO_GITHUB_KEY", {});   // for testing
+        return env.isNotEmpty() ? env.trim() : keyFile().loadFileAsString().trim(); }
     void setKey(const juce::String& k) {
         keyFile().getParentDirectory().createDirectory();
         keyFile().replaceWithText(k.trim());
