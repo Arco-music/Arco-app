@@ -9,7 +9,9 @@ namespace arco {
 
 class AudioHost : public juce::AudioIODeviceCallback, private juce::AsyncUpdater {
 public:
-    AudioHost();
+    explicit AudioHost(bool openDevice = true);   // false: tests / screenshots (no sound card, settings not saved)
+    bool live = true;
+    bool phonesShared = false;               // only 2 outputs: the headphone mix (click, CUE) comes out of 1-2 too
     ~AudioHost() override;
     Engine engine;
     Model model { engine };
@@ -42,7 +44,7 @@ public:
 
     // this computer's settings (Application Support/ARCO/setup.json)
     void saveSetup();
-    void loadSetup();
+    void loadSetup(bool openDevice = true);
     std::atomic<bool> engineRestarted { false };
 
     // AudioIODeviceCallback

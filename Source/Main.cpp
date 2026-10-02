@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "App/AudioHost.h"
 #include "UI/MainView.h"
+#include "App/SelfTest.h"
 
 class ARCOApplication : public juce::JUCEApplication {
 public:
@@ -11,8 +12,16 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        host = std::make_unique<arco::AudioHost>();
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest");
+        host = std::make_unique<arco::AudioHost>(!test);
         if (cmd.contains("--screenshot")) { screenshot(cmd); return; }
+        if (cmd.contains("--selftest")) {
+            auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("ARCO selftest");
+            dir.createDirectory();
+            int f = arco::runSelfTest(*host, dir);
+            setApplicationReturnValue(f == 0 ? 0 : 1);
+            quit(); return;
+        }
         window = std::make_unique<MainWindow>(*host);
     }
     void shutdown() override { window = nullptr; host = nullptr; }

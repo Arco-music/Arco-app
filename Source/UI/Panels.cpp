@@ -46,7 +46,7 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     juce::StringArray pairs { "3-4", "5-6", "7-8", "9-10", "11-12", "13-14", "15-16", "17-18", "19-20", "21-22", "23-24", "25-26", "27-28", "29-30", "31-32", "1-2 (same as speakers)" };
     phones.addItemList(pairs, 1);
     phones.setSelectedItemIndex(h.phonesPair, juce::dontSendNotification);
-    phones.onChange = [this] { cv.host.phonesPair = phones.getSelectedItemIndex(); cv.host.applyRouting(); };
+    phones.onChange = [this] { cv.host.phonesPair = phones.getSelectedItemIndex(); cv.host.applyRouting(); repaint(); };
     phones.setBounds(box.getX() + 680, box.getY() + 102, 180, 24);
     const char* PH[5][2] = { { "ph_vol", "VOLUME" }, { "ph_main", "MAIN MIX" }, { "ph_cue", "CUE" }, { "ph_click", "CLICK" }, { "ph_pvw", "PREVIEW" } };
     for (int i = 0; i < 5; ++i) {
@@ -102,6 +102,7 @@ void SetupPanel::paint(juce::Graphics& g) {
     L("LIVE 1 is the one LISTEN, TUNE, HALO and SHADOW follow.", 24, 600, 500, 8.0f, Theme::sub());
     head("HEADPHONES", "the click, CUE and PREVIEW are only here; the main mix too, as much as you want", 600, 58, 520);
     L("OUTPUTS", 600, 104, 80, 8.5f, Theme::txt(), 2);
+    if (cv.host.phonesShared) L(U("only 2 outputs: the click and CUE play from 1-2 too"), 870, 101, 250, 8.0f, Theme::amber());
     const char* PH[5] = { "VOLUME", "MAIN MIX", "CUE", "CLICK", "PREVIEW" };
     for (int i = 0; i < 5; ++i) lab(g, PH[i], { X + 586 + i * 74, Y + 180, 64, 14 }, 7.5f, Theme::sub(), 0, juce::Justification::centred);
     L("the click also goes to the speakers", 630, 207, 300, 8.5f, Theme::txt());

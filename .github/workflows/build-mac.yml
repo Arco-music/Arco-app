@@ -28,7 +28,12 @@ jobs:
           codesign --verify --deep --strict "$APP"
           lipo -info "$APP/Contents/MacOS/ARCO"
           mkdir -p dist && ditto -c -k --keepParent "$APP" dist/ARCO-mac.zip
-      - name: Smoke test (starts and draws itself)
+      - name: Self-test (records, loops, scenes, save/open, import, show recording, all effects)
+        run: |
+          APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
+          "$APP/Contents/MacOS/ARCO" --selftest | tee dist/selftest.txt
+          grep -q " 0 failed" dist/selftest.txt
+      - name: Screenshot
         run: |
           APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
           "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screenshot.png" || true

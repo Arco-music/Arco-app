@@ -3,12 +3,12 @@
 
 namespace arco {
 
-AudioHost::AudioHost() {
+AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     formats.registerBasicFormats();
     writerThread.startThread();
     engine.prepare(48000.0);
     model.sendAll();
-    loadSetup();
+    loadSetup(openDevice);
     engine.recorder = [this](const float* l, const float* r, int n) {
         const juce::ScopedTryLock sl(recLock);
         if (sl.isLocked() && threaded != nullptr) { const float* ch[2] = { l, r }; threaded->write(ch, n); recSamples += n; }
@@ -16,7 +16,7 @@ AudioHost::AudioHost() {
 }
 
 AudioHost::~AudioHost() {
-    saveSetup();
+    if (live) saveSetup();
     stopRecording();
     devices.removeAudioCallback(this);
     devices.closeAudioDevice();
@@ -33,12 +33,13 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
         lastRate = r;
         engine.prepare(r);
         engineRestarted = true;
-        triggerAsyncUpdate();
     }
+    triggerAsyncUpdate();                    // every (re)start: the inputs / outputs may be different now
 }
 
 void AudioHost::handleAsyncUpdate() {
-    if (engineRestarted.exchange(false)) { model.sendAll(); applyRouting(); applySpeakers(); setSynthInto(synthInto); }
+    if (engineRestarted.exchange(false)) { model.sendAll(); applySpeakers(); setSynthInto(synthInto); }
+    applyRouting();
 }
 
 void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n,
@@ -61,14 +62,22 @@ void AudioHost::applyRouting() {
         if (j < nLive && setup.inputChannels[ch]) { rank = 0; for (int c = 0; c < ch; ++c) if (setup.inputChannels[c]) ++rank; }
         engine.inputChannel[j].store(rank);
     }
-    engine.phonesFirst.store(phonesPair >= 15 ? 0 : 2 + 2 * phonesPair);
+    int pf = phonesPair >= 15 ? 0 : 2 + 2 * phonesPair;
+    int nOut = setup.outputChannels.countNumberOfSetBits();
+    phonesShared = devices.getCurrentAudioDevice() != nullptr && pf + 1 >= nOut;
+    if (phonesShared) pf = 0;                 // a laptop / 2-output card: headphones = outputs 1-2
+    engine.phonesFirst.store(pf);
 }
 
 void AudioHost::applySpeakers() {
     int n = (int) model.get("spk_n");
     for (int i = 0; i < 32; ++i) {
         double a = 0;
-        if (speakerLayout == 0) a = ((i + 0.5) / n - 0.5) * (n > 2 ? 360.0 : 120.0);
+        // ring: speaker 1 front-left, then clockwise (2 = front-right ...), the usual numbering for 4 / 6 / 8 rings
+        if (speakerLayout == 0) {
+            if (n <= 2) a = i == 0 ? -30.0 : 30.0;
+            else { a = -180.0 / n + i * 360.0 / n; if (a > 180.0) a -= 360.0; }
+        }
         else a = -60.0 + i * 120.0 / juce::jmax(1, n - 1);
         engine.set("st_room", "spk_a" + std::to_string(i), a);
         engine.set("st_room", "spk_d" + std::to_string(i), 100);
@@ -206,7 +215,7 @@ void AudioHost::saveSetup() {
     f.replaceWithText(juce::JSON::toString(juce::var(o)));
 }
 
-void AudioHost::loadSetup() {
+void AudioHost::loadSetup(bool openDevice) {
     auto v = juce::JSON::parse(setupFile());
     std::unique_ptr<juce::XmlElement> xml;
     if (v.isObject()) {
@@ -219,8 +228,10 @@ void AudioHost::loadSetup() {
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
         if (v["audio"].isString()) xml = juce::parseXML(v["audio"].toString());
     }
-    devices.initialise(4, 34, xml.get(), true);
-    devices.addAudioCallback(this);
+    if (openDevice) {
+        devices.initialise(4, 34, xml.get(), true);
+        devices.addAudioCallback(this);
+    }
     applyRouting(); applySpeakers();
 }
 
