@@ -80,6 +80,14 @@ jobs:
           sleep 2
           cat dist/selftest-ipad.txt | tail -5
           grep -q " 0 failed" dist/selftest-ipad.txt
+      - name: Pack ARCO.ipa (for Sideloadly - it signs it with your Apple ID)
+        run: |
+          mkdir -p ipa/Payload dist
+          cp -R Builds/iOS/out/device/ARCO.app ipa/Payload/
+          file ipa/Payload/ARCO.app/ARCO
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ipa/Payload/ARCO.app/Info.plist
+          cd ipa && zip -qry ../dist/ARCO.ipa Payload && cd ..
+          unzip -l dist/ARCO.ipa | tail -1
       - name: Pack the Xcode project for your Mac
         run: |
           mkdir -p pkg/ARCO-iPad dist
@@ -108,5 +116,5 @@ jobs:
           V=$(cat VERSION)
           TAG="v$V-b${{ github.run_number }}"
           git log -1 --pretty=%B > notes.txt
-          gh release create "$TAG" out/ARCO-mac/ARCO-mac.zip out/ARCO-ipad/ARCO-iPad-Xcode.zip \
+          gh release create "$TAG" out/ARCO-mac/ARCO-mac.zip out/ARCO-ipad/ARCO.ipa out/ARCO-ipad/ARCO-iPad-Xcode.zip \
             --title "ARCO $V (build ${{ github.run_number }})" --notes-file notes.txt --latest

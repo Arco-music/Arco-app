@@ -1,0 +1,7 @@
+ARCO ON THE iPAD WITH SIDELOADLY (free, no Xcode)
+1. On the Mac: download Sideloadly from sideloadly.io and install it.
+2. Plug the iPad in with a cable, unlock it, tap Trust.
+3. Open Sideloadly. Drag ARCO.ipa into it. Choose your iPad, type your Apple ID, press Start.
+4. iPad: Settings > General > VPN & Device Management > your Apple ID > Trust.
+   iPad (iOS 16+): Settings > Privacy & Security > Developer Mode > On (the iPad restarts).
+5. Open ARCO. Works 7 days; Sideloadly can renew it (or do step 3 again).
