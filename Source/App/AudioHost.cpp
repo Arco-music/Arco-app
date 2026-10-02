@@ -4,6 +4,9 @@
 namespace arco {
 
 AudioHost::AudioHost(bool openDevice) : live(openDevice) {
+    keys.addListener(this);
+    synth.setParamSource([this](const char* n) { return model.get(n); });
+    synth.onFirstNote = [this] { if (synthInto == 0) { setSynthInto(1); status = U("the SYNTH plays into LIVE 2"); } };
     formats.registerBasicFormats();
     writerThread.startThread();
     engine.prepare(48000.0);
@@ -84,15 +87,32 @@ juce::String AudioHost::pedalText(const Pedal& p) {
     return "-";
 }
 
+bool AudioHost::isPedalCC(int cc, int ch) const {
+    for (auto& p : pedal) if (p.type == 2 && p.num == cc && p.ch == ch) return true;
+    return false;
+}
+
 void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) {
     int type = 0, num = 0, ch = m.getChannel();
     if (m.isNoteOn()) { type = 1; num = m.getNoteNumber(); }
+    else if (m.isController() && (m.getControllerNumber() == 1 || m.getControllerNumber() == 64) && !isPedalCC(m.getControllerNumber(), ch)) {
+        int c = m.getControllerNumber(), v = m.getControllerValue();
+        if (c == 1) juce::MessageManager::callAsync([this, v] { model.set("l_pitch", v / 127.0 * 60.0); });   // mod wheel = vibrato
+        else juce::MessageManager::callAsync([this, v] { synth.setSustain(v >= 64); });                       // sustain pedal
+        if (learning.load() < 0) return;
+        if (v < 64) return;
+        type = 2; num = c;
+    }
     else if (m.isController()) {
         int c = m.getControllerNumber(), v = m.getControllerValue(), was = ccLast[(ch - 1) & 15][c & 127];
         ccLast[(ch - 1) & 15][c & 127] = v;
         if (v >= 64 && was < 64) { type = 2; num = c; }      // a footswitch going down
     }
-    if (type == 0) return;
+    if (type == 0) {
+        if (m.isNoteOff()) { int n = m.getNoteNumber(), c = ch; juce::MessageManager::callAsync([this, n, c] { keys.noteOff(c, n, 0.0f); }); }
+        else if (m.isPitchWheel()) { float b = (m.getPitchWheelValue() - 8192) / 8192.0f * 2.0f; juce::MessageManager::callAsync([this, b] { synth.pitchBend(b); }); }
+        return;
+    }
     int l = learning.load();
     if (l >= 0) {
         learning.store(-1);
@@ -100,8 +120,19 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
         return;
     }
     for (int a = 0; a < NumActions; ++a)
-        if (pedal[a].type == type && pedal[a].num == num && pedal[a].ch == ch)
+        if (pedal[a].type == type && pedal[a].num == num && pedal[a].ch == ch) {
             juce::MessageManager::callAsync([this, a] { doAction(a); });
+            return;                                   // a pedal, not a note
+        }
+    if (type == 1) { int n = num; float v = m.getFloatVelocity(); juce::MessageManager::callAsync([this, ch, n, v] { keys.noteOn(ch, n, v); }); }
+}
+
+void AudioHost::recordSynthOn(int track) {
+    if (track < 1 || track > 8) return;
+    if (synthInto == 0) setSynthInto(1);
+    model.set("src" + std::to_string(track), synthInto + 1);   // that track listens to the LIVE input the synth plays into
+    model.press("st_looper", "rec" + std::to_string(track));
+    status = "TRACK " + juce::String(track) + U(" records the SYNTH");
 }
 
 void AudioHost::scanMidi() {                     // every MIDI keyboard / pedal that is plugged in is listened to

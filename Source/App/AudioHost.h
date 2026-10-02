@@ -5,10 +5,11 @@
 #include "../Engine/Engine.h"
 #include "../Model/Model.h"
 #include "PhoneLink.h"
+#include "SynthPlayer.h"
 
 namespace arco {
 
-class AudioHost : public juce::AudioIODeviceCallback, public juce::MidiInputCallback, private juce::AsyncUpdater {
+class AudioHost : public juce::AudioIODeviceCallback, public juce::MidiInputCallback, private juce::MidiKeyboardState::Listener, private juce::AsyncUpdater {
 public:
     explicit AudioHost(bool openDevice = true);   // false: tests / screenshots (no sound card, settings not saved)
     bool live = true;
@@ -42,6 +43,13 @@ public:
     juce::String phoneWifi;                  // last Wi-Fi address typed
     void setPhoneLive(int v) { phoneLive = v; engine.phoneLive.store(v); }
 
+    // the SYNTH: one keyboard state for the on-screen keys, the computer keys and MIDI keyboards
+    juce::MidiKeyboardState keys;
+    SynthPlayer synth { engine };
+    void recordSynthOn(int track);            // REC on that track, listening to the synth
+    void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override { synth.noteOn(note, vel); }
+    void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override { synth.noteOff(note); }
+
     // pedals / keys: REC, PLAY/STOP, UNDO, NEXT SCENE
     enum Action { ActRec = 0, ActPlay, ActUndo, ActScene, NumActions };
     struct Pedal { int type = 0, num = 0, ch = 0; };   // type 0 none, 1 note, 2 controller
@@ -51,6 +59,7 @@ public:
     static juce::String pedalText(const Pedal& p);
     std::function<void(int)> onAction;       // the interface flashes what happened
     void scanMidi();
+    bool isPedalCC(int cc, int ch) const;
 
     // status shown in the song line
     juce::String status;

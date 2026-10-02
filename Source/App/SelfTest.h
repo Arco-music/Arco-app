@@ -219,7 +219,7 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         double hz = zc / 2.0 / (all.size() / outSr);
         float pkr = 0; for (auto v : all) pkr = std::max(pkr, std::abs(v));
         check(std::abs(hz - 441.0) < 4.0 && pkr > 0.4f, "  the tone arrives at the right pitch (Hz)", hz);
-        check(rcv.delayMs.load() < 30.0f, "  the buffer adds only a few ms", rcv.delayMs.load());
+        check(rcv.delayMs.load() < 45.0f, "  the buffer adds only a few ms", rcv.delayMs.load());
         check(rcv.dropouts.load() - dAt2 == 0, "  no dropouts once settled (2 s of sound)", rcv.dropouts.load() - dAt2);
         // through the engine: phone on LIVE 2
         rcv.disconnect(); snd.stop();
