@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "Widgets.h"
+#include "../App/Updater.h"
 
 namespace arco {
 class Canvas;
@@ -49,6 +50,10 @@ private:
     std::unique_ptr<ArcoLaf> laf;
     juce::ComboBox phones;
     juce::TextEditor wifi;
+    Updater updater;
+    juce::String updateText;
+    void askKey(const juce::String& why);
+    void startUpdateCheck();
     template <typename T, typename... A> T* add(juce::Rectangle<int> r, A&&... a) {
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY())); return c; }
     void styleLaf();

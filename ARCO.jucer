@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.1.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
+  <MAINGROUP id="grp000" name="ARCO">
+    <GROUP id="f31bbd" name="Source">
+      <FILE id="9354fc" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
+    </GROUP>
+    <GROUP id="ff8b2d" name="Source/App">
+      <FILE id="695a15" name="AudioHost.cpp" compile="1" resource="0" file="Source/App/AudioHost.cpp"/>
+      <FILE id="7e3b9f" name="AudioHost.h" compile="0" resource="0" file="Source/App/AudioHost.h"/>
+      <FILE id="b6eccb" name="IOSAudio.mm" compile="1" resource="0" file="Source/App/IOSAudio.mm"/>
+      <FILE id="71bae1" name="PhoneLink.cpp" compile="1" resource="0" file="Source/App/PhoneLink.cpp"/>
+      <FILE id="1a2702" name="PhoneLink.h" compile="0" resource="0" file="Source/App/PhoneLink.h"/>
+      <FILE id="8637f6" name="SelfTest.h" compile="0" resource="0" file="Source/App/SelfTest.h"/>
+      <FILE id="efd528" name="SynthPlayer.h" compile="0" resource="0" file="Source/App/SynthPlayer.h"/>
+      <FILE id="ada1db" name="Updater.h" compile="0" resource="0" file="Source/App/Updater.h"/>
+    </GROUP>
+    <GROUP id="d5ffc8" name="Source/Engine">
+      <FILE id="b1f2ac" name="Engine.cpp" compile="1" resource="0" file="Source/Engine/Engine.cpp"/>
+      <FILE id="9c9ffa" name="Engine.h" compile="0" resource="0" file="Source/Engine/Engine.h"/>
+      <FILE id="d58f3e" name="GenModules.h" compile="0" resource="0" file="Source/Engine/GenModules.h"/>
+    </GROUP>
+    <GROUP id="22188a" name="Source/Model">
+      <FILE id="1172ae" name="Model.cpp" compile="1" resource="0" file="Source/Model/Model.cpp"/>
+      <FILE id="1e1766" name="Model.h" compile="0" resource="0" file="Source/Model/Model.h"/>
+      <FILE id="bf3112" name="ParamTable.h" compile="0" resource="0" file="Source/Model/ParamTable.h"/>
+    </GROUP>
+    <GROUP id="315107" name="Source/UI">
+      <FILE id="b065e3" name="MainView.cpp" compile="1" resource="0" file="Source/UI/MainView.cpp"/>
+      <FILE id="b2f4ea" name="MainView.h" compile="0" resource="0" file="Source/UI/MainView.h"/>
+      <FILE id="cd9818" name="MicView.h" compile="0" resource="0" file="Source/UI/MicView.h"/>
+      <FILE id="db7993" name="Panels.cpp" compile="1" resource="0" file="Source/UI/Panels.cpp"/>
+      <FILE id="ac74cc" name="Panels.h" compile="0" resource="0" file="Source/UI/Panels.h"/>
+      <FILE id="dc0181" name="SynthPanel.cpp" compile="1" resource="0" file="Source/UI/SynthPanel.cpp"/>
+      <FILE id="21e659" name="SynthPanel.h" compile="0" resource="0" file="Source/UI/SynthPanel.h"/>
+      <FILE id="4544e2" name="Theme.h" compile="0" resource="0" file="Source/UI/Theme.h"/>
+      <FILE id="2e370f" name="Widgets.h" compile="0" resource="0" file="Source/UI/Widgets.h"/>
+    </GROUP>
+    <GROUP id="grpres" name="Resources">
+      <FILE id="1c89cd" name="Inter-Regular.otf" compile="0" resource="1" file="Resources/Inter-Regular.otf"/>
+      <FILE id="789d6b" name="Inter-SemiBold.otf" compile="0" resource="1" file="Resources/Inter-SemiBold.otf"/>
+      <FILE id="b1f9ef" name="Inter-Bold.otf" compile="0" resource="1" file="Resources/Inter-Bold.otf"/>
+      <FILE id="icnios" name="icon-ios.png" compile="0" resource="0" file="Resources/icon-ios.png"/>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1"/>
+  <EXPORTFORMATS>
+    <XCODE_IPHONE targetFolder="Builds/iOS" iosDeviceFamily="1,2" bigIcon="icnios" smallIcon="icnios" iPhoneScreenOrientation="UIInterfaceOrientationPortrait,UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" iPadScreenOrientation="UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" microphonePermissionNeeded="1" microphonePermissionsText="ARCO uses the microphone (or your audio interface) to record your instrument." iosBackgroundAudio="1" UIFileSharingEnabled="1" UISupportsDocumentBrowser="1" UIStatusBarHidden="1" customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;NSLocalNetworkUsageDescription&lt;/key&gt;&lt;string&gt;ARCO sends this microphone to ARCO on your Mac over Wi-Fi.&lt;/string&gt;&lt;key&gt;LSSupportsOpeningDocumentsInPlace&lt;/key&gt;&lt;true/&gt;&lt;key&gt;UIRequiresFullScreen&lt;/key&gt;&lt;true/&gt;&lt;/dict&gt;&lt;/plist&gt;" extraCompilerFlags="-Wno-unused-variable -Wno-unused-parameter">
+      <CONFIGURATIONS>
+        <CONFIGURATION name="Debug" isDebug="0" iosDeploymentTarget="15.0" optimisation="3" fastMath="1" targetName="ARCO"/>
+        <CONFIGURATION name="Release" isDebug="0" iosDeploymentTarget="15.0" optimisation="3" fastMath="1" targetName="ARCO"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+      </MODULEPATHS>
+    </XCODE_IPHONE>
+  </EXPORTFORMATS>
+</JUCERPROJECT>

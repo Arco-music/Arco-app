@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "Widgets.h"
 #include "../App/AudioHost.h"
+#include "MicView.h"
 
 namespace arco {
 
@@ -23,8 +24,12 @@ public:
     float snap(const char* n) { return engine().snap(n).v.load(); }
     void openSetup(bool show);
     void openSynth(bool show);
+    void openMic(bool show);
     bool keyPressed(const juce::KeyPress& k) override;
     void doSave(bool askName);
+    void doOpen();
+    void doRecShow();
+    static juce::File songsDir();
     juce::String flash; double flashUntil = 0;     // a short word after a pedal / key (REC, PLAY ...)
     void showMessage(const juce::String& s) { host.status = s; }
     int pvw = 0;
@@ -52,15 +57,26 @@ private:
 
 class MainComponent : public juce::Component {
 public:
-    explicit MainComponent(AudioHost& h) : canvas(h) { addAndMakeVisible(canvas); setSize(1440, 880); }
+    explicit MainComponent(AudioHost& h) : canvas(h), mic(h) {
+        addAndMakeVisible(canvas); addChildComponent(mic);
+        mic.onBack = [this] { showMic(false); };
+        setSize(1440, 880);
+    }
     void paint(juce::Graphics& g) override { g.fillAll(Theme::bg()); }
     void resized() override {
-        float s = juce::jmin(getWidth() / 1440.0f, getHeight() / 880.0f);
+        auto area = getLocalBounds();
+       #if JUCE_IOS
+        if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) area = d->safeAreaInsets.subtractedFrom(area);   // notch, home bar
+       #endif
+        float s = juce::jmin(area.getWidth() / 1440.0f, area.getHeight() / 880.0f);
         canvas.setBounds(0, 0, 1440, 880);
-        float dx = (getWidth() - 1440 * s) * 0.5f, dy = (getHeight() - 880 * s) * 0.5f;
+        float dx = area.getX() + (area.getWidth() - 1440 * s) * 0.5f, dy = area.getY() + (area.getHeight() - 880 * s) * 0.5f;
         canvas.setTransform(juce::AffineTransform::scale(s).translated(dx, dy));
+        mic.setBounds(area);
     }
+    void showMic(bool on) { mic.setVisible(on); if (!on) mic.setSending(false); else mic.toFront(false); }
     Canvas canvas;
+    MicView mic;
 };
 
 } // namespace arco

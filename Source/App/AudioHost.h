@@ -100,6 +100,7 @@ private:
     juce::CriticalSection recLock;
     std::atomic<juce::int64> recSamples { 0 };
     double lastRate = 0;
+    juce::AudioIODevice* rawDone = nullptr;
     std::vector<float> phoneBuf;
     int ccLast[16][128] = {};
     juce::File setupFile() const;

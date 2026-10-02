@@ -19,6 +19,9 @@ public:
             auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("ARCO selftest");
             dir.createDirectory();
             int f = arco::runSelfTest(*host, dir);
+           #if JUCE_IOS
+            std::fflush(stdout); std::exit(f == 0 ? 0 : 1);
+           #endif
             setApplicationReturnValue(f == 0 ? 0 : 1);
             quit(); return;
         }
@@ -62,6 +65,15 @@ public:
     public:
         explicit MainWindow(arco::AudioHost& h) : DocumentWindow("ARCO", arco::Theme::bg(), DocumentWindow::allButtons) {
             setUsingNativeTitleBar(true);
+           #if JUCE_IOS || JUCE_ANDROID
+            auto* mc = new arco::MainComponent(h);
+            setContentOwned(mc, false);
+            setFullScreen(true);
+            setVisible(true);
+            // an iPhone is mostly a microphone for the Mac: it opens on MIC FOR MAC (the station is one tap away)
+            if (juce::SystemStats::getDeviceDescription().containsIgnoreCase("iPhone")) { mc->mic.backText = "OPEN THE STATION"; mc->showMic(true); }
+            return;
+           #endif
             setContentOwned(new arco::MainComponent(h), true);
             setResizable(true, true);
             setResizeLimits(960, 587, 4000, 2445);

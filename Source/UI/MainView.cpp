@@ -277,11 +277,58 @@ Canvas::Canvas(AudioHost& h) : host(h) {
 Canvas::~Canvas() { stopTimer(); host.onAction = nullptr; }
 
 void Canvas::chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs) {
+   #if JUCE_IOS
+    // iPad / iPhone: songs and recordings live in ARCO's folder (Files app → On My iPad → ARCO); the picker only imports audio files
+    juce::ignoreUnused(save, dirs);
+    chooser = std::make_unique<juce::FileChooser>(title, juce::File(), pattern);
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [done](const juce::FileChooser& fc) {
+        auto url = fc.getURLResult();
+        if (url.isEmpty()) return;
+        auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile(url.getFileName());
+        tmp.deleteFile();
+        if (auto in = url.createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress))) {
+            juce::FileOutputStream os(tmp);
+            if (os.openedOk()) { os.writeFromInputStream(*in, -1); os.flush(); }
+        }
+        if (tmp.existsAsFile()) done(tmp); });
+   #else
     chooser = std::make_unique<juce::FileChooser>(title, juce::File::getSpecialLocation(juce::File::userMusicDirectory), pattern);
     int flags = save ? (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting) : juce::FileBrowserComponent::openMode;
     flags |= dirs ? juce::FileBrowserComponent::canSelectDirectories : juce::FileBrowserComponent::canSelectFiles;
     if (dirs && !save) flags |= juce::FileBrowserComponent::canSelectFiles;
     chooser->launchAsync(flags, [done](const juce::FileChooser& fc) { auto f = fc.getResult(); if (f != juce::File()) done(f); });
+   #endif
+}
+
+juce::File Canvas::songsDir() {
+   #if JUCE_IOS
+    auto d = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("ARCO Songs");
+   #else
+    auto d = juce::File::getSpecialLocation(juce::File::userMusicDirectory).getChildFile("ARCO Songs");
+   #endif
+    d.createDirectory(); return d;
+}
+
+void Canvas::doOpen() {
+   #if JUCE_IOS
+    juce::PopupMenu pm; juce::Array<juce::File> songs;
+    for (auto& f : songsDir().findChildFiles(juce::File::findDirectories, false)) if (!f.findChildFiles(juce::File::findFiles, false, "*-settings.json").isEmpty()) songs.add(f);
+    if (songs.isEmpty()) { showMessage("no songs saved yet"); return; }
+    for (int i = 0; i < songs.size(); ++i) pm.addItem(i + 1, songs[i].getFileName());
+    pm.showMenuAsync(juce::PopupMenu::Options(), [this, songs](int r) { if (r > 0) host.openSong(songs[r - 1]); });
+   #else
+    chooseFile("Open a song (its folder, or its -settings.json)", "*-settings.json", false, [this](juce::File f) { host.openSong(f); }, true);
+   #endif
+}
+
+void Canvas::doRecShow() {
+    if (host.isRecording()) { host.stopRecording(); return; }
+   #if JUCE_IOS
+    auto d = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("ARCO Recordings"); d.createDirectory();
+    host.startRecording(d.getChildFile("show " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M") + ".wav"));
+   #else
+    chooseFile("Record the show to", "*.wav", true, [this](juce::File f) { host.startRecording(f.withFileExtension("wav")); });
+   #endif
 }
 
 void Canvas::buildTopBar() {
@@ -322,13 +369,11 @@ void Canvas::buildTopBar() {
     auto* as = add<Pill>({ 1012, 13, 18, 20 }, U("AS…"), [] { return Theme::c(Theme::rgb(0.20f, 0.36f, 0.60f)); }, 6.0f, 6.0f);
     as->onClick = saveAs;
     auto* open = add<Pill>({ 978, 36, 52, 20 }, "OPEN", [] { return Theme::btn(); }, 8.5f, 6.0f);
-    open->onClick = [this] { chooseFile("Open a song (its folder, or its -settings.json)", "*-settings.json", false, [this](juce::File f) { host.openSong(f); }, true); };
+    open->onClick = [this] { doOpen(); };
     // record the show
     auto* rec = add<Pill>({ 1052, 14, 58, 26 }, U("● REC"), [this] { return host.isRecording() ? Theme::red() : Theme::off(); }, 9.5f, 8.0f);
     rec->dynText = [this] { return host.isRecording() ? juce::String(U("■ STOP")) : juce::String(U("● REC")); };
-    rec->onClick = [this] {
-        if (host.isRecording()) host.stopRecording();
-        else chooseFile("Record the show to", "*.wav", true, [this](juce::File f) { host.startRecording(f.withFileExtension("wav")); }); };
+    rec->onClick = [this] { doRecShow(); };
     // master + glue
     add<Knob>({ 1132, 25, 30, 30 }, [&m] { return m.get("master"); }, [&m](double v) { m.set("master", v); }, 0, 100, 75, [] { return Theme::txt(); });
     add<Knob>({ 1172, 25, 30, 30 }, [&m] { return m.get("glue"); }, [&m](double v) { m.set("glue", v); }, 0, 100, 25, [] { return Theme::amber(); });
@@ -377,12 +422,22 @@ void Canvas::layoutStrips() {
 }
 
 void Canvas::openSetup(bool show) { setup->setVisible(show); if (show) setup->toFront(true); }
+void Canvas::openMic(bool show) { if (auto* mc = findParentComponentOfClass<MainComponent>()) mc->showMic(show); }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
 void Canvas::doSave(bool askName) {
     if (!askName && host.songFolder.isDirectory()) { host.saveSong(host.songFolder); return; }
+   #if JUCE_IOS
+    auto* w = new juce::AlertWindow("Save the song", "Its name:", juce::MessageBoxIconType::NoIcon);
+    w->addTextEditor("name", host.songFolder.isDirectory() ? host.songFolder.getFileName() : juce::String("my song"));
+    w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey)); w->addButton("Cancel", 0);
+    w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
+        auto n = juce::File::createLegalFileName(w->getTextEditorContents("name").trim());
+        if (r == 1 && n.isNotEmpty()) host.saveSong(songsDir().getChildFile(n)); }), true);
+   #else
     chooseFile("Save the song: choose a name (a folder with that name is made)", "*", true,
                [this](juce::File f) { host.saveSong(f.withFileExtension("")); });
+   #endif
 }
 
 // keys and page-turner pedals (they send arrow / page keys): the hands stay on the instrument
@@ -390,7 +445,7 @@ bool Canvas::keyPressed(const juce::KeyPress& k) {
     if (setup->isVisible() || synthWin->isVisible()) return false;
     const auto code = k.getKeyCode(); const bool cmd = k.getModifiers().isCommandDown();
     if (cmd && code == 'S') { doSave(k.getModifiers().isShiftDown()); return true; }
-    if (cmd && code == 'O') { chooseFile("Open a song (its folder, or its -settings.json)", "*-settings.json", false, [this](juce::File f) { host.openSong(f); }, true); return true; }
+    if (cmd && code == 'O') { doOpen(); return true; }
     if (cmd && code == 'Z') { host.doAction(AudioHost::ActUndo); return true; }
     if (cmd) return false;
     if (code == juce::KeyPress::spaceKey || code == juce::KeyPress::downKey) { host.doAction(AudioHost::ActPlay); return true; }

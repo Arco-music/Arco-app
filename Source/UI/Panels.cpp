@@ -92,6 +92,27 @@ void AudioBox::paint(juce::Graphics& g) {
         "Bluetooth headphones have a big delay - fine for listening, not for playing along."), 0, 226, 520, 40, 7.5f, Theme::sub());
 }
 
+void SetupPanel::startUpdateCheck() { updateText = U("looking …"); repaint(); updater.check(); }
+
+void SetupPanel::askKey(const juce::String& why) {
+    auto* w = new juce::AlertWindow("Updates from your GitHub",
+        (why.isNotEmpty() ? why + "\n\n" : juce::String()) +
+        U("ARCO is private, so it needs a key to see new versions. Make it once (2 minutes):\n\n"
+          "1. github.com → your photo → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token\n"
+          "2. Name: ARCO updates · Expiration: 1 year · Repository access: Only select repositories → ARCO\n"
+          "3. Permissions → Repository permissions → Contents: Read-only → Generate token\n"
+          "4. Copy the key (starts with github_pat_) and paste it here.\n\nThe key stays on this Mac. It can only read ARCO."),
+        juce::MessageBoxIconType::NoIcon);
+    w->addTextEditor("key", updater.key(), "GitHub key");
+    w->addButton("Save key", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    w->addButton("Open the download page", 2);
+    w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
+        if (r == 1) { auto k = w->getTextEditorContents("key").trim(); if (k.isNotEmpty()) { updater.setKey(k); startUpdateCheck(); } }
+        if (r == 2) juce::URL(Updater::releasesPage()).launchInDefaultBrowser();
+    }), true);
+}
+
 void SetupPanel::styleLaf() {
     laf = std::make_unique<ArcoLaf>(juce::LookAndFeel_V4::ColourScheme(
         Theme::card(), Theme::card(), Theme::card2(), Theme::line(), Theme::txt(), Theme::btn(), juce::Colours::white, Theme::sel(), Theme::txt()));
@@ -115,6 +136,25 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     audio = std::make_unique<AudioBox>(cv, laf.get());
     addAndMakeVisible(*audio);
     audio->setBounds(box.getX() + 24, box.getY() + 98, 520, 300);
+   #if ! JUCE_IOS
+    auto* up = add<Pill>({ 1140 - 220, 16, 108, 26 }, U("⟳ UPDATE"), [] { return Theme::c(Theme::rgb(0.20f, 0.36f, 0.60f)); }, 8.5f, 7.0f);
+    up->onClick = [this] { if (updater.key().isEmpty()) askKey({}); else startUpdateCheck(); };
+    updater.onProgress = [this](const juce::String& m) { updateText = m; repaint(); };
+    updater.onChecked = [this](const juce::String& m, int b, const juce::String& notes) {
+        if (m == "no key") { askKey({}); return; }
+        if (m == "up to date") { updateText = U("✓ you have the newest ARCO"); repaint(); return; }
+        if (m == "new") {
+            updateText = "build " + juce::String(b) + " is ready";
+            auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::InfoIcon).withTitle("A new ARCO is ready")
+                .withMessage("Build " + juce::String(b) + " (you have " + juce::String(Updater::build()) + ").\n\n" + notes.substring(0, 600)
+                             + "\n\nInstall now? ARCO restarts by itself. Save your song first if you want to keep the loops.")
+                .withButton("Install").withButton("Later");
+            juce::AlertWindow::showAsync(opts, [this](int r) { if (r == 1) { updateText = U("downloading …"); updater.install(); } });
+            repaint(); return; }
+        updateText = m; repaint();
+        if (m.contains("key")) askKey(m);
+    };
+   #endif
     auto* close = add<Pill>({ 1140 - 104, 16, 88, 26 }, U("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
     close->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); };
     // ---- live inputs
@@ -158,7 +198,14 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     // ---- iPhone / iPad as a microphone
     const char* PM[3] = { "OFF", U("CABLE (USB)").toRawUTF8(), "WI-FI" };
     juce::String pmn[3] = { "OFF", "CABLE (USB)", "WI-FI" };
+   #if JUCE_IOS
+    auto* mfm = add<Pill>({ 300, 736, 260, 24 }, U("USE THIS DEVICE AS A MIC FOR A MAC ▸"), [] { return Theme::violet(); }, 7.5f, 6.0f);
+    mfm->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); cv.openMic(true); };
+   #endif
     for (int i = 0; i < 3; ++i) {
+       #if JUCE_IOS
+        if (i == 1) continue;                       // the cable link is for a Mac
+       #endif
         auto* p = add<Pill>({ 24 + i * 96, 684, 90, 24 }, pmn[i], [&h, i] { return (int) h.phone.mode() == i ? (i == 0 ? Theme::sel() : Theme::green()) : Theme::btn(); }, 8.0f, 6.0f);
         p->onClick = [this, &h, i] {
             if (i == 0) { h.phone.disconnect(); h.setPhoneLive(0); }
@@ -207,7 +254,9 @@ void SetupPanel::paint(juce::Graphics& g) {
         g.setColour(Theme::card2()); g.fillRect(X + x - 8, Y + y - 10, w, 2);
         L(t, x, y, w, 11.0f, Theme::txt(), 2); L(s, x, y + 18, w - 20, 8.0f, Theme::sub()); };
     L("SETUP", 24, 14, 200, 17.0f, Theme::txt(), 2);
-    L("audio, inputs, headphones, speakers - changes act at once; this computer remembers them", 130, 22, 700, 9.0f, Theme::sub());
+    L("ARCO " + juce::String(ProjectInfo::versionString) + (Updater::build() > 0 ? U(" · build ") + juce::String(Updater::build()) : juce::String()), 720, 6, 192, 7.5f, Theme::sub(), 0);
+    if (updateText.isNotEmpty()) L(updateText, 720, 26, 192, 7.5f, Theme::amber(), 1);
+    L("audio, inputs, headphones, speakers - changes act at once; this computer remembers them", 130, 22, 580, 9.0f, Theme::sub());
     head("AUDIO", "your sound card: where the sound goes, where it comes from", 24, 58, 540);
     head("LIVE INPUTS", "how many instruments / microphones, and on which input of your sound card", 24, 440, 540);
     L("LIVE INPUTS", 24, 484, 110, 8.5f, Theme::txt(), 2);
@@ -241,7 +290,11 @@ void SetupPanel::paint(juce::Graphics& g) {
         float lv = juce::jmin(1.0f, ph.level.load() * 2.0f);
         g.setColour(Theme::card2()); g.fillRoundedRectangle((float) (X + 470), (float) (Y + 720), 90.0f, 10.0f, 3.0f);
         g.setColour(Theme::green()); g.fillRoundedRectangle((float) (X + 470), (float) (Y + 720), 90.0f * lv, 10.0f, 3.0f);
+       #if JUCE_IOS
+        L(U("Another iPhone can send its microphone here over Wi-Fi."), 24, 740, 270, 7.5f, Theme::sub());
+       #else
         L(U("Cable: the best sound and the smallest delay (about 10-15 ms). The phone's microphone is used raw - no voice filters."), 24, 740, 540, 7.5f, Theme::sub());
+       #endif
     }
     head(U("PEDALS & KEYS"), U("keep your hands on the instrument"), 600, 640, 520);
     const char* AN[4] = { "REC", "PLAY / STOP", "UNDO", "NEXT SCENE" };

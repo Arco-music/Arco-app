@@ -1,9 +1,11 @@
-name: Build ARCO for Mac
+name: Build ARCO
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   mac:
@@ -13,7 +15,7 @@ jobs:
       - name: Get JUCE 8.0.4
         run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
       - name: Configure
-        run: cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+        run: cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DARCO_BUILD=${{ github.run_number }}
       - name: Build
         run: cmake --build build --target ARCO -j 4
       - name: Sign (ad-hoc) and pack
@@ -28,17 +30,82 @@ jobs:
           codesign --verify --deep --strict "$APP"
           lipo -info "$APP/Contents/MacOS/ARCO"
           mkdir -p dist && ditto -c -k --keepParent "$APP" dist/ARCO-mac.zip
-      - name: Self-test (records, loops, scenes, save/open, import, show recording, all effects)
+      - name: Self-test (Mac)
         run: |
           APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
-          "$APP/Contents/MacOS/ARCO" --selftest | tee dist/selftest.txt
-          grep -q " 0 failed" dist/selftest.txt
-      - name: Screenshot
+          "$APP/Contents/MacOS/ARCO" --selftest | tee dist/selftest-mac.txt
+          grep -q " 0 failed" dist/selftest-mac.txt
+      - name: Screenshots
         run: |
           APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
-          "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screenshot.png" || true
-          ls -la dist
+          "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screen-main.png" || true
+          "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screen-synth.png" synth || true
       - uses: actions/upload-artifact@v4
         with:
           name: ARCO-mac
           path: dist/
+
+  ipad:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+      - name: Build for iPad / iPhone (unsigned - your Mac signs it with your Apple ID)
+        run: |
+          cd Builds/iOS
+          xcodebuild -project ARCO.xcodeproj -target "ARCO - App" -configuration Release -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -quiet build
+          ls -la build/Release-iphoneos/ARCO.app | head -5
+      - name: Build for the iPad simulator
+        run: |
+          cd Builds/iOS
+          xcodebuild -project ARCO.xcodeproj -target "ARCO - App" -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO -quiet build
+      - name: Self-test on an iPad (simulator)
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          ids=[x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPad' in x['name']]
+          print(ids[-1] if ids else '')")
+          echo "iPad simulator: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" Builds/iOS/build/Release-iphonesimulator/ARCO.app
+          mkdir -p dist
+          ( xcrun simctl launch --console-pty "$UDID" com.pacello.arco --selftest 2>&1 | tee dist/selftest-ipad.txt ) &
+          for i in $(seq 1 120); do sleep 2; grep -q "checks," dist/selftest-ipad.txt 2>/dev/null && break; done
+          sleep 2
+          cat dist/selftest-ipad.txt | tail -5
+          grep -q " 0 failed" dist/selftest-ipad.txt
+      - name: Pack the Xcode project for your Mac
+        run: |
+          mkdir -p pkg/ARCO-iPad dist
+          cp -R ARCO.jucer Source Resources Builds JuceLibraryCode VERSION pkg/ARCO-iPad/
+          rm -rf pkg/ARCO-iPad/Builds/iOS/build
+          mkdir -p pkg/ARCO-iPad/JUCE && cp -R JUCE/modules JUCE/LICENSE.md pkg/ARCO-iPad/JUCE/
+          cp docs/iPad-install.txt "pkg/ARCO-iPad/HOW TO INSTALL ON THE iPAD.txt"
+          cd pkg && ditto -c -k --keepParent ARCO-iPad ../dist/ARCO-iPad-Xcode.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARCO-ipad
+          path: dist/
+
+  release:
+    needs: [mac, ipad]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Publish the release (private, like the repository)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(cat VERSION)
+          TAG="v$V-b${{ github.run_number }}"
+          git log -1 --pretty=%B > notes.txt
+          gh release create "$TAG" out/ARCO-mac/ARCO-mac.zip out/ARCO-ipad/ARCO-iPad-Xcode.zip \
+            --title "ARCO $V (build ${{ github.run_number }})" --notes-file notes.txt --latest

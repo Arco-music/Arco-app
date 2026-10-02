@@ -1,0 +1,34 @@
+ARCO ON YOUR iPAD (or iPhone) - free, with your Apple ID
+=======================================================
+
+Once (about 20 minutes, mostly waiting for Xcode to download):
+
+1. On the Mac, install Xcode from the Mac App Store (free). Open it once; when it asks which
+   platforms to add, choose iOS.
+2. Xcode menu > Settings > Accounts > "+" > Apple ID > sign in with your Apple ID.
+
+Install ARCO:
+
+3. Unzip ARCO-iPad-Xcode.zip. Open the folder ARCO-iPad > Builds > iOS and double-click ARCO.xcodeproj.
+4. In Xcode, click the blue "ARCO" at the top of the left column, then "ARCO - App" under TARGETS,
+   then the tab "Signing & Capabilities":
+      - tick "Automatically manage signing"
+      - Team: choose your name (Personal Team)
+      - if Xcode complains about the Bundle Identifier, change it to com.yourname.arco
+5. Plug the iPad into the Mac with a cable. Unlock it and tap "Trust".
+   On the iPad: Settings > Privacy & Security > Developer Mode > On (the iPad restarts).
+6. At the top of the Xcode window, choose your iPad as the device, then press the Play button.
+   The first time, the iPad says the developer is not trusted:
+   iPad Settings > General > VPN & Device Management > your Apple ID > Trust. Press Play again.
+7. ARCO opens on the iPad. You can unplug the cable - ARCO works on its own.
+
+Good to know:
+
+- With a free Apple ID, ARCO keeps opening for 7 days. After that, plug the iPad in and press Play
+  in Xcode again (1 minute). Your songs and settings stay.
+- Songs and show recordings are in the Files app: On My iPad > ARCO.
+- A microphone or audio interface: plug it into the iPad (USB-C, or Apple's Lightning to USB 3
+  Camera Adapter). ARCO uses it; choose it in SETUP > AUDIO. Headphones go into the interface.
+- iPhone: the same steps. ARCO opens on MIC FOR MAC (the iPhone as a microphone for ARCO on the Mac);
+  "OPEN THE STATION" shows the full station.
+- A new version: download the new ARCO-iPad-Xcode.zip and do steps 3, 4 and 6 again.
