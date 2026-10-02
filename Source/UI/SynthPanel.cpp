@@ -356,8 +356,8 @@ void SynthPanel::paint(juce::Graphics& g) {
     // knob labels
     for (auto& lb : labels) slab(g, lb.t, lb.r, 7.5f, Theme::sub(), 1, juce::Justification::centred);
     // keyboard info + output
-    L("OCTAVE " + juce::String(octave), 96, 609, 80, 8.5f, Theme::txt(), 2);
-    L(U("computer keys:  A W S E D F T G Y H U J K O L P  =  notes   ·   Z / X  =  octave   ·   MIDI keyboard: just plug it in   ·   Esc closes"),
+    L("KEYS FROM C" + juce::String(octave - 1), 96, 609, 96, 8.5f, Theme::txt(), 2);
+    L(U("  computer keys:  A W S E D F T G Y H U J K O L P  =  notes   ·   Z / X  =  octave   ·   MIDI keyboard: just plug it in   ·   Esc closes"),
       190, 609, 900, 8.0f, Theme::sub());
     {
         g.setColour(Theme::card()); g.fillRoundedRectangle((float) (X + 1116), (float) (Y + 606), 220.0f, 194.0f, 12.0f);

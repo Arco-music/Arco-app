@@ -119,7 +119,9 @@ public:
             }
             int y = s == 0 ? 125 : 89;
             bool syn = c.host.synthInto > 0 && c.host.synthInto == s;     // LIVE 2-4: synth plays here
-            label(g, syn ? juce::String(U("♪ from the SYNTH")) : "interface input " + juce::String(c.host.inputCh[s]), { 6, y, 100, 14 }, 7.5f,
+            bool ph = c.host.phoneLive == s + 1;
+            label(g, syn ? juce::String(U("♪ from the SYNTH")) : (ph ? juce::String(c.host.phone.connected() ? U("📱 iPhone / iPad mic") : U("📱 phone mic: not connected"))
+                                                                     : "interface input " + juce::String(c.host.inputCh[s])), { 6, y, 100, 14 }, 7.5f,
                   syn ? Theme::violet() : Theme::sub());
         }
         // the effects this strip uses
@@ -402,6 +404,7 @@ bool Canvas::keyPressed(const juce::KeyPress& k) {
 
 void Canvas::timerCallback() {
     model().tick();
+    if (host.sigSettle > 0 && --host.sigSettle == 0) host.savedSignature = host.loopsSignature();
     layoutStrips();
     for (auto* m : meters) m->update();
     for (auto* s : strips) if (s->isVisible()) s->update();

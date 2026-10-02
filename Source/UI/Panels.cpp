@@ -155,11 +155,41 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     vb({ 760, 538, 54, 24 }, [&m] { return m.get("a4"); }, [&m](double v) { m.set("a4", v); }, 415, 466, [] { return Theme::amber(); });
     auto* gd = add<Pill>({ 900, 540, 22, 20 }, "", [&m] { return m.get("guard") > 0.5 ? Theme::green() : Theme::card2(); }, 8.0f, 5.0f);
     gd->onClick = [&m] { m.set("guard", m.get("guard") > 0.5 ? 0 : 1); };
+    // ---- iPhone / iPad as a microphone
+    const char* PM[3] = { "OFF", U("CABLE (USB)").toRawUTF8(), "WI-FI" };
+    juce::String pmn[3] = { "OFF", "CABLE (USB)", "WI-FI" };
+    for (int i = 0; i < 3; ++i) {
+        auto* p = add<Pill>({ 24 + i * 96, 684, 90, 24 }, pmn[i], [&h, i] { return (int) h.phone.mode() == i ? (i == 0 ? Theme::sel() : Theme::green()) : Theme::btn(); }, 8.0f, 6.0f);
+        p->onClick = [this, &h, i] {
+            if (i == 0) { h.phone.disconnect(); h.setPhoneLive(0); }
+            else { if (h.phoneLive == 0) h.setPhoneLive(1); h.phoneWifi = wifi.getText().trim();
+                   h.phone.connect(i == 1 ? MicReceiver::Usb : MicReceiver::WiFi, h.phoneWifi); }
+            h.saveSetup(); };
+    }
+    (void) PM;
+    addAndMakeVisible(wifi);
+    wifi.setBounds(box.getX() + 320, box.getY() + 684, 130, 24);
+    wifi.setText(h.phoneWifi, false);
+    wifi.setTextToShowWhenEmpty("phone address", Theme::sub());
+    wifi.setFont(Theme::font(9.0f, 1));
+    wifi.setIndents(8, 5);
+    wifi.onReturnKey = [this, &h] { h.phoneWifi = wifi.getText().trim(); if (h.phoneLive == 0) h.setPhoneLive(1); h.phone.connect(MicReceiver::WiFi, h.phoneWifi); h.saveSetup(); };
+    vb({ 520, 684, 40, 24 }, [&h] { return (double) juce::jmax(1, h.phoneLive); }, [&h](double v) { if (h.phoneLive > 0) h.setPhoneLive((int) v); }, 1, 4, [] { return Theme::green(); });
+    // ---- pedals & keys: learn a MIDI pedal for each action
+    for (int a = 0; a < AudioHost::NumActions; ++a) {
+        auto* p = add<Pill>({ 600 + a * 130, 716, 120, 22 }, "LEARN", [&h, a] { return h.learning.load() == a ? Theme::amber() : Theme::btn(); }, 7.5f, 5.0f);
+        p->dynText = [&h, a] { return h.learning.load() == a ? juce::String(U("press the pedal …")) : juce::String("LEARN"); };
+        p->onClick = [&h, a] { h.learning.store(h.learning.load() == a ? -1 : a); };
+    }
+    startTimerHz(10);
 }
 
 SetupPanel::~SetupPanel() { audio = nullptr; phones.setLookAndFeel(nullptr); }
 
 void SetupPanel::visibilityChanged() {
+    wifi.setColour(juce::TextEditor::backgroundColourId, Theme::card2()); wifi.setColour(juce::TextEditor::textColourId, Theme::txt());
+    wifi.setColour(juce::TextEditor::outlineColourId, Theme::card2()); wifi.setColour(juce::TextEditor::focusedOutlineColourId, Theme::green());
+    wifi.applyColourToAllText(Theme::txt());
     if (isVisible()) { phones.setLookAndFeel(nullptr); audio = nullptr; styleLaf(); audio = std::make_unique<AudioBox>(cv, laf.get()); addAndMakeVisible(*audio); audio->setBounds(box.getX() + 24, box.getY() + 98, 520, 300); phones.setLookAndFeel(laf.get()); phones.setSelectedItemIndex(cv.host.phonesPair, juce::dontSendNotification); }
 }
 
@@ -201,7 +231,27 @@ void SetupPanel::paint(juce::Graphics& g) {
     L("A4 =", 724, 540, 40, 9.0f, Theme::txt(), 2); L("Hz", 818, 540, 30, 9.0f, Theme::sub());
     L("feedback guard", 928, 541, 140, 9.0f, Theme::txt());
     L("PRACTICE: the loops slow down, the pitch stays. Recording waits until you are back at 100.", 600, 600, 500, 8.0f, Theme::sub());
-    L("This window is remembered on this computer (Application Support / ARCO / setup.json).", 24, 700, 700, 8.0f, Theme::sub());
+    head(U("iPHONE / iPAD AS MICROPHONE"), U("open ARCO on the phone, press MIC FOR MAC - then connect here"), 24, 640, 540);
+    L("plays as LIVE", 460, 688, 60, 8.0f, Theme::txt(), 2);
+    {
+        auto& ph = cv.host.phone;
+        juce::String st = ph.mode() == MicReceiver::Off ? juce::String(U("off - your sound card's inputs as usual")) : ph.statusText();
+        if (ph.connected()) st << U("  ·  delay ") << juce::String(ph.delayMs.load(), 1) << " ms";
+        L(st, 24, 716, 440, 8.0f, ph.connected() ? Theme::green() : (ph.mode() == MicReceiver::Off ? Theme::sub() : Theme::amber()), 1);
+        float lv = juce::jmin(1.0f, ph.level.load() * 2.0f);
+        g.setColour(Theme::card2()); g.fillRoundedRectangle((float) (X + 470), (float) (Y + 720), 90.0f, 10.0f, 3.0f);
+        g.setColour(Theme::green()); g.fillRoundedRectangle((float) (X + 470), (float) (Y + 720), 90.0f * lv, 10.0f, 3.0f);
+        L(U("Cable: the best sound and the smallest delay (about 10-15 ms). The phone's microphone is used raw - no voice filters."), 24, 740, 540, 7.5f, Theme::sub());
+    }
+    head(U("PEDALS & KEYS"), U("keep your hands on the instrument"), 600, 640, 520);
+    const char* AN[4] = { "REC", "PLAY / STOP", "UNDO", "NEXT SCENE" };
+    for (int a = 0; a < 4; ++a) {
+        L(AN[a], 600 + a * 130, 680, 120, 8.5f, Theme::txt(), 2);
+        L("MIDI: " + AudioHost::pedalText(cv.host.pedal[a]), 600 + a * 130, 697, 120, 7.5f, Theme::sub());
+    }
+    L(U("Keyboard / page-turner pedal:  → or PgDn = REC   ·   Space or ↓ = PLAY/STOP   ·   ← or PgUp = UNDO   ·   ↑ = NEXT SCENE   ·   1-4 = scenes   ·   K = synth"),
+      600, 742, 520, 7.5f, Theme::sub());
+    L("This window is remembered on this computer (Application Support / ARCO / setup.json).", 24, 780, 700, 8.0f, Theme::sub());
 }
 
 } // namespace arco

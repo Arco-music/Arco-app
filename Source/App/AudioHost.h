@@ -67,6 +67,10 @@ public:
 
     // songs
     bool saveSong(const juce::File& folder);
+    juce::String loopsSignature();           // changes whenever the loops change
+    juce::String savedSignature;
+    int sigSettle = 0;             // ... as they were at the last SAVE / OPEN
+    bool unsavedLoops() { return engine.snap("smask").v.load() > 0.5f && loopsSignature() != savedSignature; }
     bool openSong(const juce::File& settingsOrFolder);
     // import an audio file into a track (1-8)
     bool importFile(const juce::File& f, int track);

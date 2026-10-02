@@ -30,7 +30,7 @@ private:
     juce::OwnedArray<juce::Component> kids;
     std::unique_ptr<juce::MidiKeyboardComponent> kb;
     std::vector<float> scope;
-    int octave = 4;
+    int octave = 5;
     template <typename T, typename... A> T* add(juce::Rectangle<int> r, A&&... a) {
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY())); return c; }
     void knob(int x, int y, const char* id, const char* label, ColourFn col);

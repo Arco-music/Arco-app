@@ -25,7 +25,23 @@ public:
         window = std::make_unique<MainWindow>(*host);
     }
     void shutdown() override { window = nullptr; host = nullptr; }
-    void systemRequestedQuit() override { quit(); }
+    void systemRequestedQuit() override {
+        // never lose loops by accident
+        if (window == nullptr || host == nullptr || !host->unsavedLoops() || asking) { quit(); return; }
+        asking = true;
+        auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon).withTitle("Save the song before quitting?")
+                        .withMessage("Your loops are not saved yet.").withButton("Save").withButton("Don't save").withButton("Cancel");
+        juce::AlertWindow::showAsync(opts, [this](int r) {
+            asking = false;
+            if (r == 2) { quit(); return; }                     // don't save
+            if (r != 1) return;                                 // cancel
+            auto* mc = dynamic_cast<arco::MainComponent*>(window->getContentComponent());
+            if (host->songFolder.isDirectory()) { host->saveSong(host->songFolder); quit(); return; }
+            if (mc) mc->canvas.chooseFile("Save the song: choose a name (a folder with that name is made)", "*", true,
+                                          [this](juce::File f) { if (host->saveSong(f.withFileExtension(""))) quit(); });
+        });
+    }
+    bool asking = false;
 
     // for testing: render the interface to a PNG and quit (ARCO --screenshot out.png [light])
     void screenshot(const juce::String& cmd) {

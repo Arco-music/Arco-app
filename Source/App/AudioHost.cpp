@@ -228,6 +228,13 @@ static bool writeBuffer(SharedBuffer& b, const juce::File& f, double sr, long fr
     return w->writeFromFloatArrays(ch.data(), (int) b.ch, (int) n);
 }
 
+juce::String AudioHost::loopsSignature() {
+    juce::String sig;
+    for (auto* k : { "smask", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3", "undoav" })
+        sig << (int) engine.snap(k).v.load() << ",";
+    return sig;
+}
+
 bool AudioHost::saveSong(const juce::File& folder) {
     if (!folder.createDirectory()) { status = "could not make the folder"; return false; }
     auto name = folder.getFileName();
@@ -248,6 +255,7 @@ bool AudioHost::saveSong(const juce::File& folder) {
         writeBuffer(engine.buffer(std::string("st_pitch") + L[i]), folder.getChildFile(name + "-p" + L[i] + ".wav"), engine.sr, len / 64 + 2);
     }
     songFolder = folder;
+    savedSignature = loopsSignature();
     status = "saved \"" + name + U("\" ✓");
     return true;
 }
@@ -286,6 +294,7 @@ bool AudioHost::openSong(const juce::File& sel) {
     for (int i = 0; i < 15; ++i) engine.set("st_looper", RS[i], (double) s[SV[i]]);
     model.press("st_looper", "rs_go");
     songFolder = folder;
+    sigSettle = 20;                          // the loops arrive in the engine over the next moments
     status = "\"" + base + U("\" ✓");
     return true;
 }

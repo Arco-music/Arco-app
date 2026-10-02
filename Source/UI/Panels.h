@@ -34,7 +34,7 @@ private:
 };
 
 // SETUP: the sound card, live inputs, headphones, speakers, recording timing, practice, tuner.
-class SetupPanel : public juce::Component {
+class SetupPanel : public juce::Component, private juce::Timer {
 public:
     explicit SetupPanel(Canvas& c);
     ~SetupPanel() override;
@@ -43,14 +43,16 @@ public:
     void visibilityChanged() override;
 private:
     Canvas& cv;
-    juce::Rectangle<int> box { 150, 70, 1140, 740 };
+    juce::Rectangle<int> box { 150, 34, 1140, 812 };
     juce::OwnedArray<juce::Component> kids;
     std::unique_ptr<AudioBox> audio;
     std::unique_ptr<ArcoLaf> laf;
     juce::ComboBox phones;
+    juce::TextEditor wifi;
     template <typename T, typename... A> T* add(juce::Rectangle<int> r, A&&... a) {
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY())); return c; }
     void styleLaf();
+    void timerCallback() override { if (isVisible()) repaint(box); }
 };
 
 } // namespace arco
