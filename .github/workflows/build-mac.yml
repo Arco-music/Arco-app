@@ -55,13 +55,14 @@ jobs:
         run: |
           cd Builds/iOS
           xcodebuild -project ARCO.xcodeproj -target "ARCO - App" -configuration Release -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -quiet build
-          ls -la build/Release-iphoneos/ARCO.app | head -5
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/out/device" -quiet build
+          ls -la out/device/ARCO.app | head -5
       - name: Build for the iPad simulator
         run: |
           cd Builds/iOS
           xcodebuild -project ARCO.xcodeproj -target "ARCO - App" -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO -quiet build
+            CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$PWD/out/sim" -quiet build
+          ls -la out/sim/ARCO.app | head -3
       - name: Self-test on an iPad (simulator)
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c "
@@ -72,7 +73,7 @@ jobs:
           echo "iPad simulator: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-          xcrun simctl install "$UDID" Builds/iOS/build/Release-iphonesimulator/ARCO.app
+          xcrun simctl install "$UDID" Builds/iOS/out/sim/ARCO.app
           mkdir -p dist
           ( xcrun simctl launch --console-pty "$UDID" com.pacello.arco --selftest 2>&1 | tee dist/selftest-ipad.txt ) &
           for i in $(seq 1 120); do sleep 2; grep -q "checks," dist/selftest-ipad.txt 2>/dev/null && break; done
@@ -83,7 +84,7 @@ jobs:
         run: |
           mkdir -p pkg/ARCO-iPad dist
           cp -R ARCO.jucer Source Resources Builds JuceLibraryCode VERSION pkg/ARCO-iPad/
-          rm -rf pkg/ARCO-iPad/Builds/iOS/build
+          rm -rf pkg/ARCO-iPad/Builds/iOS/build pkg/ARCO-iPad/Builds/iOS/out
           mkdir -p pkg/ARCO-iPad/JUCE && cp -R JUCE/modules JUCE/LICENSE.md pkg/ARCO-iPad/JUCE/
           cp docs/iPad-install.txt "pkg/ARCO-iPad/HOW TO INSTALL ON THE iPAD.txt"
           cd pkg && ditto -c -k --keepParent ARCO-iPad ../dist/ARCO-iPad-Xcode.zip
