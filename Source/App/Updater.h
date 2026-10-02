@@ -3,8 +3,9 @@
 // It needs a read-only GitHub key (fine-grained token: this repository, Contents: read), kept on this computer only.
 #include <JuceHeader.h>
 #include "../UI/Theme.h"
-#if JUCE_MAC || JUCE_LINUX
+#if JUCE_MAC || JUCE_LINUX || JUCE_IOS
  #include <sys/stat.h>
+ #include <unistd.h>
 #endif
 
 #ifndef ARCO_BUILD
@@ -96,7 +97,7 @@ private:
         auto app = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
         auto script = tmp.getChildFile("install.sh");
         script.replaceWithText("#!/bin/bash\n"
-            "while kill -0 " + juce::String(juce::Process::getProcessID()) + " 2>/dev/null; do sleep 0.3; done\n"
+            "while kill -0 " + juce::String((int) ::getpid()) + " 2>/dev/null; do sleep 0.3; done\n"
             "cd \"" + tmp.getFullPathName() + "\" && /usr/bin/ditto -x -k ARCO-mac.zip new || exit 1\n"
             "[ -d new/ARCO.app ] || exit 1\n"
             "rm -rf \"" + app.getFullPathName() + ".old\"\n"

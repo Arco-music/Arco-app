@@ -1,6 +1,10 @@
 #include "AudioHost.h"
 #include "../UI/Theme.h"
 
+#if JUCE_IOS
+void arcoPreferBestMicrophone();   // IOSAudio.mm (global, Objective-C++)
+#endif
+
 namespace arco {
 
 AudioHost::AudioHost(bool openDevice) : live(openDevice) {
@@ -44,14 +48,10 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     triggerAsyncUpdate();                    // every (re)start: the inputs / outputs may be different now
 }
 
-#if JUCE_IOS
-void arcoPreferBestMicrophone();   // IOSAudio.mm
-#endif
-
 void AudioHost::handleAsyncUpdate() {
    #if JUCE_IOS
     // the microphone raw: no voice processing (noise gate, automatic level, echo cancelling) - those spoil an instrument
-    if (auto* d = devices.getCurrentAudioDevice()) if (d != rawDone) { rawDone = d; d->setAudioPreprocessingEnabled(false); arcoPreferBestMicrophone(); }
+    if (auto* d = devices.getCurrentAudioDevice()) if (d != rawDone) { rawDone = d; d->setAudioPreprocessingEnabled(false); ::arcoPreferBestMicrophone(); }
    #endif
     if (engineRestarted.exchange(false)) { model.sendAll(); applySpeakers(); setSynthInto(synthInto); }
     applyRouting();
