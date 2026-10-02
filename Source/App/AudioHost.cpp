@@ -58,6 +58,16 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
         engine.phoneData = phoneBuf.data();
     } else engine.phoneData = nullptr;
     engine.process(in, numIn, out, numOut, n);
+    int tt = testTone.load();
+    if (tt > 0) {                                // TEST: a soft A (440 Hz) on outputs 1-2 and on the headphones
+        int pf = engine.phonesFirst.load();
+        for (int i = 0; i < n; ++i) {
+            float env = juce::jmin(1.0f, juce::jmin((float) (tt - i), (float) (48000 - (tt - i))) / 2000.0f);
+            float v = 0.15f * env * (float) std::sin(testPhase); testPhase += 2 * juce::MathConstants<double>::pi * 440.0 / juce::jmax(8000.0, lastRate);
+            for (int c : { 0, 1, pf, pf + 1 }) if (c >= 0 && c < numOut && out[c]) out[c][i] += v;
+        }
+        testTone.store(juce::jmax(0, tt - n));
+    }
 }
 
 // ------------------------------------------------------------------ pedals and keys
@@ -100,18 +110,12 @@ void AudioHost::scanMidi() {                     // every MIDI keyboard / pedal 
 }
 
 void AudioHost::applyRouting() {
-    // switch on exactly the interface inputs the live inputs use; the callback gets the active ones in order
+    // every channel of the sound card is open (openAllChannels), so the callback's channel k is the card's channel k:
+    // choosing a live input or the headphone outputs never has to reopen the card
     auto setup = devices.getAudioDeviceSetup();
-    juce::BigInteger want;
-    for (int j = 0; j < nLive; ++j) want.setBit(juce::jmax(0, inputCh[j] - 1));
-    if (devices.getCurrentAudioDevice() != nullptr && want != setup.inputChannels) {
-        setup.useDefaultInputChannels = false; setup.inputChannels = want;
-        devices.setAudioDeviceSetup(setup, true);
-        setup = devices.getAudioDeviceSetup();
-    }
     for (int j = 0; j < 4; ++j) {
         int ch = inputCh[j] - 1, rank = -1;
-        if (j < nLive && setup.inputChannels[ch]) { rank = 0; for (int c = 0; c < ch; ++c) if (setup.inputChannels[c]) ++rank; }
+        if (j < nLive && ch >= 0 && setup.inputChannels[ch]) { rank = 0; for (int c = 0; c < ch; ++c) if (setup.inputChannels[c]) ++rank; }
         engine.inputChannel[j].store(rank);
     }
     int pf = phonesPair >= 15 ? 0 : 2 + 2 * phonesPair;
@@ -121,6 +125,50 @@ void AudioHost::applyRouting() {
     engine.phonesFirst.store(pf);
 }
 
+void AudioHost::openAllChannels() {
+    auto* d = devices.getCurrentAudioDevice();
+    if (d == nullptr) return;
+    auto s = devices.getAudioDeviceSetup();
+    juce::BigInteger ins, outs;
+    ins.setRange(0, juce::jmin(64, d->getInputChannelNames().size()), true);
+    outs.setRange(0, juce::jmin(34, d->getOutputChannelNames().size()), true);
+    if (s.inputChannels != ins || s.outputChannels != outs) {
+        s.inputChannels = ins; s.outputChannels = outs;
+        s.useDefaultInputChannels = s.useDefaultOutputChannels = false;
+        devices.setAudioDeviceSetup(s, true);
+    }
+}
+
+juce::String AudioHost::openAudio(const juce::String& outName, const juce::String& inName, double rate, int buffer) {
+    auto before = devices.getAudioDeviceSetup();
+    auto s = before;
+    s.outputDeviceName = outName; s.inputDeviceName = inName;
+    s.sampleRate = rate; s.bufferSize = buffer;
+    s.useDefaultInputChannels = s.useDefaultOutputChannels = true;
+    juce::String msg;
+    auto err = devices.setAudioDeviceSetup(s, true);
+    if (err.isNotEmpty()) {                    // 1) let the card choose its own sample rate and buffer
+        s.sampleRate = 0; s.bufferSize = 0;
+        auto e2 = devices.setAudioDeviceSetup(s, true);
+        if (e2.isEmpty()) msg = U("opened with the card's own sample rate / buffer");
+        else if (inName.isNotEmpty() && inName != outName) {
+            // 2) these two do not work together (often: different sample rates, e.g. Bluetooth headphones + microphone)
+            s.inputDeviceName = {};
+            auto e3 = devices.setAudioDeviceSetup(s, true);
+            if (e3.isEmpty()) msg = "\"" + inName + "\" does not work together with \"" + outName + "\" (" + err + "). Playing without input - choose another input, or the same device for both.";
+            else err = e3;
+        }
+        if (msg.isEmpty() && devices.getCurrentAudioDevice() == nullptr) {   // 3) nothing worked: back to what played before
+            devices.setAudioDeviceSetup(before, true);
+            msg = "could not open \"" + outName + "\": " + err + (devices.getCurrentAudioDevice() != nullptr ? " - kept the previous one" : "");
+        }
+    }
+    openAllChannels();
+    applyRouting();
+    saveSetup();
+    audioMessage = msg;
+    return msg;
+}
 void AudioHost::applySpeakers() {
     int n = (int) model.get("spk_n");
     for (int i = 0; i < 32; ++i) {
@@ -251,6 +299,7 @@ void AudioHost::stopRecording() {
 
 // ------------------------------------------------------------------ this computer
 void AudioHost::saveSetup() {
+    if (!live) return;                       // tests / screenshots never touch this computer's settings
     auto f = setupFile(); f.getParentDirectory().createDirectory();
     auto* o = new juce::DynamicObject();
     o->setProperty("params", model.setupState());
@@ -295,7 +344,9 @@ void AudioHost::loadSetup(bool openDevice) {
         if (v["audio"].isString()) xml = juce::parseXML(v["audio"].toString());
     }
     if (openDevice) {
-        devices.initialise(4, 34, xml.get(), true);
+        auto err = devices.initialise(64, 34, xml.get(), true);
+        if (err.isNotEmpty() || devices.getCurrentAudioDevice() == nullptr) { devices.initialise(64, 34, nullptr, true); }   // the saved card is not there: use the Mac's own
+        openAllChannels();
         devices.addAudioCallback(this);
         devices.addMidiInputDeviceCallback({}, this);
         scanMidi();

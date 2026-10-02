@@ -8,8 +8,92 @@ static void lab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r
     g.setColour(c); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.85f);
 }
 
+// ------------------------------------------------------------------ AUDIO
+AudioBox::AudioBox(Canvas& c, juce::LookAndFeel* laf) : cv(c) {
+    for (auto* cb : { &out, &in, &rate, &buf }) { addAndMakeVisible(cb); cb->setLookAndFeel(laf); }
+    out.setBounds(110, 0, 320, 26); in.setBounds(110, 40, 320, 26);
+    rate.setBounds(110, 80, 130, 26); buf.setBounds(330, 80, 180, 26);
+    out.onChange = in.onChange = rate.onChange = buf.onChange = [this] { if (!filling) apply(); };
+    auto* test = new Pill("TEST", [] { return Theme::sel(); }, 8.5f, 6.0f); kids.add(test); addAndMakeVisible(test);
+    test->setBounds(440, 0, 70, 26);
+    test->onClick = [this] { cv.host.testTone.store(48000); };
+    auto* rs = new Pill(U("↻ LOOK AGAIN"), [] { return Theme::btn(); }, 7.5f, 6.0f); kids.add(rs); addAndMakeVisible(rs);
+    rs->setBounds(0, 196, 100, 22);
+    rs->onClick = [this] { if (auto* t = cv.host.devices.getCurrentDeviceTypeObject()) t->scanForDevices(); cv.host.scanMidi(); refresh(); };
+    cv.host.devices.addChangeListener(this);
+    refresh();
+    startTimerHz(10);
+}
+AudioBox::~AudioBox() { cv.host.devices.removeChangeListener(this); for (auto* cb : { &out, &in, &rate, &buf }) cb->setLookAndFeel(nullptr); }
+
+void AudioBox::refresh() {
+    filling = true;
+    auto& dm = cv.host.devices;
+    auto* type = dm.getCurrentDeviceTypeObject();
+    if (type == nullptr && !dm.getAvailableDeviceTypes().isEmpty()) type = dm.getAvailableDeviceTypes()[0];
+    auto setup = dm.getAudioDeviceSetup();
+    outNames = type ? type->getDeviceNames(false) : juce::StringArray();
+    inNames = type ? type->getDeviceNames(true) : juce::StringArray();
+    out.clear(juce::dontSendNotification); in.clear(juce::dontSendNotification);
+    out.addItemList(outNames, 1);
+    in.addItem("no input", 1); in.addItemList(inNames, 2);
+    out.setSelectedItemIndex(outNames.indexOf(setup.outputDeviceName), juce::dontSendNotification);
+    if (out.getSelectedItemIndex() < 0) out.setText("choose an output", juce::dontSendNotification);
+    in.setSelectedItemIndex(setup.inputDeviceName.isEmpty() ? 0 : inNames.indexOf(setup.inputDeviceName) + 1, juce::dontSendNotification);
+    rate.clear(juce::dontSendNotification); buf.clear(juce::dontSendNotification); rates.clear(); bufs.clear();
+    if (auto* d = dm.getCurrentAudioDevice()) {
+        for (auto r : d->getAvailableSampleRates()) { rates.add(r); rate.addItem(juce::String((int) r) + " Hz", rates.size()); }
+        for (auto b : d->getAvailableBufferSizes()) {
+            bufs.add(b); buf.addItem(juce::String(b) + " samples  (" + juce::String(b * 1000.0 / d->getCurrentSampleRate(), 1) + " ms)", bufs.size()); }
+        rate.setSelectedItemIndex(rates.indexOf(d->getCurrentSampleRate()), juce::dontSendNotification);
+        buf.setSelectedItemIndex(bufs.indexOf(d->getCurrentBufferSizeSamples()), juce::dontSendNotification);
+    }
+    filling = false;
+    repaint();
+}
+
+void AudioBox::apply() {
+    int oi = out.getSelectedItemIndex(), ii = in.getSelectedItemIndex();
+    if (oi < 0) return;
+    double r = rate.getSelectedItemIndex() >= 0 ? rates[rate.getSelectedItemIndex()] : 0.0;
+    int b = buf.getSelectedItemIndex() >= 0 ? bufs[buf.getSelectedItemIndex()] : 0;
+    auto prev = cv.host.devices.getAudioDeviceSetup();
+    // a new device: let it choose its own rate / buffer
+    if (outNames[oi] != prev.outputDeviceName || (ii > 0 ? inNames[ii - 1] : juce::String()) != prev.inputDeviceName) { r = 0; b = 0; }
+    cv.host.openAudio(outNames[oi], ii > 0 ? inNames[ii - 1] : juce::String(), r, b);
+    refresh();
+}
+
+void AudioBox::paint(juce::Graphics& g) {
+    auto L = [&](const juce::String& t, int x, int y, int w, int h, float fs, juce::Colour c, int wt = 0) {
+        g.setColour(c); g.setFont(Theme::font(fs, wt)); g.drawFittedText(t, { x, y, w, h }, juce::Justification::centredLeft, 4, 0.9f); };
+    L("OUTPUT", 0, 0, 100, 26, 8.5f, Theme::txt(), 2);
+    L("INPUT", 0, 40, 100, 26, 8.5f, Theme::txt(), 2);
+    L("SAMPLE RATE", 0, 80, 100, 26, 8.5f, Theme::txt(), 2);
+    L("BUFFER", 260, 80, 70, 26, 8.5f, Theme::txt(), 2);
+    // input level
+    float lv = juce::jmin(1.0f, cv.engine().peak("live_in1") * 2.0f);
+    g.setColour(Theme::card2()); g.fillRoundedRectangle(440, 46, 70, 14, 4);
+    g.setColour(lv > 0.9f ? Theme::red() : Theme::green()); g.fillRoundedRectangle(440, 46, 70 * lv, 14, 4);
+    auto* d = cv.host.devices.getCurrentAudioDevice();
+    juce::String st; juce::Colour sc = Theme::green();
+    if (d != nullptr) {
+        auto s = cv.host.devices.getAudioDeviceSetup();
+        st = U("✓ playing: ") + s.outputDeviceName + (s.inputDeviceName.isNotEmpty() ? U("  ·  listening: ") + s.inputDeviceName : juce::String("  ·  no input"))
+           + "\n" + juce::String((int) d->getCurrentSampleRate()) + " Hz  ·  " + juce::String(d->getCurrentBufferSizeSamples()) + " samples  ·  "
+           + juce::String(d->getActiveInputChannels().countNumberOfSetBits()) + " inputs, " + juce::String(d->getActiveOutputChannels().countNumberOfSetBits()) + " outputs  ·  delay about "
+           + juce::String(juce::roundToInt((d->getInputLatencyInSamples() + d->getOutputLatencyInSamples() + 2 * d->getCurrentBufferSizeSamples()) * 1000.0 / d->getCurrentSampleRate())) + " ms";
+    } else { st = "no sound card open - choose an OUTPUT above"; sc = Theme::amber(); }
+    L(st, 0, 118, 520, 36, 8.0f, sc, 1);
+    if (cv.host.audioMessage.isNotEmpty()) L(cv.host.audioMessage, 0, 154, 520, 38, 8.0f, Theme::amber(), 1);
+    juce::StringArray midi; for (auto& m : juce::MidiInput::getAvailableDevices()) midi.add(m.name);
+    L("MIDI: " + (midi.isEmpty() ? juce::String("nothing plugged in") : midi.joinIntoString(", ")), 110, 196, 410, 22, 7.5f, Theme::sub());
+    L(U("Headphones on a Mac: choose them (or your sound card) as OUTPUT here. TEST plays a soft A on outputs 1-2 and in the headphones. "
+        "Bluetooth headphones have a big delay - fine for listening, not for playing along."), 0, 226, 520, 40, 7.5f, Theme::sub());
+}
+
 void SetupPanel::styleLaf() {
-    laf = std::make_unique<juce::LookAndFeel_V4>(juce::LookAndFeel_V4::ColourScheme(
+    laf = std::make_unique<ArcoLaf>(juce::LookAndFeel_V4::ColourScheme(
         Theme::card(), Theme::card(), Theme::card2(), Theme::line(), Theme::txt(), Theme::btn(), juce::Colours::white, Theme::sel(), Theme::txt()));
     laf->setDefaultSansSerifTypeface(Theme::face(0));
     laf->setColour(juce::ComboBox::backgroundColourId, Theme::card2());
@@ -28,10 +112,9 @@ void SetupPanel::styleLaf() {
 SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     auto& h = cv.host; auto& m = cv.model();
     styleLaf();
-    devSel = std::make_unique<juce::AudioDeviceSelectorComponent>(h.devices, 0, 4, 0, 34, true, false, false, false);
-    devSel->setLookAndFeel(laf.get());
-    addAndMakeVisible(*devSel);
-    devSel->setBounds(box.getX() + 24, box.getY() + 92, 520, 330);
+    audio = std::make_unique<AudioBox>(cv, laf.get());
+    addAndMakeVisible(*audio);
+    audio->setBounds(box.getX() + 24, box.getY() + 98, 520, 300);
     auto* close = add<Pill>({ 1140 - 104, 16, 88, 26 }, U("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
     close->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); };
     // ---- live inputs
@@ -74,10 +157,10 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     gd->onClick = [&m] { m.set("guard", m.get("guard") > 0.5 ? 0 : 1); };
 }
 
-SetupPanel::~SetupPanel() { if (devSel) devSel->setLookAndFeel(nullptr); phones.setLookAndFeel(nullptr); }
+SetupPanel::~SetupPanel() { audio = nullptr; phones.setLookAndFeel(nullptr); }
 
 void SetupPanel::visibilityChanged() {
-    if (isVisible()) { styleLaf(); devSel->setLookAndFeel(laf.get()); phones.setLookAndFeel(laf.get()); phones.setSelectedItemIndex(cv.host.phonesPair, juce::dontSendNotification); }
+    if (isVisible()) { phones.setLookAndFeel(nullptr); audio = nullptr; styleLaf(); audio = std::make_unique<AudioBox>(cv, laf.get()); addAndMakeVisible(*audio); audio->setBounds(box.getX() + 24, box.getY() + 98, 520, 300); phones.setLookAndFeel(laf.get()); phones.setSelectedItemIndex(cv.host.phonesPair, juce::dontSendNotification); }
 }
 
 void SetupPanel::mouseDown(const juce::MouseEvent& e) {
@@ -95,7 +178,7 @@ void SetupPanel::paint(juce::Graphics& g) {
         L(t, x, y, w, 11.0f, Theme::txt(), 2); L(s, x, y + 18, w - 20, 8.0f, Theme::sub()); };
     L("SETUP", 24, 14, 200, 17.0f, Theme::txt(), 2);
     L("audio, inputs, headphones, speakers - changes act at once; this computer remembers them", 130, 22, 700, 9.0f, Theme::sub());
-    head("AUDIO", "your sound card: device, sample rate, buffer, which inputs and outputs are on", 24, 58, 540);
+    head("AUDIO", "your sound card: where the sound goes, where it comes from", 24, 58, 540);
     head("LIVE INPUTS", "how many instruments / microphones, and on which input of your sound card", 24, 440, 540);
     L("LIVE INPUTS", 24, 484, 110, 8.5f, Theme::txt(), 2);
     for (int j = 0; j < 4; ++j) L("LIVE " + juce::String(j + 1) + " = input", 24 + (j % 2) * 220, 525 + (j / 2) * 34, 100, 8.5f, Theme::txt());

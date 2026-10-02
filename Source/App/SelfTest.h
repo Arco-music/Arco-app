@@ -7,6 +7,47 @@
 
 namespace arco {
 
+// pretend sound cards, to test what ARCO does when a device does not open (as Bluetooth headphones + a microphone often do)
+struct FakeDevice : public juce::AudioIODevice {
+    FakeDevice(const juce::String& o, const juce::String& i, bool f) : juce::AudioIODevice(o + "|" + i, "ARCO test"), outN(o), inN(i), fail(f) {}
+    juce::String outN, inN; bool fail, opened = false, playing = false; double rate = 48000; int bs = 512;
+    juce::BigInteger ain, aout; juce::AudioIODeviceCallback* cb = nullptr;
+    juce::StringArray getOutputChannelNames() override { juce::StringArray a; for (int k = 0; k < (outN.isEmpty() ? 0 : 8); ++k) a.add("out " + juce::String(k + 1)); return a; }
+    juce::StringArray getInputChannelNames() override { juce::StringArray a; for (int k = 0; k < (inN.isEmpty() ? 0 : 2); ++k) a.add("in " + juce::String(k + 1)); return a; }
+    juce::Array<double> getAvailableSampleRates() override { return { 44100.0, 48000.0 }; }
+    juce::Array<int> getAvailableBufferSizes() override { return { 64, 128, 256, 480, 512 }; }
+    int getDefaultBufferSize() override { return 512; }
+    juce::String open(const juce::BigInteger& i, const juce::BigInteger& o, double r, int b) override {
+        if (fail) return "the two devices run at different sample rates";
+        ain = i; ain.setRange(getInputChannelNames().size(), 64, false); aout = o; aout.setRange(getOutputChannelNames().size(), 64, false);
+        rate = r > 0 ? r : 48000; bs = b > 0 ? b : 512; opened = true; return {}; }
+    void close() override { stop(); opened = false; }
+    bool isOpen() override { return opened; }
+    void start(juce::AudioIODeviceCallback* c) override { if (c) { c->audioDeviceAboutToStart(this); cb = c; } playing = true; }
+    void stop() override { if (cb) cb->audioDeviceStopped(); cb = nullptr; playing = false; }
+    bool isPlaying() override { return playing; }
+    juce::String getLastError() override { return {}; }
+    int getCurrentBufferSizeSamples() override { return bs; }
+    double getCurrentSampleRate() override { return rate; }
+    int getCurrentBitDepth() override { return 32; }
+    juce::BigInteger getActiveOutputChannels() const override { return aout; }
+    juce::BigInteger getActiveInputChannels() const override { return ain; }
+    int getOutputLatencyInSamples() override { return 0; }
+    int getInputLatencyInSamples() override { return 0; }
+};
+struct FakeType : public juce::AudioIODeviceType {
+    FakeType() : juce::AudioIODeviceType("ARCO test") {}
+    void scanForDevices() override {}
+    juce::StringArray getDeviceNames(bool in) const override {
+        return in ? juce::StringArray { "Test Mic", "Headset Mic" } : juce::StringArray { "Test Speakers", "BT Headphones", "Broken Speakers" }; }
+    int getDefaultDeviceIndex(bool) const override { return 0; }
+    int getIndexOfDevice(juce::AudioIODevice* d, bool in) const override {
+        auto* f = dynamic_cast<FakeDevice*>(d); return f ? getDeviceNames(in).indexOf(in ? f->inN : f->outN) : -1; }
+    bool hasSeparateInputsAndOutputs() const override { return true; }
+    juce::AudioIODevice* createDevice(const juce::String& o, const juce::String& i) override {
+        return new FakeDevice(o, i, o == "Broken Speakers" || (o == "BT Headphones" && i == "Test Mic")); }
+};
+
 inline int runSelfTest(AudioHost& h, const juce::File& dir) {
     auto savedSetup = h.model.setupState();     // put this computer's settings back afterwards
     int savedLayout = h.speakerLayout, savedSynth = h.synthInto;
@@ -192,6 +233,34 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         run(1.0, 0.3f);
         float p[9]; for (int k = 1; k <= 8; ++k) p[k] = e.peak("spk" + std::to_string(k));
         check(p[1] > 2 * p[5] && p[2] > 2 * p[5] && p[1] > 2 * p[4], "8-speaker ring: 1-2 in front (main mix), 4-5 behind", p[1]);
+    }
+    // the sound card settings: what happens when a device does not open
+    {
+        h.devices.addAudioDeviceType(std::make_unique<FakeType>());
+        h.devices.setCurrentAudioDeviceType("ARCO test", true);
+        auto m1 = h.openAudio("Test Speakers", "Test Mic", 0, 0);
+        auto* d = h.devices.getCurrentAudioDevice();
+        check(d != nullptr && m1.isEmpty(), "AUDIO: speakers + microphone open");
+        check(d != nullptr && d->getActiveInputChannels().countNumberOfSetBits() == 2 && d->getActiveOutputChannels().countNumberOfSetBits() == 8,
+              "  every input and output of the card is open");
+        h.nLive = 2; h.inputCh[0] = 2; h.inputCh[1] = 1; h.applyRouting();
+        check(h.engine.inputChannel[0].load() == 1 && h.engine.inputChannel[1].load() == 0 && h.devices.getCurrentAudioDevice() == d,
+              "  choosing LIVE inputs does not reopen the card");
+        h.phonesPair = 0; h.applyRouting();
+        check(h.engine.phonesFirst.load() == 2 && !h.phonesShared, "  headphones on outputs 3-4");
+        auto m2 = h.openAudio("BT Headphones", "Test Mic", 0, 0);
+        d = h.devices.getCurrentAudioDevice();
+        check(d != nullptr && h.devices.getAudioDeviceSetup().outputDeviceName == "BT Headphones" && m2.contains("does not work together"),
+              "  headphones + mic that clash: headphones still play, it says why");
+        auto m3 = h.openAudio("Broken Speakers", "", 0, 0);
+        d = h.devices.getCurrentAudioDevice();
+        check(d != nullptr && h.devices.getAudioDeviceSetup().outputDeviceName == "BT Headphones" && m3.contains("kept the previous"),
+              "  a device that will not open: keeps the one that worked (never 'none')");
+        auto m4 = h.openAudio("Test Speakers", "Test Mic", 44100, 480);
+        d = h.devices.getCurrentAudioDevice();
+        check(d != nullptr && d->getCurrentSampleRate() == 44100 && d->getCurrentBufferSizeSamples() == 480, "  sample rate and buffer change");
+        h.devices.closeAudioDevice();
+        h.nLive = 1; h.inputCh[0] = 1; h.inputCh[1] = 2;
     }
     h.model.loadSetupState(savedSetup); h.speakerLayout = savedLayout; h.setSynthInto(savedSynth); h.applySpeakers();
     std::printf("%d checks, %d failed\n", n, fails);

@@ -25,6 +25,12 @@ public:
     int speakerLayout = 0;                   // 0 ring, 1 front arc
     void applyRouting();
     void applySpeakers();
+    // the sound card: open these devices; if they do not work, try the next best thing and say what happened
+    juce::String openAudio(const juce::String& outName, const juce::String& inName, double rate, int buffer);
+    void openAllChannels();
+    juce::String audioMessage;
+    std::atomic<int> testTone { 0 };          // samples of test tone left
+    double testPhase = 0;
     void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
     int synthInto = 0;
 
