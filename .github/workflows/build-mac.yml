@@ -13,9 +13,9 @@ jobs:
       - name: Get JUCE 8.0.4
         run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
       - name: Configure
-        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+        run: cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
-        run: cmake --build build --config Release --target ARCO -- -quiet
+        run: cmake --build build --target ARCO -j 4
       - name: Sign (ad-hoc) and pack
         run: |
           APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
