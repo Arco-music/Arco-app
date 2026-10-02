@@ -1,0 +1,39 @@
+name: Build ARCO for Mac
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+      - name: Configure
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      - name: Build
+        run: cmake --build build --config Release --target ARCO -- -quiet
+      - name: Sign (ad-hoc) and pack
+        run: |
+          APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
+          cat > ent.plist <<'PL'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>com.apple.security.device.audio-input</key><true/></dict></plist>
+          PL
+          codesign --force --deep --options runtime --entitlements ent.plist -s - "$APP"
+          codesign --verify --deep --strict "$APP"
+          lipo -info "$APP/Contents/MacOS/ARCO"
+          mkdir -p dist && ditto -c -k --keepParent "$APP" dist/ARCO-mac.zip
+      - name: Smoke test (starts and draws itself)
+        run: |
+          APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
+          "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screenshot.png" || true
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARCO-mac
+          path: dist/
