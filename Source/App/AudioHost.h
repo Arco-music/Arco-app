@@ -4,10 +4,11 @@
 #include <JuceHeader.h>
 #include "../Engine/Engine.h"
 #include "../Model/Model.h"
+#include "PhoneLink.h"
 
 namespace arco {
 
-class AudioHost : public juce::AudioIODeviceCallback, private juce::AsyncUpdater {
+class AudioHost : public juce::AudioIODeviceCallback, public juce::MidiInputCallback, private juce::AsyncUpdater {
 public:
     explicit AudioHost(bool openDevice = true);   // false: tests / screenshots (no sound card, settings not saved)
     bool live = true;
@@ -26,6 +27,24 @@ public:
     void applySpeakers();
     void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
     int synthInto = 0;
+
+    // the phone microphone
+    MicReceiver phone;                       // Mac: an iPhone / iPad sends its microphone (cable or Wi-Fi)
+    MicSender micOut;                        // iPhone / iPad: MIC FOR MAC mode sends this device's microphone
+    std::atomic<bool> micMode { false };
+    int phoneLive = 0;                       // 0 off, 1-4 = which live input plays it
+    juce::String phoneWifi;                  // last Wi-Fi address typed
+    void setPhoneLive(int v) { phoneLive = v; engine.phoneLive.store(v); }
+
+    // pedals / keys: REC, PLAY/STOP, UNDO, NEXT SCENE
+    enum Action { ActRec = 0, ActPlay, ActUndo, ActScene, NumActions };
+    struct Pedal { int type = 0, num = 0, ch = 0; };   // type 0 none, 1 note, 2 controller
+    Pedal pedal[NumActions];
+    std::atomic<int> learning { -1 };
+    void doAction(int a);
+    static juce::String pedalText(const Pedal& p);
+    std::function<void(int)> onAction;       // the interface flashes what happened
+    void scanMidi();
 
     // status shown in the song line
     juce::String status;
@@ -52,6 +71,7 @@ public:
                                           const juce::AudioIODeviceCallbackContext&) override;
     void audioDeviceAboutToStart(juce::AudioIODevice* d) override;
     void audioDeviceStopped() override {}
+    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) override;
 
 private:
     void handleAsyncUpdate() override;
@@ -61,6 +81,8 @@ private:
     juce::CriticalSection recLock;
     std::atomic<juce::int64> recSamples { 0 };
     double lastRate = 0;
+    std::vector<float> phoneBuf;
+    int ccLast[16][128] = {};
     juce::File setupFile() const;
 };
 

@@ -33,6 +33,7 @@ target_sources(ARCO PRIVATE
     Source/Engine/Engine.cpp
     Source/Model/Model.cpp
     Source/App/AudioHost.cpp
+    Source/App/PhoneLink.cpp
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp)
 

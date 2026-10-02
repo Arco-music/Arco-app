@@ -38,6 +38,10 @@ static void addNode(Engine*, std::vector<std::unique_ptr<IModule>>& mods, std::m
 
 void Engine::prepare(double sampleRate) {
     sr = sampleRate;
+    fifoMode = false; accN = 0; outQ = 0;
+    for (auto& v : accIn) v.assign(SUB, 0.0f);
+    for (auto& v : qOut) v.assign(SUB, 0.0f);
+    accPhone.assign(SUB, 0.0f);
     mods.clear(); busToMod.clear(); graph.clear(); bus.clear();
     // ---- the shared buffers (sizes like the patch: 40 s loops, 2.3 s of pitch, 22 ms wave screens)
     auto mk = [&](const std::string& n, long frames, long ch) { auto& b = bufs[n]; b.name = n; b.resize(frames, ch); };
@@ -164,11 +168,42 @@ Ring& Engine::ring(const std::string& n) { return rings[n]; }
 void Engine::process(const float* const* in, int numIn, float* const* out, int numOut, int numSamples) {
     auto t0 = std::chrono::steady_clock::now();
     for (int c = 0; c < numOut; ++c) if (out[c]) std::memset(out[c], 0, sizeof(float) * (size_t) numSamples);
-    for (int off = 0; off < numSamples; off += SUB) runSub(in, numIn, out, numOut, off, std::min(SUB, numSamples - off));
+    if (!fifoMode && numSamples % SUB != 0) { fifoMode = true; accN = 0; outQ = SUB; for (auto& q : qOut) std::fill(q.begin(), q.end(), 0.0f); }
+    if (fifoMode) processFifo(in, numIn, out, numOut, numSamples);
+    else for (int off = 0; off < numSamples; off += SUB) runSub(in, numIn, out, numOut, off, SUB);
     double used = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     double avail = numSamples / sr;
     float c = (float) (used / std::max(1e-9, avail));
     cpu.store(cpu.load() * 0.9f + c * 0.1f);
+}
+
+void Engine::processFifo(const float* const* in, int numIn, float* const* out, int numOut, int numSamples) {
+    numIn = std::min(numIn, MAXIO); numOut = std::min(numOut, MAXIO);
+    const float* phoneSrc = phoneData;
+    const float* ip[MAXIO]; float* op[MAXIO];
+    for (int c = 0; c < MAXIO; ++c) { ip[c] = accIn[c].data(); op[c] = qOut[c].data(); }
+    int i = 0;
+    while (i < numSamples) {
+        // hand out what is ready (the block computed last time)
+        if (outQ > 0) {
+            int k = std::min(outQ, numSamples - i), from = SUB - outQ;
+            for (int c = 0; c < numOut; ++c) if (out[c]) std::memcpy(out[c] + i, qOut[c].data() + from, sizeof(float) * (size_t) k);
+            // collect the same stretch of input
+            for (int c = 0; c < numIn; ++c) {
+                if (in[c]) std::memcpy(accIn[c].data() + accN, in[c] + i, sizeof(float) * (size_t) k);
+                else std::memset(accIn[c].data() + accN, 0, sizeof(float) * (size_t) k);
+            }
+            if (phoneSrc) std::memcpy(accPhone.data() + accN, phoneSrc + i, sizeof(float) * (size_t) k);
+            accN += k; outQ -= k; i += k;
+        }
+        if (accN == SUB) {                      // a full block of input: compute the next block of output
+            for (int c = 0; c < numOut; ++c) std::memset(qOut[c].data(), 0, sizeof(float) * SUB);
+            phoneData = phoneSrc ? accPhone.data() : nullptr;
+            runSub(ip, numIn, op, numOut, 0, SUB);
+            accN = 0; outQ = SUB;
+        }
+    }
+    phoneData = phoneSrc;
 }
 
 void Engine::runSub(const float* const* in, int numIn, float* const* out, int numOut, int off, int n) {
@@ -182,7 +217,9 @@ void Engine::runSub(const float* const* in, int numIn, float* const* out, int nu
     for (int j = 0; j < 4; ++j) {
         float* d = B("live_in" + std::to_string(j + 1));
         int ch = inputChannel[j].load();
-        if (in != nullptr && ch >= 0 && ch < numIn && in[ch] != nullptr) { std::memcpy(d, in[ch] + off, sizeof(float) * (size_t) n);
+        if (phoneData != nullptr && phoneLive.load() == j + 1) { std::memcpy(d, phoneData + off, sizeof(float) * (size_t) n);
+            if (n < SUB) std::memset(d + n, 0, sizeof(float) * (size_t) (SUB - n)); }
+        else if (in != nullptr && ch >= 0 && ch < numIn && in[ch] != nullptr) { std::memcpy(d, in[ch] + off, sizeof(float) * (size_t) n);
             if (n < SUB) std::memset(d + n, 0, sizeof(float) * (size_t) (SUB - n)); }
         else std::memset(d, 0, sizeof(float) * SUB);
     }

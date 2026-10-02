@@ -17,6 +17,9 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
 
 AudioHost::~AudioHost() {
     if (live) saveSetup();
+    devices.removeMidiInputDeviceCallback({}, this);
+    phone.disconnect();
+    micOut.stop();
     stopRecording();
     devices.removeAudioCallback(this);
     devices.closeAudioDevice();
@@ -29,6 +32,7 @@ juce::File AudioHost::setupFile() const {
 
 void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     double r = d->getCurrentSampleRate();
+    phoneBuf.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f);
     if (r != lastRate) {                     // a new sample rate: the engine starts again (loops are kept only at the same rate)
         lastRate = r;
         engine.prepare(r);
@@ -44,7 +48,55 @@ void AudioHost::handleAsyncUpdate() {
 
 void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n,
                                                  const juce::AudioIODeviceCallbackContext&) {
+    if (micMode.load()) {                        // iPhone / iPad as a microphone for the Mac: only send
+        if (numIn > 0 && in[0] != nullptr) micOut.push(in[0], n, lastRate > 0 ? lastRate : 48000.0);
+        for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], n);
+        return;
+    }
+    if (phoneLive > 0 && phone.connected() && (int) phoneBuf.size() >= n) {
+        phone.pull(phoneBuf.data(), n, lastRate);
+        engine.phoneData = phoneBuf.data();
+    } else engine.phoneData = nullptr;
     engine.process(in, numIn, out, numOut, n);
+}
+
+// ------------------------------------------------------------------ pedals and keys
+void AudioHost::doAction(int a) {
+    static const char* cmd[NumActions] = { "recnext", "playstop", "undo", "scnext" };
+    if (a < 0 || a >= NumActions) return;
+    model.press("st_looper", cmd[a]);
+    if (onAction) onAction(a);
+}
+
+juce::String AudioHost::pedalText(const Pedal& p) {
+    if (p.type == 1) return "note " + juce::MidiMessage::getMidiNoteName(p.num, true, true, 4) + " ch" + juce::String(p.ch);
+    if (p.type == 2) return "CC " + juce::String(p.num) + " ch" + juce::String(p.ch);
+    return "-";
+}
+
+void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) {
+    int type = 0, num = 0, ch = m.getChannel();
+    if (m.isNoteOn()) { type = 1; num = m.getNoteNumber(); }
+    else if (m.isController()) {
+        int c = m.getControllerNumber(), v = m.getControllerValue(), was = ccLast[(ch - 1) & 15][c & 127];
+        ccLast[(ch - 1) & 15][c & 127] = v;
+        if (v >= 64 && was < 64) { type = 2; num = c; }      // a footswitch going down
+    }
+    if (type == 0) return;
+    int l = learning.load();
+    if (l >= 0) {
+        learning.store(-1);
+        juce::MessageManager::callAsync([this, l, type, num, ch] { pedal[l] = { type, num, ch }; saveSetup(); });
+        return;
+    }
+    for (int a = 0; a < NumActions; ++a)
+        if (pedal[a].type == type && pedal[a].num == num && pedal[a].ch == ch)
+            juce::MessageManager::callAsync([this, a] { doAction(a); });
+}
+
+void AudioHost::scanMidi() {                     // every MIDI keyboard / pedal that is plugged in is listened to
+    for (auto& d : juce::MidiInput::getAvailableDevices())
+        if (!devices.isMidiInputDeviceEnabled(d.identifier)) devices.setMidiInputDeviceEnabled(d.identifier, true);
 }
 
 void AudioHost::applyRouting() {
@@ -211,6 +263,11 @@ void AudioHost::saveSetup() {
     juce::Array<juce::var> g;
     for (int s = 0; s < 14; ++s) for (int k = 0; k < NSPK; ++k) if (engine.grid[s][k].load() > 0) { g.add(s); g.add(k); }
     o->setProperty("grid", g);
+    o->setProperty("phoneLive", phoneLive);
+    o->setProperty("phoneWifi", phoneWifi);
+    o->setProperty("phoneMode", (int) phone.mode());
+    juce::Array<juce::var> pd; for (auto& p : pedal) { pd.add(p.type); pd.add(p.num); pd.add(p.ch); }
+    o->setProperty("pedals", pd);
     if (auto xml = devices.createStateXml()) o->setProperty("audio", xml->toString());
     f.replaceWithText(juce::JSON::toString(juce::var(o)));
 }
@@ -226,11 +283,22 @@ void AudioHost::loadSetup(bool openDevice) {
         speakerLayout = (int) v.getProperty("layout", 0);
         Theme::lightMode() = (int) v.getProperty("theme", 0) == 1;
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
+        setPhoneLive(juce::jlimit(0, 4, (int) v.getProperty("phoneLive", 0)));
+        phoneWifi = v.getProperty("phoneWifi", "").toString();
+        if (auto* pd = v["pedals"].getArray())
+            for (int a = 0; a < NumActions && a * 3 + 2 < pd->size(); ++a) pedal[a] = { (int) (*pd)[a * 3], (int) (*pd)[a * 3 + 1], (int) (*pd)[a * 3 + 2] };
+        if (openDevice && phoneLive > 0) {
+            int pm = (int) v.getProperty("phoneMode", 0);
+            if (pm == MicReceiver::Usb) phone.connect(MicReceiver::Usb);
+            else if (pm == MicReceiver::WiFi && phoneWifi.isNotEmpty()) phone.connect(MicReceiver::WiFi, phoneWifi);
+        }
         if (v["audio"].isString()) xml = juce::parseXML(v["audio"].toString());
     }
     if (openDevice) {
         devices.initialise(4, 34, xml.get(), true);
         devices.addAudioCallback(this);
+        devices.addMidiInputDeviceCallback({}, this);
+        scanMidi();
     }
     applyRouting(); applySpeakers();
 }

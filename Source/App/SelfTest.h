@@ -130,6 +130,59 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
     h.setSynthInto(2);
     float big = run(10.0, 0.5f);
     check(!nan && big < 4.0f, "all effects + synth + drums for 10 s: clean", big);
+    // odd buffer sizes (Bluetooth, some interfaces): same sound and same timing as with 512, only 64 samples later
+    {
+        auto render = [&](int bs, std::vector<float>& outv, float& lph) {
+            Engine e2; e2.prepare(48000); e2.inputChannel[0].store(0);
+            std::vector<float> a((size_t) bs), q[34]; for (auto& v : q) v.assign((size_t) bs, 0);
+            float* oo[34]; for (int i = 0; i < 34; ++i) oo[i] = q[i].data();
+            const float* ii[1] = { a.data() };
+            long total = 0; outv.clear();
+            while (total < 48000 * 2) {
+                for (int i = 0; i < bs; ++i) a[(size_t) i] = 0.3f * (float) std::sin(2 * M_PI * 300.0 * (double) (total + i) / 48000);
+                e2.process(ii, 1, oo, 34, bs);
+                outv.insert(outv.end(), q[0].begin(), q[0].end());
+                total += bs;
+            }
+            lph = e2.snap("lphase").v.load();
+        };
+        std::vector<float> ref; float lref; render(512, ref, lref);
+        for (int bs : { 480, 37, 1000 }) {
+            std::vector<float> o2; float l2; render(bs, o2, l2);
+            double maxd = 0, pkk = 0;
+            for (size_t i = 4800; i + 64 < std::min(ref.size(), o2.size()) && i < 90000; ++i) { maxd = std::max(maxd, (double) std::abs(ref[i] - o2[i + 64])); pkk = std::max(pkk, (double) std::abs(ref[i])); }
+            juce::String what = "buffer " + juce::String(bs) + ": same sound and timing as 512";
+            check(pkk > 0.05 && maxd < 1e-3, what.toRawUTF8(), maxd);
+        }
+    }
+    // phone microphone: a sender (as on the iPhone, 44.1 kHz) and the receiver (as on the Mac, 48 kHz) over the network
+    {
+        MicSender snd; MicReceiver rcv;
+        snd.start(); juce::Thread::sleep(200);
+        rcv.connect(MicReceiver::WiFi, "127.0.0.1");
+        const double sr = 44100.0, outSr = 48000.0; const int bn = 256, on = 256;
+        std::vector<float> x(bn), y(on), all;
+        double ph2 = 0; int blocksIn = 0;
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        // real time: the phone sends a 441 Hz tone; the Mac pulls in its own blocks
+        double inClock = 0, outClock = 0; int dAt2 = -1;
+        while (juce::Time::getMillisecondCounterHiRes() - t0 < 4000) {
+            double now = (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0;
+            while (inClock < now) { for (auto& v : x) { v = 0.5f * (float) std::sin(ph2); ph2 += 2 * M_PI * 441.0 / sr; } snd.push(x.data(), bn, sr); inClock += bn / sr; ++blocksIn; }
+            while (outClock < now) { int d0 = rcv.dropouts.load(); rcv.pull(y.data(), on, outSr); if (outClock > 2.0 && dAt2 < 0) dAt2 = rcv.dropouts.load(); if (outClock > 2.0) all.insert(all.end(), y.begin(), y.end()); outClock += on / outSr;
+                if (std::getenv("ARCO_DEBUG") && rcv.dropouts.load() != d0) std::printf("    dropout at %.3f s (in %.3f) buffer %.1f ms\n", outClock, inClock, rcv.delayMs.load()); }
+            juce::Thread::sleep(1);
+        }
+        check(rcv.connected(), "PHONE MIC: the Mac finds the phone (Wi-Fi)");
+        int zc = 0; for (size_t i = 1; i < all.size(); ++i) if ((all[i - 1] < 0) != (all[i] < 0)) ++zc;
+        double hz = zc / 2.0 / (all.size() / outSr);
+        float pkr = 0; for (auto v : all) pkr = std::max(pkr, std::abs(v));
+        check(std::abs(hz - 441.0) < 4.0 && pkr > 0.4f, "  the tone arrives at the right pitch (Hz)", hz);
+        check(rcv.delayMs.load() < 30.0f, "  the buffer adds only a few ms", rcv.delayMs.load());
+        check(rcv.dropouts.load() - dAt2 == 0, "  no dropouts once settled (2 s of sound)", rcv.dropouts.load() - dAt2);
+        // through the engine: phone on LIVE 2
+        rcv.disconnect(); snd.stop();
+    }
     // ring numbering
     {
         for (auto k : { "halo0", "shd0", "dly0", "spc0", "rev0", "cho0", "grn0", "res0", "frz0", "fxb0", "orb0" }) m.set(k, 0);

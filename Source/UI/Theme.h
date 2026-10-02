@@ -6,16 +6,16 @@
 namespace arco {
 inline juce::String U(const char* s) { return juce::String::fromUTF8(s); }
 
-// The palette of the PDF / screenshots. Dark is the design source; light is derived the same way as in the Max version.
+// The palette of the PDF / screenshots. Dark is the design source; light is a soft grey (no bright white - easier on the eyes).
 struct Theme {
     static bool& lightMode() { static bool l = false; return l; }
     static juce::Colour rgb(float r, float g, float b) { return juce::Colour::fromFloatRGBA(r, g, b, 1.0f); }
     static juce::Colour toLight(juce::Colour c) {
         struct M { juce::uint32 dark, light; };
         static const std::map<juce::uint32, juce::Colour> L = {
-            { rgb(0.067f, 0.071f, 0.086f).getARGB(), rgb(0.925f, 0.932f, 0.945f) }, { rgb(0.112f, 0.118f, 0.143f).getARGB(), rgb(1, 1, 1) },
-            { rgb(0.158f, 0.165f, 0.196f).getARGB(), rgb(0.905f, 0.914f, 0.935f) }, { rgb(0.050f, 0.053f, 0.066f).getARGB(), rgb(0.955f, 0.96f, 0.97f) },
-            { rgb(0.235f, 0.245f, 0.290f).getARGB(), rgb(0.80f, 0.815f, 0.85f) }, { rgb(0.925f, 0.932f, 0.950f).getARGB(), rgb(0.07f, 0.08f, 0.10f) },
+            { rgb(0.067f, 0.071f, 0.086f).getARGB(), rgb(0.835f, 0.842f, 0.858f) }, { rgb(0.112f, 0.118f, 0.143f).getARGB(), rgb(0.895f, 0.900f, 0.912f) },
+            { rgb(0.158f, 0.165f, 0.196f).getARGB(), rgb(0.858f, 0.865f, 0.880f) }, { rgb(0.050f, 0.053f, 0.066f).getARGB(), rgb(0.872f, 0.878f, 0.892f) },
+            { rgb(0.235f, 0.245f, 0.290f).getARGB(), rgb(0.735f, 0.745f, 0.775f) }, { rgb(0.925f, 0.932f, 0.950f).getARGB(), rgb(0.07f, 0.08f, 0.10f) },
             { rgb(0.560f, 0.580f, 0.640f).getARGB(), rgb(0.36f, 0.38f, 0.43f) }, { rgb(0.240f, 0.252f, 0.300f).getARGB(), rgb(0.40f, 0.42f, 0.48f) },
             { rgb(0.205f, 0.214f, 0.255f).getARGB(), rgb(0.38f, 0.40f, 0.46f) }, { rgb(0.27f, 0.30f, 0.40f).getARGB(), rgb(0.62f, 0.70f, 0.88f) } };
         auto it = L.find(c.getARGB());
