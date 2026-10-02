@@ -21,7 +21,7 @@ public:
             updater->onChecked = [this](const juce::String& m, int b, const juce::String& n) {
                 std::printf("update check: %s, latest build %d (this is %d)\n%s\n", m.toRawUTF8(), b, arco::Updater::build(), n.substring(0, 200).toRawUTF8());
                 std::fflush(stdout); quit(); };
-            updater->check(); return;
+            if (cmd.contains("--install")) { updater->onProgress = [](const juce::String& m) { std::printf("  %s\n", m.toRawUTF8()); std::fflush(stdout); }; updater->install(); } else updater->check(); return;
         }
         if (cmd.contains("--selftest")) {
             auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("ARCO selftest");

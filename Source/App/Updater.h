@@ -102,10 +102,11 @@ private:
             "while kill -0 " + juce::String((int) ::getpid()) + " 2>/dev/null; do sleep 0.3; done\n"
             "cd \"" + tmp.getFullPathName() + "\" && /usr/bin/ditto -x -k ARCO-mac.zip new || exit 1\n"
             "[ -d new/ARCO.app ] || exit 1\n"
-            "rm -rf \"" + app.getFullPathName() + ".old\"\n"
-            "mv \"" + app.getFullPathName() + "\" \"" + app.getFullPathName() + ".old\" && /usr/bin/ditto new/ARCO.app \"" + app.getFullPathName() + "\" && rm -rf \"" + app.getFullPathName() + ".old\"\n"
-            "/usr/bin/xattr -cr \"" + app.getFullPathName() + "\"\n"
-            "open \"" + app.getFullPathName() + "\"\n");
+            "/usr/bin/xattr -cr new/ARCO.app\n"
+            "A=\"" + app.getFullPathName() + "\"\n"
+            "rm -rf \"$A.old\"\n"
+            "if mv \"$A\" \"$A.old\" && /usr/bin/ditto new/ARCO.app \"$A\"; then rm -rf \"$A.old\"; /usr/bin/xattr -cr \"$A\"; open \"$A\"\n"
+            "else [ -d \"$A.old\" ] && [ ! -d \"$A\" ] && mv \"$A.old\" \"$A\"; open new/ARCO.app; fi\n");   // could not replace it: start the new one from here
         std::system(("nohup /bin/bash \"" + script.getFullPathName() + "\" >/dev/null 2>&1 &").toRawUTF8());
         post([] { juce::JUCEApplication::getInstance()->systemRequestedQuit(); });
        #else

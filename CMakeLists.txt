@@ -43,8 +43,16 @@ target_sources(ARCO PRIVATE
     Source/UI/SynthPanel.cpp)
 
 target_compile_definitions(ARCO PRIVATE
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"
+    JUCE_WEB_BROWSER=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ARCO,JUCE_VERSION>" JUCE_DISPLAY_SPLASH_SCREEN=0 ARCO_BUILD=${ARCO_BUILD})
+if(UNIX AND NOT APPLE)
+  # the Linux test build reaches the internet through curl (the Mac uses Apple's own networking)
+  find_package(CURL REQUIRED)
+  target_compile_definitions(ARCO PRIVATE JUCE_USE_CURL=1)
+  target_link_libraries(ARCO PRIVATE CURL::libcurl)
+else()
+  target_compile_definitions(ARCO PRIVATE JUCE_USE_CURL=0)
+endif()
 if(MSVC)
 else()
   target_compile_options(ARCO PRIVATE -O3 -ffast-math -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-parameter)
