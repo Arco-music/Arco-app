@@ -1,0 +1,115 @@
+name: Build SCORE
+on:
+  push:
+    branches: [main]
+    paths: ["Score/**", ".github/workflows/build-score.yml", "Resources/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+      - name: Configure
+        run: cmake -S Score -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DARCO_BUILD=${{ github.run_number }}
+      - name: Build
+        run: cmake --build build --target SCORE -j 4
+      - name: Sign (ad-hoc) and pack
+        run: |
+          APP=$(find build -name "SCORE.app" -path "*Release*" | head -1)
+          cat > ent.plist <<'PL'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>com.apple.security.device.audio-input</key><true/></dict></plist>
+          PL
+          codesign --force --deep --options runtime --entitlements ent.plist -s - "$APP"
+          codesign --verify --deep --strict "$APP"
+          lipo -info "$APP/Contents/MacOS/SCORE"
+          mkdir -p dist && ditto -c -k --keepParent "$APP" dist/SCORE-mac.zip
+      - name: Self-test (Mac)
+        run: |
+          APP=$(find build -name "SCORE.app" -path "*Release*" | head -1)
+          "$APP/Contents/MacOS/SCORE" --selftest | tee dist/selftest-mac.txt
+          grep -q "ALL GOOD" dist/selftest-mac.txt
+      - name: Screenshots
+        run: |
+          APP=$(find build -name "SCORE.app" -path "*Release*" | head -1)
+          for v in arrange line mixer nova drums editor; do "$APP/Contents/MacOS/SCORE" --screenshot "$PWD/dist/screen-$v.png" $v devices || true; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SCORE-mac
+          path: dist/
+
+  ipad:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+      - name: Make the Xcode project for iPad / iPhone
+        run: |
+          cmake -S Score -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DARCO_BUILD=${{ github.run_number }} \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO
+      - name: Build for the device (unsigned - Sideloadly signs it with your Apple ID)
+        run: |
+          xcodebuild -project build-ios/SCORE.xcodeproj -target SCORE -configuration Release -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/out/device" -quiet build
+          ls out/device
+      - name: Build for the iPad simulator
+        run: |
+          xcodebuild -project build-ios/SCORE.xcodeproj -target SCORE -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$PWD/out/sim" -quiet build
+          ls out/sim
+      - name: Self-test on an iPad (simulator)
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          ids=[x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPad' in x['name']]
+          print(ids[-1] if ids else '')")
+          echo "iPad simulator: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          APP=$(find out/sim -maxdepth 2 -name "SCORE.app" | head -1)
+          xcrun simctl install "$UDID" "$APP"
+          mkdir -p dist
+          ( xcrun simctl launch --console-pty "$UDID" com.pacello.score --selftest 2>&1 | tee dist/selftest-ipad.txt ) &
+          for i in $(seq 1 150); do sleep 2; grep -q "failed)" dist/selftest-ipad.txt 2>/dev/null && break; done
+          sleep 2
+          tail -8 dist/selftest-ipad.txt
+          grep -q "ALL GOOD" dist/selftest-ipad.txt
+      - name: Pack SCORE.ipa (for Sideloadly)
+        run: |
+          APP=$(find out/device -maxdepth 2 -name "SCORE.app" | head -1)
+          mkdir -p ipa/Payload dist
+          cp -R "$APP" ipa/Payload/
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ipa/Payload/SCORE.app/Info.plist
+          cd ipa && zip -qry ../dist/SCORE.ipa Payload && cd ..
+          unzip -l dist/SCORE.ipa | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SCORE-ipad
+          path: dist/
+
+  release:
+    needs: [mac, ipad]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Publish the SCORE release (private; ARCO keeps the "latest" release for its update button)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(cat Score/VERSION)
+          TAG="score-v$V-b${{ github.run_number }}"
+          git log -1 --pretty=%B > notes.txt
+          gh release create "$TAG" out/SCORE-mac/SCORE-mac.zip out/SCORE-ipad/SCORE.ipa Score/docs/SCORE-guide.pdf \
+            --title "SCORE $V (build ${{ github.run_number }})" --notes-file notes.txt --latest=false

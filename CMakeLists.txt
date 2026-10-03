@@ -60,3 +60,6 @@ endif()
 target_link_libraries(ARCO PRIVATE ARCOData
     juce::juce_audio_utils juce::juce_audio_devices juce::juce_audio_formats juce::juce_gui_extra
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# the composition app
+add_subdirectory(Score)

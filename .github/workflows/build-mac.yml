@@ -2,6 +2,7 @@ name: Build ARCO
 on:
   push:
     branches: [main]
+    paths-ignore: ["Score/**", ".github/workflows/build-score.yml"]
   workflow_dispatch:
 
 permissions:
