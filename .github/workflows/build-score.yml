@@ -59,15 +59,19 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -project build-ios/SCORE.xcodeproj -target SCORE -configuration Release -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/out/device" build > build-device.log 2>&1 || {
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build > build-device.log 2>&1 || {
               grep -E "error:|\*\* BUILD FAILED|ld: " build-device.log | sort -u | head -25 | while read -r l; do echo "::error::$l"; done; tail -40 build-device.log; exit 1; }
-          ls out/device
+          APP=$(find build-ios -name "SCORE.app" -type d -not -path "*/Intermediates*" | head -1); echo "$APP"
+          mkdir -p out/device && rm -rf out/device/SCORE.app && cp -R "$APP" out/device/
+          file out/device/SCORE.app/SCORE
       - name: Build for the iPad simulator
         run: |
           xcodebuild -project build-ios/SCORE.xcodeproj -target SCORE -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$PWD/out/sim" build > build-sim.log 2>&1 || {
+            CODE_SIGNING_ALLOWED=NO build > build-sim.log 2>&1 || {
               grep -E "error:|ld: " build-sim.log | sort -u | head -25 | while read -r l; do echo "::error::$l"; done; tail -40 build-sim.log; exit 1; }
-          ls out/sim
+          APP=$(find build-ios -name "SCORE.app" -type d -not -path "*/Intermediates*" | head -1); echo "$APP"
+          mkdir -p out/sim && cp -R "$APP" out/sim/
+          file out/sim/SCORE.app/SCORE
       - name: Self-test on an iPad (simulator)
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c "
