@@ -57,13 +57,16 @@ jobs:
             -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO
       - name: Build for the device (unsigned - Sideloadly signs it with your Apple ID)
         run: |
+          set -o pipefail
           xcodebuild -project build-ios/SCORE.xcodeproj -target SCORE -configuration Release -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/out/device" -quiet build
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/out/device" build > build-device.log 2>&1 || {
+              grep -E "error:|\*\* BUILD FAILED|ld: " build-device.log | sort -u | head -25 | while read -r l; do echo "::error::$l"; done; tail -40 build-device.log; exit 1; }
           ls out/device
       - name: Build for the iPad simulator
         run: |
           xcodebuild -project build-ios/SCORE.xcodeproj -target SCORE -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$PWD/out/sim" -quiet build
+            CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$PWD/out/sim" build > build-sim.log 2>&1 || {
+              grep -E "error:|ld: " build-sim.log | sort -u | head -25 | while read -r l; do echo "::error::$l"; done; tail -40 build-sim.log; exit 1; }
           ls out/sim
       - name: Self-test on an iPad (simulator)
         run: |
