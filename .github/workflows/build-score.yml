@@ -120,3 +120,13 @@ jobs:
           git log -1 --pretty=%B > notes.txt
           gh release create "$TAG" out/SCORE-mac/SCORE-mac.zip out/SCORE-ipad/SCORE.ipa Score/docs/SCORE-guide.pdf \
             --title "SCORE $V (build ${{ github.run_number }})" --notes-file notes.txt --latest=false
+      - name: Keep the newest files on the score-downloads branch (easy to fetch with git)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir dl && cp out/SCORE-mac/SCORE-mac.zip out/SCORE-ipad/SCORE.ipa Score/docs/SCORE-guide.pdf dl/
+          cd dl
+          git init -q -b score-downloads
+          git config user.name "SCORE build"; git config user.email "actions@github.com"
+          git add . && git commit -qm "SCORE build ${{ github.run_number }}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" score-downloads
