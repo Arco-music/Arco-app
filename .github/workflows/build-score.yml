@@ -80,6 +80,7 @@ jobs:
           ids=[x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPad' in x['name']]
           print(ids[-1] if ids else '')")
           echo "iPad simulator: $UDID"
+          echo "UDID=$UDID" >> $GITHUB_ENV
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           APP=$(find out/sim -maxdepth 2 -name "SCORE.app" | head -1)
@@ -90,6 +91,29 @@ jobs:
           sleep 2
           tail -8 dist/selftest-ipad.txt
           grep -q "ALL GOOD" dist/selftest-ipad.txt
+      - name: Start the app like a person does (sound, demo, window, every view) on the iPad simulator
+        run: |
+          xcrun simctl privacy "$UDID" grant microphone com.pacello.score || true
+          ( xcrun simctl launch --console-pty "$UDID" com.pacello.score --uitest 2>&1 | tee dist/uitest-ipad.txt ) &
+          for i in $(seq 1 60); do sleep 2; grep -q "UITEST OK" dist/uitest-ipad.txt 2>/dev/null && break; done
+          grep "step:" dist/uitest-ipad.txt || true
+          if ! grep -q "UITEST OK" dist/uitest-ipad.txt; then
+            echo "::error::the app stopped after: $(grep 'step:' dist/uitest-ipad.txt | tail -1)"
+            ls -t ~/Library/Logs/DiagnosticReports/ | head -5
+            F=$(ls -t ~/Library/Logs/DiagnosticReports/SCORE* 2>/dev/null | head -1)
+            if [ -n "$F" ]; then
+              python3 - "$F" <<'PY'
+          import json,sys
+          t=open(sys.argv[1]).read(); parts=t.split('\n',1); d=json.loads(parts[1]) if len(parts)>1 else {}
+          ex=d.get('exception',{}); print('::error::crash', ex.get('type'), ex.get('signal'), d.get('termination',{}).get('indicator',''))
+          imgs=d.get('usedImages',[]); th=[x for x in d.get('threads',[]) if x.get('triggered')]
+          for f in (th[0]['frames'][:25] if th else []):
+              name=imgs[f['imageIndex']].get('name','?') if f.get('imageIndex',-1)<len(imgs) else '?'
+              print('::error::  '+name+'  '+f.get('symbol','?')+' +'+str(f.get('symbolLocation','')))
+          PY
+            fi
+            exit 1
+          fi
       - name: Pack SCORE.ipa (for Sideloadly)
         run: |
           APP=$(find out/device -maxdepth 2 -name "SCORE.app" | head -1)

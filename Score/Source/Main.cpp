@@ -23,12 +23,44 @@ public:
             setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return;
         }
         if (cmd.contains("--screenshot")) { screenshot(cmd); return; }
+        bool ui = cmd.contains("--uitest");
+        auto step = [ui](const char* s) { if (ui) { std::printf("step: %s\n", s); std::fflush(stdout); } };
+        step("host ready");
         if (!host->recent.isEmpty() && juce::File(host->recent[0]).getChildFile("project.json").existsAsFile()) host->openProject(juce::File(host->recent[0]));
         else if (firstRun()) { score::makeDemo(*host); host->saveProjectAs("Demo"); }
+        step("piece ready");
         window = std::make_unique<MainWindow>(*host);
+        step("window open");
+        if (ui) { uiTest(); return; }
         if (cmd.isNotEmpty()) anotherInstanceStarted(cmd);
     }
     void shutdown() override { window = nullptr; host = nullptr; }
+
+    // SCORE --uitest: the normal start (sound card, demo, window), then every view and window once, then quit
+    void uiTest() {
+        auto* mc = dynamic_cast<score::MainView*>(window->getContentComponent());
+        auto say = [](const char* s) { std::printf("step: %s\n", s); std::fflush(stdout); };
+        struct Step { int ms; std::function<void()> f; };
+        auto steps = std::make_shared<std::vector<Step>>();
+        auto& p = *host->project;
+        steps->push_back({ 1500, [=] { say("play"); host->play(); } });
+        steps->push_back({ 1500, [=] { say("score line"); mc->setView(1); } });
+        steps->push_back({ 800, [=] { say("go"); host->stations.perform = true; host->stations.go(); } });
+        steps->push_back({ 800, [=] { say("mixer"); mc->setView(2); } });
+        steps->push_back({ 800, [=, &p] { say("nova"); mc->setView(0); for (auto& t : p.tracks) if (t->inst && t->inst->type == "nova") { mc->openInstrument(t->id); break; } } });
+        steps->push_back({ 800, [=, &p] { say("drums"); for (auto& t : p.tracks) if (t->inst && t->inst->type == "drm") { mc->openInstrument(t->id); break; } } });
+        steps->push_back({ 800, [=] { say("settings"); mc->showOverlay(new score::SettingsPanel()); } });
+        steps->push_back({ 800, [=] { say("export"); mc->closeOverlay(); mc->showOverlay(new score::ExportPanel()); } });
+        steps->push_back({ 800, [=] { say("stop"); mc->closeOverlay(); host->stop(); } });
+        steps->push_back({ 500, [] { std::printf("UITEST OK\n"); std::fflush(stdout);
+                                      #if JUCE_IOS
+                                       std::exit(0);
+                                      #endif
+                                       juce::JUCEApplication::quit(); } });
+        auto run = std::make_shared<std::function<void(size_t)>>();
+        *run = [steps, run](size_t i) { if (i >= steps->size()) return; juce::Timer::callAfterDelay((*steps)[i].ms, [steps, run, i] { (*steps)[i].f(); (*run)(i + 1); }); };
+        (*run)(0);
+    }
 
     static bool firstRun() {
         auto f = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("SCORE").getChildFile("welcomed");
