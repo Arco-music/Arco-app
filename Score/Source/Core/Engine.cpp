@@ -371,9 +371,9 @@ GraphPtr buildGraph(const Project& p, Engine& e) {
     std::map<Uid, int> index; for (size_t i = 0; i < p.tracks.size(); ++i) index[p.tracks[i]->id] = (int) i;
     auto make = [&](const TrackPtr& tp) {
         GTrack gt; gt.track = tp; gt.t = tp.get(); gt.rt = e.runtime(tp->id); gt.kind = tp->kind;
-        if (tp->inst) { if (!tp->inst->isPrepared(e.sr)) tp->inst->prepare(e.sr, MAXB); for (auto* x : tp->inst->internalEffects()) prepFx(x); gt.inst = tp->inst.get(); }
-        for (auto& x : tp->fx) { prepFx(x.get()); gt.fx.push_back(x.get()); }
-        gt.mix = tp->mix.get();
+        if (tp->inst) { g->hold.push_back(tp->inst); if (!tp->inst->isPrepared(e.sr)) tp->inst->prepare(e.sr, MAXB); for (auto* x : tp->inst->internalEffects()) prepFx(x); gt.inst = tp->inst.get(); }
+        for (auto& x : tp->fx) { g->hold.push_back(x); prepFx(x.get()); gt.fx.push_back(x.get()); }
+        g->hold.push_back(tp->mix); gt.mix = tp->mix.get();
         gt.solo = tp->solo; gt.arm = tp->arm; gt.monitor = tp->monitor; gt.inType = tp->inType; gt.inCh = tp->inCh; gt.recMode = tp->recMode;
         gt.follow = tp->follow; gt.followOct = tp->followOct;
         if (tp->inType == InputType::Track) { auto it = index.find(tp->inTrack); gt.inTrack = it == index.end() ? -1 : it->second; }
@@ -391,7 +391,7 @@ GraphPtr buildGraph(const Project& p, Engine& e) {
                 }
                 std::sort(gc.notes.begin(), gc.notes.end(), [](const GNote& a, const GNote& b) { return a.s < b.s; });
             }
-            for (auto& x : c->fx) { prepFx(x.get()); gc.fx.push_back(x.get()); }
+            for (auto& x : c->fx) { g->hold.push_back(x); prepFx(x.get()); gc.fx.push_back(x.get()); }
             gt.clips.push_back(std::move(gc));
         }
         std::sort(gt.clips.begin(), gt.clips.end(), [](const GClip& a, const GClip& b) { return a.s < b.s; });

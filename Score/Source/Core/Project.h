@@ -152,6 +152,9 @@ public:
 
     // ---- saving (JSON). Audio is not in the JSON, only the file names.
     juce::var toVar() const;
+    // tracks and clips that were removed or replaced, kept alive for a while (the screen may still point at them)
+    std::vector<std::shared_ptr<void>> retired;
+    void retire();
     // reads a piece; objects (effects, instruments, clips, sources) of `old` with the same ids are reused, so nothing restarts
     bool fromVar(const juce::var& v, const Project* old, std::function<SourcePtr(const juce::String&)> loadSource);
 };

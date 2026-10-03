@@ -61,6 +61,7 @@ public:
     bool live = true;
     Engine engine;
     std::shared_ptr<Project> project;
+    std::vector<std::shared_ptr<Project>> previous;   // pieces that were open before (the screen may still point into them for a moment)
     StationPlayer stations { *this };
     juce::AudioDeviceManager devices;
     juce::AudioFormatManager formats;
@@ -164,6 +165,7 @@ public:
                                           const juce::AudioIODeviceCallbackContext&) override;
     void audioDeviceAboutToStart(juce::AudioIODevice* d) override;
     void audioDeviceStopped() override {}
+    void changeRate(double r);             // a new sample rate: everything prepared again, sounds converted again
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) override;
     void scanMidi();
     std::atomic<int> testTone { 0 };

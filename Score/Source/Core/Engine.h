@@ -59,6 +59,7 @@ struct Graph {
     double sr = 48000, bpm = 120, spb = 24000; int bpb = 4; bool anySolo = false;
     bool metro = false; float metroGain = 0.25f;
     std::shared_ptr<Project> keep;     // (not used by the audio thread)
+    std::vector<std::shared_ptr<void>> hold;   // everything this graph plays stays alive as long as the graph
 };
 using GraphPtr = std::shared_ptr<const Graph>;
 

@@ -44,6 +44,9 @@ public:
         auto steps = std::make_shared<std::vector<Step>>();
         auto& p = *host->project;
         steps->push_back({ 1500, [=] { say("play"); host->play(); } });
+        steps->push_back({ 800, [=] { say("new sample rate"); host->changeRate(44100.0); } });
+        steps->push_back({ 800, [=] { say("undo"); host->edit("test", [=] { auto& pr = *host->project; pr.tracks.push_back(pr.newTrack(score::TrackKind::Audio, "x")); }); host->undo(); } });
+        steps->push_back({ 800, [=] { say("delete a track"); host->edit("test", [=] { host->project->tracks.pop_back(); }); host->undo(); } });
         steps->push_back({ 1500, [=] { say("score line"); mc->setView(1); } });
         steps->push_back({ 800, [=] { say("go"); host->stations.perform = true; host->stations.go(); } });
         steps->push_back({ 800, [=] { say("mixer"); mc->setView(2); } });

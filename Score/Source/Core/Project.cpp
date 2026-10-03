@@ -40,6 +40,12 @@ std::vector<Track*> Project::allTracks() const {
     return v;
 }
 
+void Project::retire() {
+    for (auto& t : tracks) { retired.push_back(t); for (auto& c : t->clips) retired.push_back(c); }
+    for (auto* t : { &retA, &retB, &master }) if (*t) retired.push_back(*t);
+    if (retired.size() > 4000) retired.erase(retired.begin(), retired.begin() + (long) (retired.size() - 4000));
+}
+
 Track* Project::track(Uid id) const { for (auto* t : allTracks()) if (t->id == id) return t; return nullptr; }
 
 Clip* Project::clip(Uid id, Track** owner) const {
@@ -221,8 +227,12 @@ namespace {
 struct Reuse {
     std::map<Uid, std::shared_ptr<Effect>> fx; std::map<Uid, std::shared_ptr<Instrument>> inst; std::map<Uid, std::shared_ptr<Mixer>> mix;
     std::map<Uid, std::shared_ptr<ClipRT>> rt;
+    std::map<Uid, TrackPtr> tracks; std::map<Uid, ClipPtr> clips;     // the same objects stay (the screen keeps pointers to them)
     explicit Reuse(const Project* p) {
         if (!p) return;
+        for (auto& t : p->tracks) tracks[t->id] = t;
+        for (auto* t : { &p->retA, &p->retB, &p->master }) if (*t) tracks[(*t)->id] = *t;
+        for (auto& t : p->tracks) for (auto& c : t->clips) clips[c->id] = c;
         for (auto* t : p->allTracks()) {
             mix[t->mix->uid] = t->mix;
             for (auto& e : t->fx) fx[e->uid] = e;
@@ -290,8 +300,9 @@ bool Project::fromVar(const juce::var& v, const Project* old, std::function<Sour
         t.height = (float) (double) tv.getProperty("height", 76.0); t.showAuto = (bool) tv["showAuto"]; t.autoShown = tv["autoShown"].toString(); t.collapsed = (bool) tv["collapsed"];
         t.clips.clear();
         if (auto* a = tv["clips"].getArray()) for (auto& cv : *a) {
-            auto c = std::make_shared<Clip>();
-            c->id = (Uid) (int) cv["id"]; bumpUid(c->id); auto ri = r.rt.find(c->id); if (ri != r.rt.end()) c->rt = ri->second;
+            Uid cid = (Uid) (int) cv["id"];
+            ClipPtr c; if (auto ci = r.clips.find(cid); ci != r.clips.end()) { c = ci->second; *c = Clip(); } else c = std::make_shared<Clip>();
+            c->id = cid; bumpUid(c->id); auto ri = r.rt.find(c->id); if (ri != r.rt.end()) c->rt = ri->second;
             c->midi = (bool) cv["midi"]; c->name = cv["name"].toString(); c->colour = (juce::uint32) (int) cv["colour"]; c->muted = (bool) cv["muted"];
             c->start = (double) cv["start"]; c->length = (double) cv["length"];
             if (!c->midi) {
@@ -315,11 +326,14 @@ bool Project::fromVar(const juce::var& v, const Project* old, std::function<Sour
     key = (int) v["key"]; scale = (int) v["scale"];
     loopOn = (bool) v["loopOn"]; loopStart = (double) v["loopStart"]; loopEnd = (double) v.getProperty("loopEnd", 16.0);
     metro = (bool) v["metro"]; metroLevel = (float) (double) v.getProperty("metroLevel", -12.0); countIn = (int) v.getProperty("countIn", 1);
+    // everything that was here stays alive for a while: the screen may still point at it until it rebuilds
+    retire();
+    auto trackFor = [&](const juce::var& tv) { Uid id = (Uid) (int) tv["id"]; auto it = r.tracks.find(id); return it != r.tracks.end() ? it->second : std::make_shared<Track>(); };
     tracks.clear();
-    if (auto* a = v["tracks"].getArray()) for (auto& tv : *a) { auto t = std::make_shared<Track>(); readTrack(tv, t); tracks.push_back(t); }
-    if (v["retA"].isObject()) { retA = std::make_shared<Track>(); readTrack(v["retA"], retA); }
-    if (v["retB"].isObject()) { retB = std::make_shared<Track>(); readTrack(v["retB"], retB); }
-    if (v["master"].isObject()) { master = std::make_shared<Track>(); readTrack(v["master"], master); }
+    if (auto* a = v["tracks"].getArray()) for (auto& tv : *a) { auto t = trackFor(tv); readTrack(tv, t); tracks.push_back(t); }
+    if (v["retA"].isObject()) { retA = trackFor(v["retA"]); readTrack(v["retA"], retA); }
+    if (v["retB"].isObject()) { retB = trackFor(v["retB"]); readTrack(v["retB"], retB); }
+    if (v["master"].isObject()) { master = trackFor(v["master"]); readTrack(v["master"], master); }
     stations.clear();
     if (auto* a = v["stations"].getArray()) for (auto& sv : *a) {
         Station s; s.id = (Uid) (int) sv["id"]; bumpUid(s.id); s.name = sv["name"].toString(); s.note = sv["note"].toString(); s.beat = (double) sv["beat"];

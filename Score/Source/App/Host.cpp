@@ -91,6 +91,7 @@ juce::File Host::setupFile() const {
 // ======================================================================== editing, undo
 void Host::edit(const juce::String& what, std::function<void()> change, bool rb) {
     auto before = juce::JSON::toString(project->toVar(), true);
+    project->retire();
     change();
     undos.push_back({ what, before }); redos.clear();
     size_t total = 0; for (auto& u : undos) total += (size_t) u.second.length();
@@ -100,7 +101,7 @@ void Host::edit(const juce::String& what, std::function<void()> change, bool rb)
     sendChangeMessage();
 }
 
-void Host::beginGesture() { gestureBefore = juce::JSON::toString(project->toVar(), true); }
+void Host::beginGesture() { project->retire(); gestureBefore = juce::JSON::toString(project->toVar(), true); }
 void Host::endGesture(const juce::String& what, bool changed) {
     if (gestureBefore.isEmpty()) return;
     if (changed) { undos.push_back({ what, gestureBefore }); redos.clear(); dirty = true; }
@@ -169,6 +170,7 @@ void Host::newProject(bool demo) {
         p->stations.push_back(st);
         selTrack = a->id;
     }
+    if (project) { previous.push_back(project); if (previous.size() > 4) previous.erase(previous.begin()); }
     project = p;
     undos.clear(); redos.clear(); pool.clear(); selClip = 0; selClips.clear();
     stations.current = project->stations.empty() ? -1 : 0; stations.log.clear();
@@ -194,7 +196,7 @@ bool Host::openProject(const juce::File& sel) {
     engine.stop();
     auto p = std::make_shared<Project>();
     p->folder = folder;
-    auto old = project; project = p; pool.clear();
+    auto old = project; if (old) { previous.push_back(old); if (previous.size() > 4) previous.erase(previous.begin()); } project = p; pool.clear();
     if (!p->fromVar(v, nullptr, [this](const juce::String& f) { return loadSource(f); })) { project = old; say("the piece could not be read"); return false; }
     p->name = folder.getFileNameWithoutExtension();
     audioFolder().createDirectory();
@@ -631,23 +633,25 @@ void Host::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     double r = d->getCurrentSampleRate();
     if (std::abs(r - lastRate) > 0.5) {
         lastRate = r;
-        juce::MessageManager::callAsync([this, r] {
-            // a new sample rate: everything is prepared again, the sounds are converted again
-            engine.offline.store(true); juce::Thread::sleep(30);
-            engine.prepare(r);
-            pool.clear();
-            auto v = project->toVar();
-            project->fromVar(v, project.get(), [this](const juce::String& f) { return loadSource(f); });
-            for (auto* t : project->allTracks()) { for (auto& e : t->fx) e->prepare(r, MAXB); if (t->inst) { t->inst->prepare(r, MAXB); for (auto* e : t->inst->internalEffects()) e->prepare(r, MAXB); }
-                for (auto& c : t->clips) for (auto& e : c->fx) e->prepare(r, MAXB); }
-            rebuild(); ++structure;
-            engine.offline.store(false);
-            sendChangeMessage();
-        });
+        juce::MessageManager::callAsync([this, r] { changeRate(r); });
     }
    #if JUCE_IOS
     juce::MessageManager::callAsync([d] { d->setAudioPreprocessingEnabled(false); scorePreferBestMicrophone(); });
    #endif
+}
+
+void Host::changeRate(double r) {
+    // a new sample rate: everything is prepared again, the sounds are converted again
+    engine.offline.store(true); juce::Thread::sleep(30);
+    engine.prepare(r);
+    pool.clear();
+    auto v = project->toVar();
+    project->fromVar(v, project.get(), [this](const juce::String& f) { return loadSource(f); });
+    for (auto* t : project->allTracks()) { for (auto& e : t->fx) e->prepare(r, MAXB); if (t->inst) { t->inst->prepare(r, MAXB); for (auto* e : t->inst->internalEffects()) e->prepare(r, MAXB); }
+        for (auto& c : t->clips) for (auto& e : c->fx) e->prepare(r, MAXB); }
+    rebuild(); ++structure;
+    engine.offline.store(false);
+    sendChangeMessage();
 }
 
 void Host::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n, const juce::AudioIODeviceCallbackContext&) {
