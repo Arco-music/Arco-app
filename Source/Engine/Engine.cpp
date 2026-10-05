@@ -78,7 +78,14 @@ void Engine::prepare(double sampleRate) {
                      "spdk", "undoav", "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "pvw", "ntn", "sv_ntr", "lphase", "lscene", "imp_busy" } });
     addNode<Looper>(this, mods, busToMod, graph, b, "st_looper", { "live1", "live2", "live3", "live4", "pitch" }, LOUT);
     graph.push_back([this]() { std::memcpy(B("beat_prev"), B("beat"), sizeof(float) * SUB); });
-    addNode<Channels>(this, mods, busToMod, graph, b, "st_ch", cat({ { "live1", "live2", "live3", "live4" }, T, { "beat" } }),
+    {   // the mixing desk of every strip: high-pass, EQ, compressor (flat = skipped)
+        auto* sm = new StripMixMod(); mods.emplace_back(sm); busToMod["st_mix"] = (int) mods.size() - 1; sm->mx.init(sr); stripMix = &sm->mx;
+        std::array<const float*, 12> ip; std::array<float*, 12> op;
+        for (int i = 0; i < 4; ++i) { ip[(size_t) i] = B("live" + std::to_string(i + 1)); op[(size_t) i] = B("mx_l" + std::to_string(i + 1)); }
+        for (int i = 0; i < 8; ++i) { ip[(size_t) i + 4] = B("trk" + std::to_string(i + 1)); op[(size_t) i + 4] = B("mx_t" + std::to_string(i + 1)); }
+        graph.push_back([sm, ip, op]() mutable { sm->mx.process(ip.data(), op.data(), SUB); });
+    }
+    addNode<Channels>(this, mods, busToMod, graph, b, "st_ch", cat({ { "mx_l1", "mx_l2", "mx_l3", "mx_l4" }, names("mx_t", 1, 8), { "beat" } }),
                       cat({ CH, { "dryL", "dryR", "cueL", "cueR", "-", "to_cho", "to_dly", "to_rev", "to_fxb", "to_shd", "to_orb",
                                   "to_res", "to_grn", "to_frz", "to_spc", "fxused" } }));
     addNode<Halo>(this, mods, busToMod, graph, b, "st_halo", cat({ { "ch0" }, names("ch", 4, 11), { "pitch" }, TP }),
@@ -104,6 +111,11 @@ void Engine::prepare(double sampleRate) {
                     { "dryL", "dryR", "choL", "choR", "dlyL", "dlyR", "haloL", "haloR", "frzL", "frzR", "to_spc", "-",
                       "revL", "revR", "resL", "resR", "grnL", "grnR", "fxbL", "fxbR", "drmL", "drmR", "shdL", "shdR", "orbL", "orbR" },
                     { "mainL", "mainR", "grd1", "grd2", "glue_gr" });
+    {   // the master polish: tilt EQ, gain, limiter
+        auto* mm = new MasterMixMod(); mods.emplace_back(mm); busToMod["st_mst"] = (int) mods.size() - 1; mm->mx.init(sr); masterMix = &mm->mx;
+        float* l = B("mainL"); float* r = B("mainR");
+        graph.push_back([mm, l, r]() { mm->mx.process(l, r, SUB); });
+    }
     addNode<Room>(this, mods, busToMod, graph, b, "st_room", { "mainL", "mainR", "orb_mono", "orb_pos", "orb_dm", "click", "pvw", "cueL", "cueR" },
                   cat({ names("spk", 1, NSPK), { "phL", "phR", "mvx", "mvy" } }));
     addNode<Scope>(this, mods, busToMod, graph, b, "", cat({ CH, { "lphase", "lscene" } }), { "-" });

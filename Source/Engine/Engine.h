@@ -10,6 +10,7 @@
 #include <functional>
 #include "GenModules.h"
 #include "ExtraFx.h"
+#include "StripMix.h"
 
 namespace arco {
 
@@ -37,6 +38,22 @@ struct XMod : IModule {
     ExtraFx fx;
     int paramIndex(const std::string& n) override { return fx.paramIndex(n); }
     void setp(int i, double v) override { fx.setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
+};
+
+// the mixing desk (ARCO 1.2)
+struct StripMixMod : IModule {
+    StripMix mx;
+    int paramIndex(const std::string& n) override { return mx.paramIndex(n); }
+    void setp(int i, double v) override { mx.setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
+};
+struct MasterMixMod : IModule {
+    MasterMix mx;
+    int paramIndex(const std::string& n) override { return mx.paramIndex(n); }
+    void setp(int i, double v) override { mx.setp(i, v); }
     void bind(const std::string&, SharedBuffer&) override {}
     double* data(const std::string&) override { return nullptr; }
 };
@@ -89,6 +106,8 @@ public:
     Ring& ring(const std::string& bus);
     std::atomic<float> cpu { 0 };
     std::atomic<int> selStrip { 0 };
+    StripMix* stripMix = nullptr;             // for the meters (gain reduction)
+    MasterMix* masterMix = nullptr;
     double sr = 48000.0;
     // show recording: called with the main mix (L, R) of every sub-block (audio thread)
     std::function<void(const float*, const float*, int)> recorder;

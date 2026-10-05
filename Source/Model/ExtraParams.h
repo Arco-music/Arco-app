@@ -58,8 +58,29 @@ inline const std::vector<ParamDef>& extraParams() {
     return p;
 }
 
+// the mixing desk (AUTO MIX, STUDIO): per strip, saved with the scene; the master polish with the song
+inline const std::vector<ParamDef>& mixParams() {
+    static std::deque<std::string> names;
+    static const std::vector<ParamDef> p = [] {
+        std::vector<ParamDef> v;
+        struct F { const char* k; double def, lo, hi; };
+        const F fs[] = { { "hp", 0, 0, 400 }, { "lsg", 0, -15, 15 }, { "lsf", 120, 30, 500 }, { "pkg", 0, -15, 15 }, { "pkf", 400, 60, 12000 }, { "pkq", 1, 0.2, 8 },
+                         { "hsg", 0, -15, 15 }, { "hsf", 8000, 1500, 16000 }, { "cth", 0, -48, 0 }, { "crt", 1, 1, 20 }, { "cat", 10, 0.1, 100 }, { "crl", 120, 10, 1000 },
+                         { "cmk", 0, 0, 24 }, { "trim", 0, -24, 12 } };
+        for (int s = 0; s < 12; ++s)
+            for (auto& f : fs) { names.push_back(std::string("mx_") + f.k + std::to_string(s)); v.push_back({ names.back().c_str(), { "st_mix" }, f.def, f.lo, f.hi, 0, 0 }); }
+        v.push_back({ "ms_lsg", { "st_mst" }, 0, -6, 6, 1, 0 });
+        v.push_back({ "ms_hsg", { "st_mst" }, 0, -6, 6, 1, 0 });
+        v.push_back({ "ms_gain", { "st_mst" }, 0, -12, 18, 1, 0 });
+        v.push_back({ "ms_lim", { "st_mst" }, 0, 0, 1, 1, 1 });
+        v.push_back({ "ms_ceil", { "st_mst" }, -1, -6, 0, 1, 0 });
+        return v;
+    }();
+    return p;
+}
+
 inline const std::vector<ParamDef>& paramTable() {
-    static const std::vector<ParamDef> t = [] { auto v = paramTableBase(); for (auto& d : extraParams()) v.push_back(d); return v; }();
+    static const std::vector<ParamDef> t = [] { auto v = paramTableBase(); for (auto& d : extraParams()) v.push_back(d); for (auto& d : mixParams()) v.push_back(d); return v; }();
     return t;
 }
 
