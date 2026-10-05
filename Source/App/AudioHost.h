@@ -41,6 +41,7 @@ public:
     std::atomic<bool> micMode { false };
     int phoneLive = 0;                       // 0 off, 1-4 = which live input plays it
     juce::String phoneWifi;                  // last Wi-Fi address typed
+    juce::StringArray visibleCards = defaultVisibleCards();   // the effect cards on the main window (SETUP > EFFECTS)
     void setPhoneLive(int v) { phoneLive = v; engine.phoneLive.store(v); }
 
     // the SYNTH: one keyboard state for the on-screen keys, the computer keys and MIDI keyboards

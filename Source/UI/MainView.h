@@ -10,6 +10,7 @@ class StripView;
 class CardView;
 class SetupPanel;
 class SynthPanel;
+class LookPanel;
 
 // The instrument: drawn in a 1440 x 880 design space (the PDF layout) and scaled to the window.
 class Canvas : public juce::Component, private juce::Timer {
@@ -23,6 +24,7 @@ public:
     Engine& engine() { return host.engine; }
     float snap(const char* n) { return engine().snap(n).v.load(); }
     void openSetup(bool show);
+    void themeChanged();                       // a new palette: everything repaints in it
     void openSynth(bool show);
     void openMic(bool show);
     bool keyPressed(const juce::KeyPress& k) override;
@@ -36,6 +38,10 @@ public:
     std::unique_ptr<juce::FileChooser> chooser;
     void chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs = false);
     void layoutStrips();
+    void layoutCards();
+    int cardPage = 0, numCardPages = 1;
+    std::vector<juce::Component*> pagePills;
+    void openLook(bool show);
 private:
     void timerCallback() override;
     void buildTopBar();
@@ -47,6 +53,7 @@ private:
     juce::OwnedArray<CardView> cards;
     std::unique_ptr<SetupPanel> setup;
     std::unique_ptr<SynthPanel> synthWin;
+    std::unique_ptr<LookPanel> look;
     juce::Array<Meter*> meters;
     bool inputSeen = false;
     juce::String songLine;

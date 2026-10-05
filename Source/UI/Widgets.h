@@ -25,7 +25,7 @@ public:
         if (isMouseOver()) c = c.brighter(Theme::lightMode() ? 0.08f : 0.12f);
         if (isMouseButtonDown()) c = c.darker(0.15f);
         g.setColour(c); g.fillRoundedRectangle(r, radius);
-        g.setColour(textColour ? textColour() : juce::Colours::white);
+        g.setColour(textColour ? textColour() : Theme::textOn(c));
         g.setFont(Theme::font(fsize, weight));
         g.drawFittedText(dynText ? dynText() : text, getLocalBounds().reduced(2, 0), juce::Justification::centred, 1, 0.7f);
     }
@@ -57,7 +57,7 @@ public:
         g.setColour(Theme::line()); g.strokePath(tr, juce::PathStrokeType(d * 0.085f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         float start = lo < 0 && hi > 0 ? (float) ((0 - lo) / (hi - lo)) : 0.0f;
         float ta = a0 + (a1 - a0) * juce::jmin(start, t), tb = a0 + (a1 - a0) * juce::jmax(start, t);
-        auto cc = enabled ? (col ? col() : Theme::txt()) : Theme::line();
+        auto cc = enabled ? Theme::arc(col ? col() : Theme::txt()) : Theme::line();
         if (tb - ta > 0.001f) {
             juce::Path va; va.addCentredArc(c.x, c.y, rad * 0.9f, rad * 0.9f, 0, ta, tb, true);
             g.setColour(cc); g.strokePath(va, juce::PathStrokeType(d * 0.085f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
@@ -184,7 +184,7 @@ public:
             for (int i = 0; i < npt; ++i) p.lineTo(r.getX() + r.getWidth() * i / (float) (npt - 1), cy - juce::jmin(1.0f, std::abs(d[2 * i])) * h);
             for (int i = npt - 1; i >= 0; --i) p.lineTo(r.getX() + r.getWidth() * i / (float) (npt - 1), cy + juce::jmin(1.0f, std::abs(d[2 * i])) * h);
             p.closeSubPath();
-            g.setColour(col()); g.fillPath(p);
+            g.setColour(Theme::arc(col())); g.fillPath(p);
         }
         if (dragOver) { g.setColour(Theme::amber()); g.drawRoundedRectangle(r.reduced(1), 5.0f, 2.0f);
             g.setFont(Theme::font(8.5f, 2)); g.drawText("drop to import", getLocalBounds(), juce::Justification::centred); }
@@ -214,7 +214,7 @@ public:
             float x = r.getX() + 3 + (r.getWidth() - 6) * i / (float) (n - 1), y = cy - juce::jlimit(-0.5f, 0.5f, v) * h;
             if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
         }
-        g.setColour(col()); g.strokePath(p, juce::PathStrokeType(1.0f));
+        g.setColour(Theme::arc(col())); g.strokePath(p, juce::PathStrokeType(1.2f));
     }
 private:
     Ring* ring; ColourFn col;

@@ -31,7 +31,7 @@ public:
         g.fillAll(Theme::bg());
         auto r = getLocalBounds().reduced(juce::jmax(20, getWidth() / 14), 24);
         auto line = [&](const juce::String& t, int h, float fs, juce::Colour c, int w = 0, juce::Justification j = juce::Justification::centred) {
-            g.setColour(c); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r.removeFromTop(h), j, 3, 0.8f); };
+            g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r.removeFromTop(h), j, 3, 0.8f); };
         float k = juce::jlimit(0.8f, 1.6f, getWidth() / 500.0f);
         line("ARCO", (int) (34 * k), 22 * k, Theme::txt(), 2);
         line("MIC FOR MAC", (int) (24 * k), 12 * k, Theme::violet(), 2);

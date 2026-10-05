@@ -5,7 +5,7 @@
 namespace arco {
 struct ParamDef { const char* id; std::vector<std::string> dests; double def, lo, hi; int scope; int kind; };
 // scope: 0 = scene, 1 = song, 2 = this computer, 3 = not saved.   kind: 0 knob, 1 on/off, 2 whole number
-inline const std::vector<ParamDef>& paramTable() { static const std::vector<ParamDef> t = {
+inline const std::vector<ParamDef>& paramTableBase() { static const std::vector<ParamDef> t = {
   {"vol0", {"st_ch"}, 71.0, 0.0, 100.0, 0, 0},
   {"pan0", {"st_ch"}, 0.0, -50.0, 50.0, 0, 0},
   {"mute0", {"st_ch"}, 0.0, 0.0, 1.0, 0, 1},
@@ -455,7 +455,7 @@ inline const std::vector<ParamDef>& paramTable() { static const std::vector<Para
 }; return t; }
 struct KnobDef { const char* id; const char* label; };
 struct CardDef { const char* key; const char* name; const char* desc; int cols; std::vector<KnobDef> knobs; };
-inline const std::vector<CardDef>& cardTable() { static const std::vector<CardDef> t = {
+inline const std::vector<CardDef>& cardTableBase() { static const std::vector<CardDef> t = {
   {"eq", "EQ", "low · bell · high", 3, {{"SEND", "AMOUNT"}, {"eq_lo", "LOW"}, {"eq_mid", "MID"}, {"eq_frq", "FREQ"}, {"eq_hi", "HIGH"}}},
   {"drv", "DRIVE", "tube → overdrive → fuzz", 3, {{"SEND", "AMOUNT"}, {"drv_amt", "DRIVE"}, {"drv_tone", "TONE"}, {"drv_char", "CHARACTER"}, {"drv_lvl", "LEVEL"}}},
   {"trm", "TREMOLO", "volume or auto-pan, in tempo", 3, {{"SEND", "AMOUNT"}, {"trm_rate", "RATE"}, {"trm_shape", "SHAPE"}, {"trm_st", "STEREO"}}},
@@ -477,3 +477,5 @@ inline const std::vector<CardDef>& cardTable() { static const std::vector<CardDe
 }; return t; }
 inline std::vector<std::string> shadowNames() { return {"-2OCT", "-OCT", "-6th", "-5th", "-4th", "-3rd", "+3rd", "+4th", "+5th", "+6th", "+OCT", "+2OCT"}; }
 } // namespace arco
+
+#include "ExtraParams.h"

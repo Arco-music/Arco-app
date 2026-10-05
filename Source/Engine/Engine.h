@@ -9,6 +9,7 @@
 #include <map>
 #include <functional>
 #include "GenModules.h"
+#include "ExtraFx.h"
 
 namespace arco {
 
@@ -29,6 +30,15 @@ template <typename M> struct Mod : IModule {
     void setp(int i, double v) override { m.setp(i, v); }
     void bind(const std::string& n, SharedBuffer& b) override { m.bind(n, b); }
     double* data(const std::string& n) override { return m.data(n); }
+};
+
+// the C++ effects (ARCO 1.2) behind the same interface
+struct XMod : IModule {
+    ExtraFx fx;
+    int paramIndex(const std::string& n) override { return fx.paramIndex(n); }
+    void setp(int i, double v) override { fx.setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
 };
 
 // a single-producer single-consumer queue of parameter changes / commands

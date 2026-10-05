@@ -172,6 +172,29 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
     h.setSynthInto(2);
     float big = run(10.0, 0.5f);
     check(!nan && big < 4.0f, "all effects + synth + drums for 10 s: clean", big);
+    // the ten new effects: each one on its own, fed by LIVE 1
+    {
+        for (auto k : { "halo0", "shd0", "dly0", "spc0", "rev0", "cho0", "grn0", "res0", "frz0", "fxb0", "orb0" }) m.set(k, 0);
+        m.set("drm_on", 0); h.setSynthInto(0);
+        m.press("st_looper", "rstall"); run(0.5, 0);        // no loops playing
+        auto ringPeak = [&](const std::string& k) { auto& r = e.ring("xr_" + k); float mx = 0; for (auto v : r.d) { if (!std::isfinite(v)) return 99.0f; mx = std::max(mx, std::abs(v)); } return mx; };
+        run(11.0, 0);                                       // tails from the earlier tests ring out
+        float silent = 0; for (auto& d : extraFxDefs()) silent = std::max(silent, ringPeak(d.key));
+        check(silent < 0.001f, "  (control: no sends = the effects are silent)", silent);
+        bool ok = true; juce::String bad;
+        for (auto& d : extraFxDefs()) {
+            std::string sid = std::string(d.key) + "0";
+            if (std::string(d.key) == "stu") m.set("stu_chance", 100);
+            if (std::string(d.key) == "oct") m.set("oct_down", 80);
+            m.set(sid, 85); nan = false;
+            float pk = 0; for (int r = 0; r < 4; ++r) { run(0.5, 0.3f); pk = std::max(pk, ringPeak(d.key)); }
+            m.set(sid, 0); run(0.2, 0);
+            bool good = !nan && pk > 0.01f && pk < 3.0f;
+            if (std::getenv("ARCO_DEBUG")) std::printf("    %s peak %.3f\n", d.key, pk);
+            if (!good) { ok = false; bad << d.key << "(" << juce::String(pk, 3) << ") "; }
+        }
+        check(ok, ("NEW EFFECTS: all 10 sound, clean, not too loud " + bad).toRawUTF8());
+    }
     // odd buffer sizes (Bluetooth, some interfaces): same sound and same timing as with 512, only 64 samples later
     {
         auto render = [&](int bs, std::vector<float>& outv, float& lph) {

@@ -7,7 +7,7 @@ namespace arco {
 
 static void slab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour c, int w = 0,
                  juce::Justification j = juce::Justification::centredLeft) {
-    g.setColour(c); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.8f);
+    g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.8f);
 }
 static juce::Colour cOsc() { return Theme::c(Theme::rgb(0.62f, 0.48f, 1.00f)); }
 static juce::Colour cOscB() { return Theme::c(Theme::rgb(0.38f, 0.64f, 1.00f)); }
@@ -133,7 +133,6 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
             if (mine && (st == 2 || st == 5 || st == 7)) return Theme::red();
             if (mine && st == 6) return Theme::amber();
             return Theme::strip(t + 4).withMultipliedBrightness(0.75f); }, 9.0f, 6.0f);
-        p->textColour = [] { return juce::Colours::black.withAlpha(0.8f); };
         p->onClick = [&h, t] { h.recordSynthOn(t + 1); };
     }
     // presets

@@ -58,11 +58,18 @@ public:
     void screenshot(const juce::String& cmd) {
         auto args = juce::StringArray::fromTokens(cmd, true);
         juce::File out(args[args.indexOf("--screenshot") + 1]);
-        arco::Theme::lightMode() = cmd.contains("light");
+        arco::Theme::setPalette(cmd.contains("light") ? 2 : 0);
+        if (cmd.contains("palette=")) arco::Theme::setPalette(cmd.fromFirstOccurrenceOf("palette=", false, false).getIntValue());
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
         if (cmd.contains("synth")) mc->canvas.openSynth(true);
+        if (cmd.contains("look")) mc->canvas.openLook(true);
+        if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
+        if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
+        if (cmd.contains("look")) mc->canvas.openLook(true);
+        if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
+        if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
         juce::Timer::callAfterDelay(1500, [this, mc, out] {
             auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
             juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);

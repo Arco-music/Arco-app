@@ -356,11 +356,14 @@ void AudioHost::saveSetup() {
     o->setProperty("inputs", ic);
     o->setProperty("phones", phonesPair);
     o->setProperty("layout", speakerLayout);
-    o->setProperty("theme", Theme::lightMode() ? 1 : 0);
+    o->setProperty("palette", Theme::pal().name);
+    o->setProperty("lastDark", Theme::palettes()[(size_t) Theme::lastDark()].name);
+    o->setProperty("lastLight", Theme::palettes()[(size_t) Theme::lastLight()].name);
     juce::Array<juce::var> g;
     for (int s = 0; s < 14; ++s) for (int k = 0; k < NSPK; ++k) if (engine.grid[s][k].load() > 0) { g.add(s); g.add(k); }
     o->setProperty("grid", g);
     o->setProperty("phoneLive", phoneLive);
+    { juce::Array<juce::var> vc; for (auto& k : visibleCards) vc.add(k); o->setProperty("cards", vc); }
     o->setProperty("phoneWifi", phoneWifi);
     o->setProperty("phoneMode", (int) phone.mode());
     juce::Array<juce::var> pd; for (auto& p : pedal) { pd.add(p.type); pd.add(p.num); pd.add(p.ch); }
@@ -378,10 +381,14 @@ void AudioHost::loadSetup(bool openDevice) {
         if (auto* a = v["inputs"].getArray()) for (int i = 0; i < juce::jmin(4, a->size()); ++i) inputCh[i] = (int) (*a)[i];
         phonesPair = (int) v.getProperty("phones", 0);
         speakerLayout = (int) v.getProperty("layout", 0);
-        Theme::lightMode() = (int) v.getProperty("theme", 0) == 1;
+        Theme::lastDark() = juce::jmin(1, Theme::paletteByName(v.getProperty("lastDark", "Fig").toString()));
+        Theme::lastLight() = juce::jmax(2, Theme::paletteByName(v.getProperty("lastLight", "Manuscript").toString()));
+        if (v.hasProperty("palette")) Theme::setPalette(Theme::paletteByName(v["palette"].toString()));
+        else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 0);
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
         setPhoneLive(juce::jlimit(0, 4, (int) v.getProperty("phoneLive", 0)));
         phoneWifi = v.getProperty("phoneWifi", "").toString();
+        if (auto* vc = v["cards"].getArray()) { visibleCards.clear(); for (auto& k : *vc) visibleCards.add(k.toString()); }
         if (auto* pd = v["pedals"].getArray())
             for (int a = 0; a < NumActions && a * 3 + 2 < pd->size(); ++a) pedal[a] = { (int) (*pd)[a * 3], (int) (*pd)[a * 3 + 1], (int) (*pd)[a * 3 + 2] };
         if (openDevice && phoneLive > 0) {

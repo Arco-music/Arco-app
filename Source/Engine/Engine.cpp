@@ -93,6 +93,13 @@ void Engine::prepare(double sampleRate) {
     addNode<Drums>(this, mods, busToMod, graph, b, "st_drm", { "beat", "transport", "loopbars" }, { "drmL", "drmR", "drm_sty", "drm_kit" });
     addNode<Shadow>(this, mods, busToMod, graph, b, "st_shd", { "to_shd", "pitch", "halo_key" }, { "shdL", "shdR" });
     addNode<Orbit>(this, mods, busToMod, graph, b, "st_orb", { "to_orb" }, { "orbL", "orbR", "orb_pos", "orb_dm", "orb_mono" });
+    {   // the new send effects: their returns join the dry mix (and SPACE) before the master
+        auto* xm = new XMod(); mods.emplace_back(xm); busToMod["st_xfx"] = (int) mods.size() - 1; xm->fx.init(sr);
+        std::array<const float*, 12> chp; for (int i = 0; i < 12; ++i) chp[(size_t) i] = B("ch" + std::to_string(i));
+        std::array<float*, ExtraFx::NFX> rp; for (int e = 0; e < ExtraFx::NFX; ++e) rp[(size_t) e] = B("xr_" + std::string(extraFxDefs()[(size_t) e].key));
+        float* dl = B("dryL"); float* dr = B("dryR"); float* sp = B("to_spc"); float* bpm = B("ebpm"); float* pit = B("pitch");
+        graph.push_back([xm, chp, rp, dl, dr, sp, bpm, pit]() mutable { xm->fx.process(chp.data(), dl, dr, sp, SUB, bpm, pit, rp.data()); });
+    }
     addNode<Master>(this, mods, busToMod, graph, b, "st_master",
                     { "dryL", "dryR", "choL", "choR", "dlyL", "dlyR", "haloL", "haloR", "frzL", "frzR", "to_spc", "-",
                       "revL", "revR", "resL", "resR", "grnL", "grnR", "fxbL", "fxbR", "drmL", "drmR", "shdL", "shdR", "orbL", "orbR" },
@@ -145,6 +152,7 @@ void Engine::prepare(double sampleRate) {
     for (int i = 0; i < NSTRIP; ++i) pk.push_back("ch" + std::to_string(i));
     for (int i = 1; i <= NSPK; ++i) pk.push_back("spk" + std::to_string(i));
     for (auto& n : pk) { peaks[n].store(0.0f); peakList.push_back({ B(n), &peaks[n] }); }
+    for (auto& e : extraFxDefs()) ringList.push_back({ B("xr_" + std::string(e.key)), &rings["xr_" + std::string(e.key)] });
     for (auto& n : std::vector<std::string> { "selsig", "choL", "dlyL", "revL", "fxbL", "haloL", "resL", "grnL", "frzL", "to_spc", "to_orb",
                                               "drmL", "live1", "synL" })
         ringList.push_back({ B(n), &rings[n] });

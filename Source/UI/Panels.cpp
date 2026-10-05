@@ -5,7 +5,7 @@ namespace arco {
 
 static void lab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour c, int w = 0,
                 juce::Justification j = juce::Justification::centredLeft) {
-    g.setColour(c); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.85f);
+    g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.85f);
 }
 
 // ------------------------------------------------------------------ AUDIO
@@ -92,6 +92,80 @@ void AudioBox::paint(juce::Graphics& g) {
         "Bluetooth headphones have a big delay - fine for listening, not for playing along."), 0, 226, 520, 40, 7.5f, Theme::sub());
 }
 
+// ================================================================== LOOK & EFFECTS
+LookPanel::LookPanel(Canvas& c) : cv(c) {
+    auto mk = [this](juce::Rectangle<int> r, const juce::String& t, ColourFn col, std::function<void()> f) {
+        auto* p = new Pill(t, std::move(col), 8.5f, 7.0f); p->onClick = std::move(f); kids.add(p); addAndMakeVisible(p);
+        p->setBounds(r.translated(box.getX(), box.getY())); return p; };
+    mk({ 1140 - 104, 16, 88, 26 }, U("✕ CLOSE"), [] { return Theme::btn(); }, [this] { cv.host.saveSetup(); setVisible(false); });
+    mk({ 24 + 150, 14, 120, 26 }, "AUDIO & INPUTS", [] { return Theme::btn(); }, [this] { setVisible(false); cv.openSetup(true); });
+    mk({ 24 + 276, 14, 130, 26 }, U("LOOK & EFFECTS"), [] { return Theme::sel(); }, [] {});
+    auto& h = cv.host;
+    mk({ 760, 286, 104, 24 }, "DEFAULT", [] { return Theme::btn(); }, [this, &h] { h.visibleCards = defaultVisibleCards(); cv.layoutCards(); repaint(); });
+    mk({ 870, 286, 70, 24 }, "ALL", [] { return Theme::btn(); }, [this, &h] { h.visibleCards.clear(); for (auto& d : cardTable()) h.visibleCards.add(d.key); cv.layoutCards(); repaint(); });
+    mk({ 946, 286, 70, 24 }, "NONE", [] { return Theme::btn(); }, [this, &h] { h.visibleCards.clear(); cv.layoutCards(); repaint(); });
+}
+
+juce::Rectangle<int> LookPanel::paletteTile(int i) const {
+    return { box.getX() + 24 + i * 262, box.getY() + 108, 250, 120 };
+}
+juce::Rectangle<int> LookPanel::effectTile(int i) const {
+    return { box.getX() + 24 + (i % 7) * 156, box.getY() + 322 + (i / 7) * 72, 148, 64 };
+}
+
+void LookPanel::mouseDown(const juce::MouseEvent& e) {
+    auto pt = e.getPosition();
+    if (!box.contains(pt)) { cv.host.saveSetup(); setVisible(false); return; }
+    for (int i = 0; i < (int) Theme::palettes().size(); ++i)
+        if (paletteTile(i).contains(pt)) { Theme::setPalette(i); cv.host.saveSetup(); cv.themeChanged(); repaint(); return; }
+    auto& ct = cardTable();
+    for (int i = 0; i < (int) ct.size(); ++i)
+        if (effectTile(i).contains(pt)) {
+            auto& v = cv.host.visibleCards; juce::String k = ct[(size_t) i].key;
+            if (v.contains(k)) v.removeString(k); else v.add(k);
+            cv.layoutCards(); repaint(); return;
+        }
+}
+
+void LookPanel::paint(juce::Graphics& g) {
+    g.fillAll(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.25f : 0.55f));
+    g.setColour(Theme::bg()); g.fillRoundedRectangle(box.toFloat(), 16.0f);
+    int X = box.getX(), Y = box.getY();
+    auto L = [&](const juce::String& t, int x, int y, int w, float fs, juce::Colour c, int wt = 0) { lab(g, t, { X + x, Y + y, w, (int) (fs * 2.4f) }, fs, c, wt); };
+    L("SETUP", 24, 14, 140, 17.0f, Theme::txt(), 2);
+    L("COLOURS", 24, 62, 300, 11.0f, Theme::txt(), 2);
+    L(U("calm palettes, every colour checked for contrast - also the top bar's LIGHT / DARK button switches between your last light and dark one"), 24, 80, 1000, 8.0f, Theme::sub());
+    auto& P = Theme::palettes();
+    for (int i = 0; i < (int) P.size(); ++i) {
+        auto r = paletteTile(i).toFloat(); auto& p = P[(size_t) i];
+        bool on = i == Theme::paletteIndex();
+        g.setColour(p.bg); g.fillRoundedRectangle(r, 10.0f);
+        g.setColour(p.card); g.fillRoundedRectangle(r.reduced(10).withTrimmedBottom(34), 7.0f);
+        for (int a = 0; a < 6; ++a) { g.setColour(p.acc[(size_t) a]); g.fillEllipse(r.getX() + 18 + a * 19.0f, r.getY() + 22, 13, 13); }
+        g.setColour(p.btn); g.fillRoundedRectangle(r.getX() + 20, r.getY() + 46, 60, 18, 5.0f);
+        g.setColour(p.txt); g.setFont(Theme::font(8.0f, 2)); g.drawText("REC", juce::Rectangle<float>(r.getX() + 86, r.getY() + 46, 60, 18), juce::Justification::centredLeft);
+        g.setColour(p.txt); g.setFont(Theme::font(10.0f, 2)); g.drawText(p.name, r.withTop(r.getBottom() - 30).withTrimmedLeft(12), juce::Justification::centredLeft);
+        g.setColour(p.sub); g.setFont(Theme::font(7.5f, 0)); g.drawText(p.light ? "light" : "dark", r.withTop(r.getBottom() - 30).withTrimmedRight(12), juce::Justification::centredRight);
+        g.setColour(on ? Theme::txt() : Theme::line()); g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, on ? 2.5f : 1.0f);
+    }
+    auto& ct = cardTable();
+    int shown = 0; for (auto& d : ct) shown += cv.host.visibleCards.contains(d.key);
+    L("EFFECTS ON THE MAIN WINDOW", 24, 262, 400, 11.0f, Theme::txt(), 2);
+    L(juce::String(shown) + " of " + juce::String((int) ct.size()) + U(" shown  ·  tap to show or hide  ·  more than 18: the main window gets pages  ·  hidden effects keep working with their saved settings"),
+      24, 290, 720, 8.0f, Theme::sub());
+    int nBase = (int) cardTableBase().size();
+    for (int i = 0; i < (int) ct.size(); ++i) {
+        auto r = effectTile(i).toFloat(); auto& d = ct[(size_t) i];
+        bool on = cv.host.visibleCards.contains(d.key);
+        g.setColour(on ? Theme::card2() : Theme::card()); g.fillRoundedRectangle(r, 9.0f);
+        g.setColour(on ? Theme::fx(d.key) : Theme::line()); g.drawRoundedRectangle(r.reduced(0.5f), 9.0f, on ? 2.0f : 1.0f);
+        g.setColour(on ? Theme::fx(d.key) : Theme::off()); g.fillEllipse(r.getX() + 10, r.getY() + 11, 9, 9);
+        lab(g, U(d.name), juce::Rectangle<int>((int) r.getX() + 24, (int) r.getY() + 5, 110, 20), 9.5f, on ? Theme::txt() : Theme::sub(), 2);
+        lab(g, U(d.desc), juce::Rectangle<int>((int) r.getX() + 10, (int) r.getY() + 28, (int) r.getWidth() - 16, 30), 7.0f, Theme::sub(), 0);
+        if (i >= nBase) { g.setColour(Theme::amber()); g.setFont(Theme::font(6.5f, 2)); g.drawText("NEW", r.withTrimmedRight(8).withHeight(22), juce::Justification::centredRight); }
+    }
+}
+
 void SetupPanel::startUpdateCheck() { updateText = U("looking …"); repaint(); updater.check(); }
 
 void SetupPanel::askKey(const juce::String& why) {
@@ -155,6 +229,9 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
         if (m.contains("key")) askKey(m);
     };
    #endif
+    add<Pill>({ 24 + 150, 14, 120, 26 }, "AUDIO & INPUTS", [] { return Theme::sel(); }, 8.5f, 7.0f);
+    auto* lk = add<Pill>({ 24 + 276, 14, 130, 26 }, U("LOOK & EFFECTS"), [] { return Theme::btn(); }, 8.5f, 7.0f);
+    lk->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); cv.openLook(true); };
     auto* close = add<Pill>({ 1140 - 104, 16, 88, 26 }, U("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
     close->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); };
     // ---- live inputs
@@ -256,7 +333,6 @@ void SetupPanel::paint(juce::Graphics& g) {
     L("SETUP", 24, 14, 200, 17.0f, Theme::txt(), 2);
     L("ARCO " + juce::String(ProjectInfo::versionString) + (Updater::build() > 0 ? U(" · build ") + juce::String(Updater::build()) : juce::String()), 720, 6, 192, 7.5f, Theme::sub(), 0);
     if (updateText.isNotEmpty()) L(updateText, 720, 26, 192, 7.5f, Theme::amber(), 1);
-    L("audio, inputs, headphones, speakers - changes act at once; this computer remembers them", 130, 22, 580, 9.0f, Theme::sub());
     head("AUDIO", "your sound card: where the sound goes, where it comes from", 24, 58, 540);
     head("LIVE INPUTS", "how many instruments / microphones, and on which input of your sound card", 24, 440, 540);
     L("LIVE INPUTS", 24, 484, 110, 8.5f, Theme::txt(), 2);

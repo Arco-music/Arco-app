@@ -34,6 +34,20 @@ private:
     bool filling = false;
 };
 
+// LOOK & EFFECTS: the colour palette, and which effect cards are on the main window
+class LookPanel : public juce::Component {
+public:
+    explicit LookPanel(Canvas& c);
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+private:
+    Canvas& cv;
+    juce::Rectangle<int> box { 150, 34, 1140, 812 };
+    juce::OwnedArray<juce::Component> kids;
+    juce::Rectangle<int> paletteTile(int i) const;
+    juce::Rectangle<int> effectTile(int i) const;
+};
+
 // SETUP: the sound card, live inputs, headphones, speakers, recording timing, practice, tuner.
 class SetupPanel : public juce::Component, private juce::Timer {
 public:
