@@ -220,4 +220,49 @@ private:
     Ring* ring; ColourFn col;
 };
 
+// ---------------------------------------------------------------- MIDI learn: every knob, fader, number and button
+namespace learn {
+    inline bool isLearnable(juce::Component* c) {
+        return dynamic_cast<Knob*>(c) || dynamic_cast<Fader*>(c) || dynamic_cast<ValueBox*>(c) || dynamic_cast<Pill*>(c); }
+    inline juce::Component* widgetAt(juce::Component* c) { while (c != nullptr && !isLearnable(c)) c = c->getParentComponent(); return c; }
+    // a stable name: the component ID when it has one ("p:vol4", "trk2:rec" ...), otherwise its place in the window
+    inline juce::String idOf(juce::Component* w, juce::Component* root) {
+        if (w->getComponentID().isNotEmpty()) return w->getComponentID();
+        juce::StringArray path;
+        for (auto* c = w; c != nullptr && c != root; c = c->getParentComponent()) {
+            auto* p = c->getParentComponent(); if (p == nullptr) break;
+            path.insert(0, juce::String(p->getIndexOfChildComponent(c)));
+        }
+        return "path:" + path.joinIntoString("/");
+    }
+    inline juce::Component* find(juce::Component* root, const juce::String& id) {
+        if (id.startsWith("path:")) {
+            auto* c = root;
+            for (auto& t : juce::StringArray::fromTokens(id.substring(5), "/", "")) {
+                int i = t.getIntValue(); if (c == nullptr || i < 0 || i >= c->getNumChildComponents()) return nullptr; c = c->getChildComponent(i); }
+            return isLearnable(c) ? c : nullptr;
+        }
+        std::function<juce::Component*(juce::Component*)> rec = [&](juce::Component* c) -> juce::Component* {
+            if (c->getComponentID() == id) return c;
+            for (auto* k : c->getChildren()) if (auto* r = rec(k)) return r;
+            return nullptr; };
+        return rec(root);
+    }
+    // a MIDI value 0..127 (controllers) or a press (keys, pads, footswitches)
+    inline void apply(juce::Component* w, int type, int value, bool press) {
+        double t = value / 127.0;
+        if (auto* k = dynamic_cast<Knob*>(w)) {
+            if (type == 2) k->set(k->lo + t * (k->hi - k->lo));
+            else if (press) { double v = k->get ? k->get() : k->lo; k->set(v > (k->lo + k->hi) * 0.5 ? k->lo : k->hi); }
+        } else if (auto* f = dynamic_cast<Fader*>(w)) {
+            if (type == 2) f->set(f->lo + t * (f->hi - f->lo));
+        } else if (auto* b = dynamic_cast<ValueBox*>(w)) {
+            if (type == 2 && !b->readOnly) b->set(std::round(b->lo + t * (b->hi - b->lo)));
+        } else if (auto* p = dynamic_cast<Pill*>(w)) {
+            if (press && p->onClick) p->onClick();
+        }
+        w->repaint();
+    }
+}
+
 } // namespace arco

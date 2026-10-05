@@ -96,11 +96,16 @@ namespace loud {
     }
 }
 
+// everything a render needs, taken on the message thread (the render itself can run on another thread)
+struct RenderSnapshot { juce::var song, setup; float sv[15] {}; int smask = 0, sceneNow = 1; double sr = 48000; };
+
 class Renderer {
 public:
     explicit Renderer(AudioHost& h) : host(h) {}
+    RenderSnapshot snapshot();
     // render the mix (or one strip alone: solo >= 0) at the engine rate; progress(0..1) returns false to cancel
     bool renderMix(const ExportOptions& o, juce::AudioBuffer<float>& out, double& rate, int solo, std::function<bool(float)> progress);
+    bool renderMix(const RenderSnapshot& snap, const ExportOptions& o, juce::AudioBuffer<float>& out, double& rate, int solo, std::function<bool(float)> progress);
     // dry stems straight from the loop memory
     bool dryStems(int scene, juce::OwnedArray<juce::AudioBuffer<float>>& out, juce::StringArray& names, double& rate);
     // finish (resample, loudness, limit) and write

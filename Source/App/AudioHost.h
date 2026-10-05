@@ -41,7 +41,10 @@ public:
     std::atomic<bool> micMode { false };
     int phoneLive = 0;                       // 0 off, 1-4 = which live input plays it
     juce::String phoneWifi;                  // last Wi-Fi address typed
-    juce::StringArray visibleCards = defaultVisibleCards();   // the effect cards on the main window (SETUP > EFFECTS)
+    juce::StringArray visibleCards = defaultVisibleCards();
+    juce::StringArray recentSongs;            // File > Open Recent
+    void addRecent(const juce::File& f) { recentSongs.removeString(f.getFullPathName()); recentSongs.insert(0, f.getFullPathName()); while (recentSongs.size() > 8) recentSongs.remove(8); saveSetup(); }
+    void newSong();   // the effect cards on the main window (SETUP > EFFECTS)
     void setPhoneLive(int v) { phoneLive = v; engine.phoneLive.store(v); }
 
     // the SYNTH: one keyboard state for the on-screen keys, the computer keys and MIDI keyboards
@@ -59,6 +62,16 @@ public:
     void doAction(int a);
     static juce::String pedalText(const Pedal& p);
     std::function<void(int)> onAction;       // the interface flashes what happened
+    // MIDI learn: any control of the interface, by its id
+    struct MidiLink { juce::String id; int type = 0, num = 0, ch = 0; };
+    std::vector<MidiLink> midiLinks;
+    juce::CriticalSection midiLock;
+    juce::String learnTarget;                // the control waiting for a MIDI message (message thread writes, MIDI thread reads under the lock)
+    std::function<void(const juce::String& id, int type, int value, bool press)> onMidiControl;
+    std::function<void()> onLearned;
+    void clearMidiMap() { const juce::ScopedLock sl(midiLock); midiLinks.clear(); learnTarget = {}; saveSetup(); }
+    void unlink(const juce::String& id) { const juce::ScopedLock sl(midiLock); midiLinks.erase(std::remove_if(midiLinks.begin(), midiLinks.end(), [&](auto& l) { return l.id == id; }), midiLinks.end()); saveSetup(); }
+    juce::String linkText(const juce::String& id) { const juce::ScopedLock sl(midiLock); for (auto& l : midiLinks) if (l.id == id) return pedalText({ l.type, l.num, l.ch }); return {}; }
     void scanMidi();
     bool isPedalCC(int cc, int ch) const;
 

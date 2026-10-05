@@ -35,6 +35,7 @@ public:
     juce::var setupState();
     void loadSetupState(const juce::var& v);
     void resetScenes();
+    void resetSong();                                      // song + scene settings back to their defaults
 
 private:
     std::map<std::string, double> vals;

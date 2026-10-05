@@ -34,7 +34,7 @@ for g, files in sorted(groups.items()):
         w(f'      <FILE id="{uid(p)}" name={esc(os.path.basename(p))} compile="{comp}" resource="0" file={esc(p)}/>')
     w('    </GROUP>')
 w('    <GROUP id="grpres" name="Resources">')
-for f in ["Inter-Regular.otf", "Inter-SemiBold.otf", "Inter-Bold.otf"]:
+for f in ["Inter-Regular.otf", "Inter-SemiBold.otf", "Inter-Bold.otf", "icon.png"]:
     w(f'      <FILE id="{uid(f)}" name="{f}" compile="0" resource="1" file="Resources/{f}"/>')
 w(f'      <FILE id="icnios" name="icon-ios.png" compile="0" resource="0" file="Resources/icon-ios.png"/>')
 w('    </GROUP>')

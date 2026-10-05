@@ -29,7 +29,8 @@ juce_generate_juce_header(ARCO)
 juce_add_binary_data(ARCOData SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Inter-Regular.otf
     ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Inter-SemiBold.otf
-    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Inter-Bold.otf)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Inter-Bold.otf
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png)
 
 target_sources(ARCO PRIVATE
     Source/Main.cpp
@@ -41,7 +42,10 @@ target_sources(ARCO PRIVATE
     $<$<PLATFORM_ID:iOS>:Source/App/IOSAudio.mm>
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp
-    Source/UI/SynthPanel.cpp)
+    Source/UI/SynthPanel.cpp
+    Source/UI/Sheets.cpp
+    Source/UI/HelpText.cpp
+    Source/UI/Commands.cpp)
 
 target_compile_definitions(ARCO PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"

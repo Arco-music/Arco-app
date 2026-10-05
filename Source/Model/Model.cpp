@@ -56,6 +56,11 @@ void Model::recallScene(int sc) {
     }
 }
 void Model::resetScenes() { for (auto& m : sceneMem) m.clear(); }
+void Model::resetSong() {
+    for (auto& d : paramTable()) if (d.scope <= 1) set(d.id, d.def);
+    resetScenes();
+    sceneNow = 1;
+}
 
 void Model::tick() {
     int sc = (int) engine.snap("scenes").v.load() % 8;

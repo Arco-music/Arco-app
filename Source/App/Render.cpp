@@ -8,22 +8,35 @@ static const char* RS[15] = { "rs_bl", "rs_bts", "rs_len0", "rs_len1", "rs_len2"
 static const char* SV[15] = { "sv_bl", "sv_bts", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3",
                               "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "sv_ntr" };
 
+RenderSnapshot Renderer::snapshot() {
+    RenderSnapshot s;
+    s.song = host.model.songState(); s.setup = host.model.setupState();
+    for (int i = 0; i < 15; ++i) s.sv[i] = host.engine.snap(SV[i]).v.load();
+    s.smask = (int) host.engine.snap("smask").v.load(); s.sceneNow = host.model.sceneNow; s.sr = host.engine.sr;
+    return s;
+}
+
 bool Renderer::renderMix(const ExportOptions& o, juce::AudioBuffer<float>& out, double& rate, int solo, std::function<bool(float)> progress) {
+    return renderMix(snapshot(), o, out, rate, solo, std::move(progress));
+}
+
+bool Renderer::renderMix(const RenderSnapshot& snp, const ExportOptions& o, juce::AudioBuffer<float>& out, double& rate, int solo, std::function<bool(float)> progress) {
     auto& src = host.engine;
-    const double sr = src.sr; rate = sr;
-    int smask = (int) src.snap("smask").v.load();
+    const double sr = snp.sr; rate = sr;
+    int smask = snp.smask;
     if (smask == 0) return false;
+    auto sv = [&](int i) { return snp.sv[i]; };
     // which scenes, in which order
     juce::Array<int> scenes;
-    if (o.what == ExportOptions::CurrentScene) { int sc = juce::jlimit(1, 4, host.model.sceneNow); if ((smask >> (sc - 1)) & 1) scenes.add(sc); }
+    if (o.what == ExportOptions::CurrentScene) { int sc = juce::jlimit(1, 4, snp.sceneNow); if ((smask >> (sc - 1)) & 1) scenes.add(sc); }
     else for (int s = 1; s <= 4; ++s) if ((smask >> (s - 1)) & 1) scenes.add(s);
     if (scenes.isEmpty()) return false;
     // a private engine with the same song
     auto e2 = std::make_unique<Engine>();
     e2->prepare(sr);
     Model m2(*e2);
-    m2.loadSongState(host.model.songState());
-    m2.loadSetupState(host.model.setupState());
+    m2.loadSongState(snp.song);
+    m2.loadSetupState(snp.setup);
     m2.set("countin", 0); m2.set("clickall", 0); m2.set("clk_room", 0);
     for (int j = 0; j < 4; ++j) e2->inputChannel[j].store(-1);
     e2->synthInto.store(0);
@@ -41,13 +54,13 @@ bool Renderer::renderMix(const ExportOptions& o, juce::AudioBuffer<float>& out, 
     std::vector<float> o0((size_t) N), o1((size_t) N); float* outs[2] = { o0.data(), o1.data() };
     auto block = [&] { e2->process(nullptr, 0, outs, 2, N); m2.tick(); };
     for (int i = 0; i < 4; ++i) block();                        // the looper starts (it notes the commands as they are now)
-    for (int i = 0; i < 15; ++i) e2->set("st_looper", RS[i], src.snap(SV[i]).v.load());
+    for (int i = 0; i < 15; ++i) e2->set("st_looper", RS[i], sv(i));
     m2.press("st_looper", "rs_go");                             // ... then the session is restored
     for (int i = 0; i < 20; ++i) block();
     auto applySolo = [&] { if (solo >= 0) for (int s = 0; s < 12; ++s) m2.set("solo" + std::to_string(s), s == solo ? 1 : 0); };
-    double barLen = src.snap("sv_bl").v.load() * juce::jmax(1.0f, src.snap("sv_bts").v.load());
+    double barLen = sv(0) * juce::jmax(1.0f, sv(1));
     double total = 0;
-    for (int sc : scenes) total += src.snap(SV[2 + sc - 1]).v.load() * o.repeats;
+    for (int sc : scenes) total += sv(2 + sc - 1) * o.repeats;
     total += o.tailSeconds * sr;
     // first scene, then play
     m2.press("st_looper", "scene", 8, scenes[0]);
@@ -58,7 +71,7 @@ bool Renderer::renderMix(const ExportOptions& o, juce::AudioBuffer<float>& out, 
     recording = true;
     double done = 0; int k = 0;
     for (int si = 0; si < scenes.size(); ++si) {
-        double len = src.snap(SV[2 + scenes[si] - 1]).v.load() * o.repeats;
+        double len = sv(2 + scenes[si] - 1) * o.repeats;
         double start = done;
         bool pressed = false;
         while (done - start < len) {

@@ -4,6 +4,7 @@
 #include "UI/MainView.h"
 #include "App/SelfTest.h"
 #include "App/Updater.h"
+#include "UI/Sheets.h"
 
 class ARCOApplication : public juce::JUCEApplication {
 public:
@@ -34,8 +35,18 @@ public:
             quit(); return;
         }
         window = std::make_unique<MainWindow>(*host);
+       #if JUCE_MAC
+        if (auto* mc = dynamic_cast<arco::MainComponent*>(window->getContentComponent())) {
+            static juce::PopupMenu extras = arco::AppMenu::appleExtras();
+            juce::MenuBarModel::setMacMainMenu(mc->canvas.menu.get(), &extras);
+        }
+       #endif
     }
-    void shutdown() override { window = nullptr; host = nullptr; }
+    void shutdown() override {
+       #if JUCE_MAC
+        juce::MenuBarModel::setMacMainMenu(nullptr);
+       #endif
+        window = nullptr; host = nullptr; }
     void systemRequestedQuit() override {
         // never lose loops by accident
         if (window == nullptr || host == nullptr || !host->unsavedLoops() || asking) { quit(); return; }

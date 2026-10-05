@@ -102,6 +102,34 @@ bool AudioHost::isPedalCC(int cc, int ch) const {
 
 void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) {
     int type = 0, num = 0, ch = m.getChannel();
+    // ---- MIDI learn and the learned controls come first
+    {
+        int lt = 0, ln = 0, lv = 0;
+        if (m.isNoteOn()) { lt = 1; ln = m.getNoteNumber(); lv = m.getVelocity(); }
+        else if (m.isController()) { lt = 2; ln = m.getControllerNumber(); lv = m.getControllerValue(); }
+        if (lt != 0) {
+            const juce::ScopedLock sl(midiLock);
+            if (learnTarget.isNotEmpty()) {
+                auto id = learnTarget; learnTarget = {};
+                midiLinks.erase(std::remove_if(midiLinks.begin(), midiLinks.end(), [&](auto& l) { return l.id == id || (l.type == lt && l.num == ln && l.ch == ch); }), midiLinks.end());
+                midiLinks.push_back({ id, lt, ln, ch });
+                juce::MessageManager::callAsync([this] { saveSetup(); if (onLearned) onLearned(); });
+                return;
+            }
+            bool handled = false;
+            int was = lt == 2 ? ccLast[(ch - 1) & 15][ln & 127] : 0;
+            for (auto& l : midiLinks)
+                if (l.type == lt && l.num == ln && l.ch == ch) {
+                    handled = true;
+                    bool press = lt == 1 || (lv >= 64 && was < 64);
+                    auto id = l.id; int t = lt, v = lv;
+                    juce::MessageManager::callAsync([this, id, t, v, press] { if (onMidiControl) onMidiControl(id, t, v, press); });
+                }
+            if (lt == 2) ccLast[(ch - 1) & 15][ln & 127] = lv;
+            if (handled) return;
+        }
+        if (m.isNoteOff()) { const juce::ScopedLock sl(midiLock); for (auto& l : midiLinks) if (l.type == 1 && l.num == m.getNoteNumber() && l.ch == ch) return; }
+    }
     if (m.isNoteOn()) { type = 1; num = m.getNoteNumber(); }
     else if (m.isController() && (m.getControllerNumber() == 1 || m.getControllerNumber() == 64) && !isPedalCC(m.getControllerNumber(), ch)) {
         int c = m.getControllerNumber(), v = m.getControllerValue();
@@ -236,6 +264,15 @@ static bool writeBuffer(SharedBuffer& b, const juce::File& f, double sr, long fr
     return w->writeFromFloatArrays(ch.data(), (int) b.ch, (int) n);
 }
 
+// a fresh song: no loops, every song and scene setting back to its start (this computer's settings stay)
+void AudioHost::newSong() {
+    model.press("st_looper", "rstall");
+    model.resetSong();
+    songFolder = juce::File();
+    sigSettle = 20;
+    status = "new song";
+}
+
 juce::String AudioHost::loopsSignature() {
     juce::String sig;
     for (auto* k : { "smask", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3", "undoav" })
@@ -264,6 +301,7 @@ bool AudioHost::saveSong(const juce::File& folder) {
     }
     songFolder = folder;
     savedSignature = loopsSignature();
+    addRecent(folder);
     status = "saved \"" + name + U("\" ✓");
     return true;
 }
@@ -302,6 +340,7 @@ bool AudioHost::openSong(const juce::File& sel) {
     for (int i = 0; i < 15; ++i) engine.set("st_looper", RS[i], (double) s[SV[i]]);
     model.press("st_looper", "rs_go");
     songFolder = folder;
+    addRecent(folder);
     sigSettle = 20;                          // the loops arrive in the engine over the next moments
     status = "\"" + base + U("\" ✓");
     return true;
@@ -364,9 +403,13 @@ void AudioHost::saveSetup() {
     o->setProperty("grid", g);
     o->setProperty("phoneLive", phoneLive);
     { juce::Array<juce::var> vc; for (auto& k : visibleCards) vc.add(k); o->setProperty("cards", vc); }
+    { juce::Array<juce::var> rs; for (auto& k : recentSongs) rs.add(k); o->setProperty("recent", rs); }
     o->setProperty("phoneWifi", phoneWifi);
     o->setProperty("phoneMode", (int) phone.mode());
     juce::Array<juce::var> pd; for (auto& p : pedal) { pd.add(p.type); pd.add(p.num); pd.add(p.ch); }
+    { const juce::ScopedLock sl(midiLock); juce::Array<juce::var> ml;
+      for (auto& l : midiLinks) { auto* x = new juce::DynamicObject(); x->setProperty("id", l.id); x->setProperty("t", l.type); x->setProperty("n", l.num); x->setProperty("c", l.ch); ml.add(juce::var(x)); }
+      o->setProperty("midimap", ml); }
     o->setProperty("pedals", pd);
     if (auto xml = devices.createStateXml()) o->setProperty("audio", xml->toString());
     f.replaceWithText(juce::JSON::toString(juce::var(o)));
@@ -388,7 +431,10 @@ void AudioHost::loadSetup(bool openDevice) {
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
         setPhoneLive(juce::jlimit(0, 4, (int) v.getProperty("phoneLive", 0)));
         phoneWifi = v.getProperty("phoneWifi", "").toString();
+        if (auto* rs = v["recent"].getArray()) for (auto& k : *rs) if (juce::File(k.toString()).isDirectory()) recentSongs.add(k.toString());
         if (auto* vc = v["cards"].getArray()) { visibleCards.clear(); for (auto& k : *vc) visibleCards.add(k.toString()); }
+        if (auto* ml = v["midimap"].getArray()) { const juce::ScopedLock sl(midiLock); midiLinks.clear();
+            for (auto& x : *ml) midiLinks.push_back({ x["id"].toString(), (int) x["t"], (int) x["n"], (int) x["c"] }); }
         if (auto* pd = v["pedals"].getArray())
             for (int a = 0; a < NumActions && a * 3 + 2 < pd->size(); ++a) pedal[a] = { (int) (*pd)[a * 3], (int) (*pd)[a * 3 + 1], (int) (*pd)[a * 3 + 2] };
         if (openDevice && phoneLive > 0) {

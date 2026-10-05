@@ -11,6 +11,10 @@ class CardView;
 class SetupPanel;
 class SynthPanel;
 class LookPanel;
+class ExportSheet;
+class HelpSheet;
+class AboutSheet;
+class AppMenu;
 
 // The instrument: drawn in a 1440 x 880 design space (the PDF layout) and scaled to the window.
 class Canvas : public juce::Component, private juce::Timer {
@@ -54,6 +58,25 @@ private:
     std::unique_ptr<SetupPanel> setup;
     std::unique_ptr<SynthPanel> synthWin;
     std::unique_ptr<LookPanel> look;
+public:
+    std::unique_ptr<ExportSheet> exportSheet;
+    std::unique_ptr<HelpSheet> helpSheet;
+    std::unique_ptr<AboutSheet> aboutSheet;
+    std::unique_ptr<AppMenu> menu;
+    void command(int id);                      // every menu item and shortcut (Commands.cpp)
+    void showMenu();                           // the menus from the ARCO title (iPad, or anywhere)
+    bool midiLearnActive() const { return midiLearn; }
+    bool autoMixAvailable() const;
+    bool anyOverlay() const;
+    void importInto(int track);
+    bool midiLearn = false;
+    int menuTick = 0;
+    juce::Component* overlayExtra() const;
+    void openStudio();
+    void setMidiLearn(bool on);
+    void openAutoMix();
+    void autoMixCompare();
+private:
     juce::Array<Meter*> meters;
     bool inputSeen = false;
     juce::String songLine;

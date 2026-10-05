@@ -1,6 +1,7 @@
 #include "MainView.h"
 #include "Panels.h"
 #include "SynthPanel.h"
+#include "Sheets.h"
 
 namespace arco {
 
@@ -268,6 +269,10 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     addChildComponent(setup.get()); setup->setBounds(0, 0, 1440, 880);
     look = std::make_unique<LookPanel>(*this);
     addChildComponent(look.get()); look->setBounds(0, 0, 1440, 880);
+    exportSheet = std::make_unique<ExportSheet>(*this); addChildComponent(exportSheet.get()); exportSheet->setBounds(0, 0, 1440, 880);
+    helpSheet = std::make_unique<HelpSheet>(*this); addChildComponent(helpSheet.get()); helpSheet->setBounds(0, 0, 1440, 880);
+    aboutSheet = std::make_unique<AboutSheet>(*this); addChildComponent(aboutSheet.get()); aboutSheet->setBounds(0, 0, 1440, 880);
+    menu = std::make_unique<AppMenu>(*this);
     synthWin = std::make_unique<SynthPanel>(*this);
     addChildComponent(synthWin.get()); synthWin->setBounds(0, 0, 1440, 880);
     setWantsKeyboardFocus(true);
@@ -336,6 +341,9 @@ void Canvas::doRecShow() {
 
 void Canvas::buildTopBar() {
     auto& m = model();
+    // the ARCO title opens the menus (File, Edit, View, Help) - on the Mac they are also in the menu bar
+    auto* mb = add<Pill>({ 10, 4, 112, 30 }, "", [] { return juce::Colours::transparentBlack; }, 8.0f, 6.0f);
+    mb->onClick = [this] { showMenu(); };
     // transport
     auto* play = add<Pill>({ 204, 15, 46, 38 }, U("▶"), [this] { int t = (int) snap("transport"); return t == 1 ? Theme::green() : (t == 2 ? Theme::amber() : Theme::btn()); }, 15.0f, 9.0f);
     play->onClick = [this] { model().press("st_looper", "playall"); };
@@ -479,8 +487,20 @@ void Canvas::doSave(bool askName) {
 
 // keys and page-turner pedals (they send arrow / page keys): the hands stay on the instrument
 bool Canvas::keyPressed(const juce::KeyPress& k) {
-    if (setup->isVisible() || synthWin->isVisible() || look->isVisible()) return false;
-    const auto code = k.getKeyCode(); const bool cmd = k.getModifiers().isCommandDown();
+    const auto code = k.getKeyCode(); const bool cmd = k.getModifiers().isCommandDown(), shift = k.getModifiers().isShiftDown();
+    // app shortcuts work everywhere
+    if (code == juce::KeyPress::F1Key) { command(cmdHelp); return true; }
+    if (cmd && code == 'N') { command(cmdNewSong); return true; }
+    if (cmd && code == 'E') { command(cmdExport); return true; }
+    if (cmd && code == 'T') { command(cmdStudio); return true; }
+    if (cmd && code == 'R') { command(cmdRecordShow); return true; }
+    if (cmd && shift && code == 'L') { command(cmdToggleLight); return true; }
+    if (cmd && code == 'L') { command(cmdMidiLearn); return true; }
+    if (cmd && shift && code == 'M') { command(cmdAutoMix); return true; }
+    if (cmd && code == 'M') { command(cmdMinimise); return true; }
+    if (cmd && code == ',') { command(cmdSetup); return true; }
+    if (cmd && k.getModifiers().isCtrlDown() && code == 'F') { command(cmdFullScreen); return true; }
+    if (anyOverlay()) return false;
     if (cmd && code == 'S') { doSave(k.getModifiers().isShiftDown()); return true; }
     if (cmd && code == 'O') { doOpen(); return true; }
     if (cmd && code == 'Z') { host.doAction(AudioHost::ActUndo); return true; }
@@ -496,6 +516,7 @@ bool Canvas::keyPressed(const juce::KeyPress& k) {
 
 void Canvas::timerCallback() {
     model().tick();
+    if (++menuTick % 30 == 0 && menu) menu->menuItemsChanged();      // the Mac menu bar follows (recent songs, ticks)
     if (host.sigSettle > 0 && --host.sigSettle == 0) host.savedSignature = host.loopsSignature();
     layoutStrips();
     for (auto* m : meters) m->update();
@@ -514,6 +535,7 @@ void Canvas::paint(juce::Graphics& g) {
     g.fillAll(Theme::bg());
     auto card = [&](int x, int y, int w, int h) { g.setColour(Theme::card()); g.fillRoundedRectangle((float) x, (float) y, (float) w, (float) h, 12.0f); };
     label(g, "ARCO", { 16, 6, 176, 26 }, 18.0f, Theme::txt(), 2);
+    label(g, U("▾"), { 84, 8, 20, 22 }, 9.0f, Theme::sub(), 0);
     bool running = engine().cpu.load() > 0.0001f && host.devices.getCurrentAudioDevice() != nullptr;
     label(g, running ? U("engine running ✓") : U("audio is off - press ⏻ or open SETUP"), { 16, 33, 176, 14 }, 8.0f, running ? Theme::green() : Theme::amber());
     label(g, inputSeen ? U("input 1 → looper ✓") : "input 1: waiting for sound", { 16, 46, 176, 13 }, 7.5f, inputSeen ? Theme::green() : Theme::sub());
