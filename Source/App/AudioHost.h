@@ -2,6 +2,7 @@
 // ARCO audio host: the sound card, the routing (live inputs, headphones, speakers), recording the show,
 // importing files, and saving / opening a song folder.
 #include <JuceHeader.h>
+#include <deque>
 #include "../Engine/Engine.h"
 #include "../Model/Model.h"
 #include "PhoneLink.h"
@@ -91,6 +92,9 @@ public:
     bool importFile(const juce::File& f, int track);
     // ... or audio already at the engine rate (the smart import: fitted to the piece)
     bool importBuffer(const juce::AudioBuffer<float>& b, int track, const juce::String& name);
+    void pollImport();                               // ~30 x a second: hands queued imports to the looper, one by one
+    bool importing() const { return !imports.empty(); }
+    int trackState(int track);                       // the state of a track (1-8) of the scene playing now
     PieceInfo pieceInfo(bool listenForKey = true);   // the piece now: tempo, bar, loop length, key (from its loops)
     void listenKey(PieceInfo& p);                    // the key of the loops (any thread)
     juce::AudioFormatManager& formatManager() { return formats; }
@@ -115,6 +119,8 @@ public:
 private:
     void handleAsyncUpdate() override;
     juce::AudioFormatManager formats;
+    struct PendingImport { std::shared_ptr<SharedBuffer> buf; int track; double sr; juce::String name; int stage = 0; double t = 0, started = 0; bool seenBusy = false; int stateBefore = 0; };
+    std::deque<PendingImport> imports;
     juce::TimeSliceThread writerThread { "ARCO show recorder" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> threaded;
     juce::CriticalSection recLock;

@@ -534,7 +534,7 @@ void Canvas::timerCallback() {
     for (auto* s : strips) if (s->isVisible()) s->update();
     for (auto* c : cards) c->update();
     if (!inputSeen && engine().peak("live_in1") > 0.003f) inputSeen = true;
-    if (snap("imp_busy") < 0.5f && host.status.startsWith("copying")) host.status = U("file imported ✓");
+    host.pollImport();
     for (auto* o : owned) o->repaint();
     if (isShowing() && !setup->isVisible() && !synthWin->isVisible() && !look->isVisible() && !look->isVisible() && juce::Component::getCurrentlyFocusedComponent() == nullptr) grabKeyboardFocus();
     repaint(0, 0, 1440, 100);

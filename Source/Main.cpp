@@ -24,6 +24,12 @@ public:
                 std::printf("%s: %.2f BPM (conf %.2f, loop %d, bars %d, beat %.3f s, bar line %.3f s), %s (conf %.2f)\n", f.getFileName().toRawUTF8(), p.fileBpm, p.tempo.confidence,
                             (int) p.tempo.wholeBars, p.tempo.bars, p.tempo.beatOffset / 48000, p.tempo.downbeatOffset / 48000, p.key.name().toRawUTF8(), p.key.confidence);
             else std::printf("%s\n", err.toRawUTF8());
+            if (p.audio.getNumSamples() > 0) {
+                auto e = arco::analysis::onsetEnvelope(p.audio.getReadPointer(0), p.audio.getNumSamples(), 48000);
+                float mx = 0; double sum = 0; for (float v : e.v) { mx = juce::jmax(mx, v); sum += v; }
+                auto on = arco::analysis::onsets(p.audio.getReadPointer(0), p.audio.getNumSamples(), 48000);
+                std::printf("  onset envelope max %.4f mean %.5f, %d onsets\n", mx, sum / juce::jmax<size_t>(1, e.v.size()), (int) on.size());
+            }
             std::fflush(stdout); quit(); return;
         }
         host = std::make_unique<arco::AudioHost>(!test);

@@ -80,6 +80,7 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     if (F < 150) return t;                                   // under 1.5 s: too short to tell
     double fps = sr / e.hop;
     auto& v = e.v;
+    if (*std::max_element(v.begin(), v.end()) < 0.6f) return t;   // no attacks at all: no beat
     double mean = std::accumulate(v.begin(), v.end(), 0.0) / F;
     std::vector<float> z((size_t) F); for (int i = 0; i < F; ++i) z[(size_t) i] = (float) (v[(size_t) i] - mean);
     // autocorrelation up to 4 bars of the slowest tempo
@@ -105,7 +106,7 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     // refine
     for (double b = bestBpm - 0.25; b <= bestBpm + 0.25; b += 0.01) { double s = score(b); if (s > best) { best = s; bestBpm = b; } }
     double avg = std::accumulate(sc.begin(), sc.end(), 0.0) / sc.size();
-    t.confidence = juce::jlimit(0.0, 1.0, (best - avg) / (best + 1e-12) * (best / (r0 * 1.6)));
+    t.confidence = juce::jlimit(0.0, 1.0, (best / std::max(avg, 1e-12) - 1.0) / 4.0);
     // a loop: the file length is a whole number of bars - then the tempo is exactly that
     double secs = n / sr;
     double bestLoop = 0, loopErr = 1e9;
@@ -200,17 +201,28 @@ Key key(const float* x, int n, double sr) {
         }
     if (bt < 0 || best < 0.3) return k;
     k.tonic = bt; k.minor = bm; k.confidence = juce::jlimit(0.0, 1.0, (best - 0.3) / 0.6 * 0.5 + (best - second) * 3.0);
+    if (k.confidence < 0.25) k.tonic = -1;                 // not sure: better no key than a wrong one
     return k;
 }
 
 // ------------------------------------------------------------------ onsets: the peaks of the onset envelope
-std::vector<Onset> onsets(const float* x, int n, double sr, float sens) {
+std::vector<Onset> onsets(const float* x, int n, double sr, float sens, bool loop) {
     std::vector<Onset> out;
-    auto e = onsetEnvelope(x, n, sr);
+    if (n < 64) return out;
+    // what comes before the start: silence, or (a loop) its own end - so a note right at the start is found too
+    int P = juce::jmin(n, (int) (0.1 * sr) + (sr > 60000 ? 4096 : 2048));
+    std::vector<float> ext((size_t) (n + P), 0.0f);
+    if (loop) std::copy(x + n - P, x + n, ext.begin());
+    std::copy(x, x + n, ext.begin() + P);
+    auto e = onsetEnvelope(ext.data(), n + P, sr);
     int F = (int) e.v.size(); if (F < 5) return out;
     std::vector<float> s(e.v);
-    float mx = *std::max_element(s.begin(), s.end()); if (mx <= 0) return out;
-    float thr = mx * 0.12f / sens;
+    float mx = *std::max_element(s.begin(), s.end()); if (mx < 0.5f) return out;   // nothing that starts: a steady sound
+    std::vector<float> sorted(s); std::nth_element(sorted.begin(), sorted.begin() + (long) sorted.size() / 2, sorted.end());
+    float med = sorted[sorted.size() / 2];
+    float thr = std::max({ mx * 0.12f / sens, 0.35f, med * 4.0f });
+    const int w30 = (int) (0.03 * sr);
+    auto rms = [&](long a, long b) { double s2 = 0; long c = 0; for (long i = juce::jmax(0L, a); i < juce::jmin((long) ext.size(), b); ++i) { s2 += (double) ext[(size_t) i] * ext[(size_t) i]; ++c; } return c ? s2 / c : 0.0; };
     int lastF = -100;
     for (int i = 2; i < F - 2; ++i) {
         float a = s[(size_t) i];
@@ -222,10 +234,54 @@ std::vector<Onset> onsets(const float* x, int n, double sr, float sens) {
         // the onset is a little before the flux peak: half a frame back, refined by the parabola
         double y0 = s[(size_t) i - 1], y1 = a, y2 = s[(size_t) i + 1];
         double d = (y0 - 2 * y1 + y2) != 0 ? 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2) : 0;
-        out.push_back({ (i + d) * e.hop + (e.sr > 60000 ? 4096 : 2048) * 0.5 - e.hop * 0.5, a / mx });
+        double pos = (i + d) * e.hop + (e.sr > 60000 ? 4096 : 2048) * 0.5 - e.hop * 0.5 - P;
+        // a note starts: the sound gets louder (3 dB or more) - a slowly beating chord does not
+        long pe = (long) (pos + P);
+        if (rms(pe, pe + w30) < 2.0 * rms(pe - w30 - (long) (0.01 * sr), pe - (long) (0.005 * sr)) + 1e-10) continue;
         lastF = i;
+        if (pos < -0.025 * sr || pos >= n) continue;
+        out.push_back({ juce::jmax(0.0, pos), a / mx });
     }
     return out;
+}
+
+// ------------------------------------------------------------------ 1/3-octave spectrum
+double bandFreq(int b) { return 25.0 * std::pow(2.0, b / 3.0); }
+std::vector<double> bands(const float* x, int n, double sr) {
+    std::vector<double> out((size_t) NBANDS, -120.0);
+    int N = 8192; if (n < N) N = 2048; if (n < N) return out;
+    FFT fft(N); auto win = hann(N);
+    std::vector<float> fr((size_t) N), mag((size_t) (N / 2 + 1));
+    std::vector<double> acc((size_t) NBANDS, 0.0);
+    int hop = N / 2, frames = 0;
+    std::vector<int> bandOf((size_t) (N / 2 + 1), -1);
+    for (int k = 1; k <= N / 2; ++k) { double f = k * sr / N; int b = (int) std::floor(3.0 * std::log2(f / 25.0) + 0.5); if (b >= 0 && b < NBANDS) bandOf[(size_t) k] = b; }
+    for (int st = 0; st + N <= n; st += hop) {
+        for (int i = 0; i < N; ++i) fr[(size_t) i] = x[st + i] * win[(size_t) i];
+        fft.mags(fr.data(), mag.data());
+        for (int k = 1; k <= N / 2; ++k) if (bandOf[(size_t) k] >= 0) { double m = mag[(size_t) k] / (N * 0.25); acc[(size_t) bandOf[(size_t) k]] += m * m; }
+        ++frames;
+    }
+    if (frames == 0) return out;
+    for (int b = 0; b < NBANDS; ++b) out[(size_t) b] = 10.0 * std::log10(acc[(size_t) b] / frames + 1e-14);
+    return out;
+}
+
+double attackStart(const float* x, int n, double sr, double around) {
+    int w = (int) (0.015 * sr), a = juce::jmax(0, (int) around - w), b = juce::jmin(n, (int) around + w);
+    if (b - a < 16) return around;
+    // a 1 ms envelope
+    float k = 1.0f - std::exp(-1.0f / (float) (0.001 * sr)), env = 0, mx = 0;
+    std::vector<float> e((size_t) (b - a));
+    for (int i = a; i < b; ++i) { env += k * (std::abs(x[i]) - env); e[(size_t) (i - a)] = env; mx = juce::jmax(mx, env); }
+    if (mx <= 1e-6f) return around;
+    // the quiet floor before the attack
+    float floor = mx; int pk = 0;
+    for (int i = 0; i < (int) e.size(); ++i) if (e[(size_t) i] >= mx * 0.999f) { pk = i; break; }
+    for (int i = 0; i < pk; ++i) floor = juce::jmin(floor, e[(size_t) i]);
+    float thr = floor + (mx - floor) * 0.25f;
+    for (int i = 0; i <= pk; ++i) if (e[(size_t) i] >= thr) return a + i - (0.0007 * sr);   // the envelope lags ~0.7 ms
+    return around;
 }
 
 // ------------------------------------------------------------------ the stretch

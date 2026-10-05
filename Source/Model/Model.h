@@ -16,6 +16,9 @@ public:
     const ParamDef* def(const std::string& id) const;
     double get(const std::string& id) const;
     void set(const std::string& id, double v);            // store + send to the engine (and the scene memory follows on leaving)
+    // a scene setting of any scene (1-4): the scene playing now is set directly, the others in their memory
+    double getInScene(int scene, const std::string& id) const;
+    void setInScene(int scene, const std::string& id, double v);
     void sendAll();                                        // after the engine was (re)started
     // buttons: the engine reacts to a changed value, so every press sends a new number
     void press(const std::string& dest, const std::string& name, int mul = 1, int add = 0);

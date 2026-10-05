@@ -40,6 +40,7 @@ target_sources(ARCO PRIVATE
     Source/App/PhoneLink.cpp
     Source/App/Render.cpp
     Source/App/Analysis.cpp
+    Source/App/AutoMix.cpp
     $<$<PLATFORM_ID:iOS>:Source/App/IOSAudio.mm>
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp

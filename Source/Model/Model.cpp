@@ -32,6 +32,19 @@ void Model::set(const std::string& id, double v) {
     send(*d, v);
 }
 
+double Model::getInScene(int sc, const std::string& id) const {
+    auto* d = def(id); if (d == nullptr) return 0.0;
+    if (d->scope != 0 || sc == sceneNow || sc < 1 || sc > 4) return get(id);
+    auto& m = sceneMem[(size_t) (sc - 1)]; auto it = m.find(id);
+    return it == m.end() ? d->def : it->second;
+}
+void Model::setInScene(int sc, const std::string& id, double v) {
+    auto* d = def(id); if (d == nullptr) return;
+    if (d->scope != 0 || sc == sceneNow || sc < 1 || sc > 4) { set(id, v); return; }
+    v = juce::jlimit(d->lo, d->hi, v); if (d->kind != 0) v = std::round(v);
+    sceneMem[(size_t) (sc - 1)][id] = v;
+}
+
 void Model::sendAll() {
     for (auto& d : paramTable()) send(d, vals[d.id]);
 }

@@ -30,7 +30,7 @@ Envelope onsetEnvelope(const float* x, int n, double sr);
 
 Tempo tempo(const float* x, int n, double sr, int beatsPerBar = 4, double preferBpm = 0);
 Key key(const float* x, int n, double sr);
-std::vector<Onset> onsets(const float* x, int n, double sr, float sensitivity = 1.0f);
+std::vector<Onset> onsets(const float* x, int n, double sr, float sensitivity = 1.0f, bool loop = false);
 
 // time-stretch (outLength samples) and transpose (semitones), offline, best quality. Mono or stereo.
 juce::AudioBuffer<float> stretch(const juce::AudioBuffer<float>& in, double sr, int outLength, double semitones);
@@ -38,6 +38,13 @@ juce::AudioBuffer<float> stretch(const juce::AudioBuffer<float>& in, double sr, 
 juce::AudioBuffer<float> resample(const juce::AudioBuffer<float>& in, double from, double to);
 
 const char* noteName(int pc);
+
+// the average spectrum in 1/3-octave bands, 25 Hz ... 16 kHz (29 bands), in dB (power)
+constexpr int NBANDS = 29;
+double bandFreq(int b);                       // centre frequency of band b
+std::vector<double> bands(const float* x, int n, double sr);
+// the exact start of the attack near an onset (searches +-15 ms)
+double attackStart(const float* x, int n, double sr, double around);
 }
 
 // ------------------------------------------------------------------ the smart import: keep a file as it is, or fit it to the piece

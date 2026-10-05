@@ -351,15 +351,14 @@ bool AudioHost::importFile(const juce::File& f, int track) {
     std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(f));
     if (r == nullptr) { status = "can't read " + f.getFileName() + " (use WAV, AIFF, MP3 or FLAC)"; return false; }
     long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * 600));
-    auto b = std::make_shared<SharedBuffer>(); b->name = "st_import"; b->resize(juce::jmax(17L, n), 2);
+    if (n < 17) { status = f.getFileName() + " is empty"; return false; }
+    auto b = std::make_shared<SharedBuffer>(); b->name = "st_import"; b->resize(n, 2);
     juce::AudioBuffer<float> tmp((int) juce::jmax(1u, r->numChannels), (int) n);
     r->read(&tmp, 0, (int) n, 0, true, true);
     std::memcpy(b->chan(0), tmp.getReadPointer(0), sizeof(float) * (size_t) n);
     std::memcpy(b->chan(1), tmp.getReadPointer(juce::jmin(1, tmp.getNumChannels() - 1)), sizeof(float) * (size_t) n);
-    engine.setImport(b);
-    engine.set("st_looper", "imp_trk", track);
-    engine.set("st_looper", "imp_sr", r->sampleRate);
-    juce::Timer::callAfterDelay(60, [this, name = f.getFileName()] { model.press("st_looper", "imp_go"); status = "copying " + name + U(" into the track …"); });
+    imports.push_back({ b, track, r->sampleRate, f.getFileName() });
+    status = U("importing ") + f.getFileName() + U(" …");
     return true;
 }
 
@@ -369,11 +368,44 @@ bool AudioHost::importBuffer(const juce::AudioBuffer<float>& in, int track, cons
     auto b = std::make_shared<SharedBuffer>(); b->name = "st_import"; b->resize(n, 2);
     std::memcpy(b->chan(0), in.getReadPointer(0), sizeof(float) * (size_t) n);
     std::memcpy(b->chan(1), in.getReadPointer(juce::jmin(1, in.getNumChannels() - 1)), sizeof(float) * (size_t) n);
-    engine.setImport(b);
-    engine.set("st_looper", "imp_trk", track);
-    engine.set("st_looper", "imp_sr", engine.sr);
-    juce::Timer::callAfterDelay(60, [this, name] { model.press("st_looper", "imp_go"); status = "copying " + name + U(" into the track …"); });
+    imports.push_back({ b, track, engine.sr, name });
+    status = U("importing ") + name + U(" …");
     return true;
+}
+
+// imports, one after the other: the looper takes a file only when it is free (not counting in, not copying another)
+int AudioHost::trackState(int track) {
+    int k = juce::jlimit(1, 8, track) - 1;
+    float pack = engine.snap(k < 4 ? "statA" : "statB").v.load();
+    return ((int) pack >> (4 * (k % 4))) & 15;
+}
+void AudioHost::pollImport() {
+    if (imports.empty()) return;
+    auto& im = imports.front();
+    double now = juce::Time::getMillisecondCounterHiRes();
+    if (im.stage == 0) {                                   // hand the file to the engine
+        engine.setImport(im.buf);
+        engine.set("st_looper", "imp_trk", im.track);
+        engine.set("st_looper", "imp_sr", im.sr);
+        im.stage = 1; im.t = now; im.started = now; im.stateBefore = trackState(im.track);
+        return;
+    }
+    if (im.stage == 1) {                                   // ask the looper (again, if it was busy)
+        if (now - im.t < 50) return;
+        model.press("st_looper", "imp_go");
+        im.stage = 2; im.t = now;
+        status = "copying " + im.name + U(" into the track …");
+        return;
+    }
+    // stage 2: did it start?
+    bool busy = engine.snap("imp_busy").v.load() > 0.5f;
+    if (busy) { im.seenBusy = true; return; }
+    if (im.seenBusy || (trackState(im.track) != 0 && trackState(im.track) != im.stateBefore)) {
+        status = U("✓ ") + im.name + " imported";
+        imports.pop_front(); return;
+    }
+    if (now - im.started > 12000) { status = im.name + U(" could not be imported - try again"); imports.pop_front(); return; }
+    if (now - im.t > 300) im.stage = 1;                    // the looper was busy (a count-in, another file): ask again
 }
 
 PieceInfo AudioHost::pieceInfo(bool listenForKey) {

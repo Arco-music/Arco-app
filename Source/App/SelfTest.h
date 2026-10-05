@@ -6,6 +6,7 @@
 #include "../UI/MainView.h"
 #include "../UI/LearnOverlay.h"
 #include "Render.h"
+#include "AutoMix.h"
 #include <cstdio>
 #include <cmath>
 
@@ -82,7 +83,7 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
     auto trk = [&](int t) { return ((int) e.snap(t < 4 ? "statA" : "statB").v.load() >> (4 * (t % 4))) & 15; };
     auto scene = [&] { return ((int) e.snap("scenes").v.load()) % 8; };
     auto waitFor = [&](std::function<bool()> cond, double maxSec, float amp = 0) {
-        for (double t = 0; t < maxSec; t += 0.05) { if (cond()) return true; run(0.05, amp); }
+        for (double t = 0; t < maxSec; t += 0.05) { if (cond()) return true; run(0.05, amp); h.pollImport(); }
         return cond();
     };
 
@@ -153,8 +154,7 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         w.reset();
         check(h.importFile(wav, 2), "IMPORT reads a WAV file");
         run(0.1, 0);
-        m.press("st_looper", "imp_go");           // (the interface does this 60 ms later)
-        waitFor([&] { return trk(1) == 3; }, 6.0);
+        waitFor([&] { return !h.importing() && trk(1) == 3; }, 8.0);
         check(trk(1) == 3, "  track 2 plays the file", trk(1));
     }
     // SMART IMPORT: hear the tempo and key of a file, fit it to the piece
@@ -211,8 +211,86 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         check(out2.getNumSamples() == 2 * expectN && d < 1e-6f, "  in an 8-bar loop it repeats twice, seamless", out2.getNumSamples() / e.sr);
         // and the looper takes it
         check(h.importBuffer(out2.getNumSamples() > 0 ? out : out2, 3, "groove"), "  into track 3");
-        run(0.1, 0); m.press("st_looper", "imp_go");
         check(waitFor([&] { return trk(2) == 3; }, 6.0), "  track 3 plays it", trk(2));
+    }
+    // AUTO MIX: timing, then the whole mix with A / B
+    {
+        const double bl = e.sr * 0.5; long L = (long) (bl * 8);
+        std::vector<float> x((size_t) L, 0.0f);
+        const double offs[8] = { 0.012, -0.009, 0.015, 0.0, 0.011, -0.014, 0.008, 0.010 };
+        for (int k = 0; k < 8; ++k) { long a = (long) (k * bl + offs[k] * e.sr); for (int i = 0; i < 3000 && a + i < L; ++i) x[(size_t) (a + i)] = (float) (0.7 * std::exp(-i / 500.0) * std::sin(i * 0.2)); }
+        int moved = 0; double avg = 0;
+        auto y = automix::tighten(x, L, e.sr, bl, 1.0f, moved, avg);
+        auto on = analysis::onsets(y.data(), (int) L, e.sr);
+        double worst = 0; for (auto& o : on) { double p = analysis::attackStart(y.data(), (int) L, e.sr, o.pos); double g = std::round(p / bl) * bl; worst = std::max(worst, std::abs(p - g)); }
+        if (worst >= 0.003 * e.sr) for (auto& o : on) std::printf("        onset %.4f s (attack %.4f) strength %.2f\n", o.pos / e.sr, analysis::attackStart(y.data(), (int) L, e.sr, o.pos) / e.sr, o.strength);
+        check(moved >= 6 && worst < 0.003 * e.sr, "AUTO MIX timing: notes land on the beat (worst ms)", worst / e.sr * 1000.0);
+        auto y2 = automix::tighten(x, L, e.sr, bl, 0.5f, moved, avg);
+        check(moved >= 6 && avg > 4 && avg < 7, "  'gently': half the way (average ms moved)", avg);
+        // the whole mix of scene A (tracks 1, 2, 3 are recorded)
+        double volBefore = m.get("vol6"), panBefore = m.get("pan6");
+        AutoMixOptions ao; ao.timingAmount = 0.5f;
+        auto job = automix::prepare(h, ao);
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        auto res = automix::run(job, nullptr);
+        double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+        check(res.ok && !res.changes.empty(), ("AUTO MIX: " + res.headline).toRawUTF8(), ms);
+        for (auto& l : res.report) std::printf("        %s (%s): %s\n", l.who.toRawUTF8(), l.role.toRawUTF8(), l.what.toRawUTF8());
+        automix::apply(h, res, true);
+        run(0.2, 0);
+        check(m.get("ms_lim") > 0.5 && m.get("mx_hp6") > 10, "  applied: master limiter on, high-pass on track 3");
+        float pk = run(3.0, 0);
+        check(!nan && pk > 0.05f && pk < 0.95f, "  the mixed loops sound, never above -1 dB (peak)", pk);
+        automix::apply(h, res, false);
+        check(std::abs(m.get("vol6") - volBefore) < 1e-6 && std::abs(m.get("pan6") - panBefore) < 1e-6 && m.get("ms_lim") < 0.5, "  A/B: back to before, exactly");
+        automix::apply(h, res, true);
+        automix::apply(h, res, false);
+    }
+    // AUTO MIX understands a band: drums, bass, chords and a melody in scene C
+    {
+        m.press("st_looper", "scene", 8, 3);
+        waitFor([&] { return scene() == 3; }, 6.0);
+        const double bl = e.snap("sv_bl").v.load(); const int bts = juce::jmax(1, (int) e.snap("sv_bts").v.load());
+        const long L = (long) std::llround(bl * bts * 2);           // 2 bars
+        const double sr = e.sr; juce::Random rnd(3);
+        std::array<juce::AudioBuffer<float>, 4> st; for (auto& b : st) { b.setSize(1, (int) L); b.clear(); }
+        auto add = [&](int k, long a, std::function<float(int)> f, int len) { for (int i = 0; i < len && a + i < L; ++i) st[(size_t) k].addSample(0, (int) (a + i), f(i)); };
+        int nb = bts * 2;
+        for (int bt = 0; bt < nb; ++bt) {
+            long a = (long) std::llround(bt * bl);
+            if (bt % 2 == 0) add(0, a, [&](int i) { return (float) (0.8 * std::exp(-i / (0.035 * sr)) * std::sin(2 * M_PI * (50 + 90 * std::exp(-i / (0.012 * sr))) * i / sr)); }, (int) (0.25 * sr));
+            else add(0, a, [&](int i) { return (float) (0.4 * std::exp(-i / (0.02 * sr)) * (rnd.nextFloat() * 2 - 1)); }, (int) (0.2 * sr));
+            for (int h8 = 0; h8 < 2; ++h8) add(0, a + (long) (h8 * bl / 2), [&](int i) { return (float) (0.12 * std::exp(-i / (0.005 * sr)) * (rnd.nextFloat() * 2 - 1)); }, (int) (0.05 * sr));
+            // bass: eighth notes, a saw low-passed by its harmonics
+            static const double BN[4] = { 55.0, 55.0, 65.41, 49.0 };
+            double f = BN[(bt / bts) % 4 + (bt % 2)];
+            add(1, a, [&](int i) { double s2 = 0; for (int hN = 1; hN <= 6; ++hN) s2 += std::sin(2 * M_PI * f * hN * i / sr) / (hN * hN); return (float) (0.5 * s2 * std::min(1.0, i / 200.0) * std::exp(-i / (0.6 * sr))); }, (int) (bl * 0.95));
+            // melody: plucked notes on every beat, a little late or early
+            static const double MN[8] = { 440.0, 523.25, 587.33, 659.25, 587.33, 523.25, 440.0, 392.0 };
+            double mf = MN[bt % 8]; long ma = a + (long) ((rnd.nextFloat() - 0.5) * 0.024 * sr);
+            add(3, juce::jmax(0L, ma), [&](int i) { double s2 = 0; for (int hN = 1; hN <= 8; ++hN) s2 += std::sin(2 * M_PI * mf * hN * i / sr) * std::pow(0.6, hN); return (float) (0.35 * s2 * std::min(1.0, i / 100.0) * std::exp(-i / (0.25 * sr))); }, (int) (bl * 0.9));
+        }
+        // chords: long, soft, wide
+        for (double f : { 220.0, 277.18, 329.63, 440.0 }) add(2, 0, [&](int i) { double env = std::min(1.0, i / (0.3 * sr)) * std::min(1.0, (L - i) / (0.3 * sr));
+                return (float) (0.08 * env * (std::sin(2 * M_PI * f * i / sr) + 0.3 * std::sin(4 * M_PI * f * i / sr * 1.003) + 0.2 * (rnd.nextFloat() * 2 - 1) * 0.1)); }, (int) L);
+        for (int k = 0; k < 4; ++k) {
+            h.importBuffer(st[(size_t) k], k + 1, "stem");
+                waitFor([&] { return !h.importing(); }, 12.0);
+        }
+        bool all4 = trk(0) >= 3 && trk(1) >= 3 && trk(2) >= 3 && trk(3) >= 3;
+        if (!all4) std::printf("        track states %d %d %d %d, busy %.0f\n", trk(0), trk(1), trk(2), trk(3), e.snap("imp_busy").v.load());
+        AutoMixOptions ao; auto job = automix::prepare(h, ao); auto res = automix::run(job, nullptr);
+        juce::String roles; for (auto& l : res.report) if (l.who.startsWith("TRACK")) roles << l.role << " | ";
+        for (auto& l : res.report) std::printf("        %s (%s): %s\n", l.who.toRawUTF8(), l.role.toRawUTF8(), l.what.toRawUTF8());
+        bool rolesOk = res.report.size() >= 4 && res.report[0].role.startsWith("drums") && res.report[1].role == "bass" && res.report[2].role.startsWith("pad") && res.report[3].role.startsWith("lead");
+        check(all4 && rolesOk, ("AUTO MIX hears: " + roles).toRawUTF8());
+        automix::apply(h, res, true);
+        check(std::abs(m.get("pan5")) < 1 && std::abs(m.get("pan7")) < 1 && std::abs(m.get("pan6")) > 10 && m.get("spc5") < 6, "  bass and melody in the centre, chords to the side, no SPACE on the bass");
+        float pk = run(2.0, 0);
+        check(!nan && pk > 0.1f && pk < 0.95f, "  the band sounds, below -1 dB", pk);
+        automix::apply(h, res, false);
+        m.press("st_looper", "scene", 8, 1);
+        waitFor([&] { return scene() == 1; }, 6.0);
     }
     // EXPORT: render the scene offline, normalise, limit, write, read back
     {
