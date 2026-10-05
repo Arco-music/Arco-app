@@ -14,6 +14,7 @@ class LookPanel;
 class ExportSheet;
 class HelpSheet;
 class AboutSheet;
+class ImportSheet;
 class AppMenu;
 class LearnOverlay;
 
@@ -63,6 +64,8 @@ public:
     std::unique_ptr<ExportSheet> exportSheet;
     std::unique_ptr<HelpSheet> helpSheet;
     std::unique_ptr<AboutSheet> aboutSheet;
+    std::unique_ptr<ImportSheet> importSheet;
+    void requestImport(const juce::File& f, int track);   // the smart import window
     std::unique_ptr<AppMenu> menu;
     std::unique_ptr<LearnOverlay> learnLayer;
     juce::Component* topWindow() const;         // the window open over the station, or nullptr

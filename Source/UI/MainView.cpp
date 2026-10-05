@@ -42,10 +42,9 @@ public:
         add(wave, { 6, 30, 100, 42 });
         if (s >= 4) {
             int k = s - 4;
-            wave->onDrop = [this, k](const juce::File& f) { c.host.importFile(f, k + 1); };
+            wave->onDrop = [this, k](const juce::File& f) { c.requestImport(f, k + 1); };
             auto* file = new Pill("FILE", [] { return Theme::btn(); }, 6.5f, 6.0f);
-            file->onClick = [this, k] { c.chooseFile("Import an audio file into TRACK " + juce::String(k + 1), "*.wav;*.aif;*.aiff;*.mp3;*.flac;*.m4a", false,
-                                                  [this, k](juce::File f) { c.host.importFile(f, k + 1); }); };
+            file->onClick = [this, k] { c.importInto(k + 1); };
             add(file, { 76, 76, 30, 18 }); file->setComponentID("trk" + juce::String(k + 1) + ":file");
             auto btn = [&](juce::String t, ColourFn col, float fs, juce::Rectangle<int> r, std::string cmd) {
                 auto* p = new Pill(t, std::move(col), fs, 7.0f);
@@ -276,6 +275,7 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     exportSheet = std::make_unique<ExportSheet>(*this); addChildComponent(exportSheet.get()); exportSheet->setBounds(0, 0, 1440, 880);
     helpSheet = std::make_unique<HelpSheet>(*this); addChildComponent(helpSheet.get()); helpSheet->setBounds(0, 0, 1440, 880);
     aboutSheet = std::make_unique<AboutSheet>(*this); addChildComponent(aboutSheet.get()); aboutSheet->setBounds(0, 0, 1440, 880);
+    importSheet = std::make_unique<ImportSheet>(*this); addChildComponent(importSheet.get()); importSheet->setBounds(0, 0, 1440, 880);
     menu = std::make_unique<AppMenu>(*this);
     synthWin = std::make_unique<SynthPanel>(*this);
     addChildComponent(synthWin.get()); synthWin->setBounds(0, 0, 1440, 880);

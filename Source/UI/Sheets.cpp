@@ -168,6 +168,176 @@ void ExportSheet::finished() {
     repaint();
 }
 
+// ================================================================== IMPORT: keep, or match the piece
+ImportSheet::ImportSheet(Canvas& c) : Sheet(c, "IMPORT", { 320, 110, 800, 660 }), juce::Thread("ARCO import") {
+    addAndMakeVisible(go); addAndMakeVisible(cancel);
+    go.setBounds(box.getRight() - 224, box.getBottom() - 66, 200, 46);
+    cancel.setBounds(box.getRight() - 340, box.getBottom() - 60, 104, 34);
+    go.onClick = [this] { doImport(); };
+    cancel.onClick = [this] { if (isThreadRunning()) signalThreadShouldExit(); else dismiss(); };
+    bpmBox = std::make_unique<ValueBox>([this] { return plan.fileBpm; }, [this](double v) { plan.fileBpm = v; replan(); }, 40, 240, 1, [] { return Theme::red(); });
+    bpmBox->fsize = 11.0f;
+    addAndMakeVisible(*bpmBox); bpmBox->setBounds(box.getX() + 470, box.getY() + 166, 74, 26);
+    for (auto* p : { &half, &dbl }) addAndMakeVisible(p);
+    half.setBounds(box.getX() + 552, box.getY() + 166, 70, 26); dbl.setBounds(box.getX() + 628, box.getY() + 166, 70, 26);
+    half.onClick = [this] { if (plan.fileBpm > 80) { plan.fileBpm *= 0.5; replan(); } };
+    dbl.onClick = [this] { if (plan.fileBpm > 0 && plan.fileBpm < 120) { plan.fileBpm *= 2.0; replan(); } };
+    keepBox = { box.getX() + 24, box.getY() + 260, 364, 236 };
+    matchBox = { box.getX() + 412, box.getY() + 260, 364, 236 };
+    addAndMakeVisible(tempoT); addAndMakeVisible(keyT);
+    tempoT.setBounds(matchBox.getX() + 18, matchBox.getBottom() - 44, 90, 28);
+    keyT.setBounds(matchBox.getX() + 116, matchBox.getBottom() - 44, 90, 28);
+    tempoT.onClick = [this] { plan.matchTempo = !plan.matchTempo; match = true; replan(); };
+    keyT.onClick = [this] { plan.matchKey = !plan.matchKey; match = true; replan(); };
+    startTimerHz(15);
+}
+ImportSheet::~ImportSheet() { stopThread(8000); }
+
+void ImportSheet::open(const juce::File& f, int t) {
+    if (isThreadRunning()) return;
+    file = f; track = juce::jlimit(1, 8, t);
+    title = "IMPORT INTO TRACK " + juce::String(track);
+    subtitle = f.getFileName();
+    plan = {}; error = {}; result = {}; thumb.clear();
+    piece = cv.host.pieceInfo(false);
+    match = piece.hasLoops;                           // the first file of a piece sets its tempo: keep it as it is
+    stage = Listening; wantRender = false; progress = 0; jobDone = false;
+    setVisible(true); toFront(true);
+    startThread();
+}
+
+void ImportSheet::run() {
+    if (wantRender) {
+        result = renderImport(plan, piece, [this](float p) { progress = p; return !threadShouldExit(); });
+        jobDone = true; return;
+    }
+    juce::String err;
+    ImportPlan p;
+    if (!prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err)) { error = err; jobDone = true; return; }
+    cv.host.listenKey(piece);
+    // a thumbnail of the file
+    std::vector<float> th(600, 0.0f);
+    int n = p.audio.getNumSamples();
+    for (int i = 0; i < n; ++i) { int k = (int) ((long) i * 600 / n); th[(size_t) k] = juce::jmax(th[(size_t) k], std::abs(p.audio.getSample(0, i))); }
+    plan = std::move(p); thumb = std::move(th);
+    jobDone = true;
+}
+
+void ImportSheet::timerCallback() {
+    if (!isVisible()) return;
+    if (jobDone && !isThreadRunning()) {
+        jobDone = false;
+        if (error.isNotEmpty()) stage = Failed;
+        else if (stage == Listening) { stage = Ready; replan(); }
+        else if (stage == Rendering) {
+            if (result.getNumSamples() > 0 && !threadShouldExit()) {
+                cv.host.importBuffer(result, track, file.getFileName());
+                setVisible(false); plan = {}; result = {};
+                stage = Idle; return;
+            }
+            stage = Ready;
+        }
+    }
+    bool ready = stage == Ready;
+    go.setVisible(ready); bpmBox->setVisible(ready && plan.fileBpm > 0); half.setVisible(ready && plan.fileBpm > 0); dbl.setVisible(ready && plan.fileBpm > 0);
+    tempoT.setVisible(ready); keyT.setVisible(ready);
+    cancel.text = stage == Rendering ? "STOP" : "CANCEL";
+    repaint();
+}
+
+void ImportSheet::replan() { planImport(plan, piece); repaint(); }
+
+void ImportSheet::mouseDown(const juce::MouseEvent& e) {
+    auto p = e.getPosition();
+    if (stage == Ready && keepBox.contains(p)) { match = false; repaint(); return; }
+    if (stage == Ready && matchBox.contains(p)) { match = true; repaint(); return; }
+    Sheet::mouseDown(e);
+}
+
+void ImportSheet::doImport() {
+    if (stage != Ready) return;
+    if (!match || (!plan.matchTempo && (plan.semitones == 0 || !plan.matchKey))) {
+        // as it is: the looper reads the file itself
+        cv.host.importFile(file, track);
+        setVisible(false); plan = {}; stage = Idle; return;
+    }
+    stage = Rendering; wantRender = true; progress = 0.02f; jobDone = false;
+    startThread();
+}
+
+void ImportSheet::paintContent(juce::Graphics& g) {
+    auto bx = box.getX(), by = box.getY();
+    // the file
+    auto wr = juce::Rectangle<float>((float) bx + 24, (float) by + 80, (float) box.getWidth() - 48, 70);
+    g.setColour(Theme::scr()); g.fillRoundedRectangle(wr, 8.0f);
+    if (stage != Listening && !thumb.empty()) {
+        juce::Path p; float cy = wr.getCentreY(), h = wr.getHeight() * 0.44f; int N = (int) thumb.size();
+        float mx = 1e-6f; for (float v : thumb) mx = juce::jmax(mx, v);
+        p.startNewSubPath(wr.getX() + 6, cy);
+        for (int i = 0; i < N; ++i) p.lineTo(wr.getX() + 6 + (wr.getWidth() - 12) * i / (N - 1), cy - thumb[(size_t) i] / mx * h);
+        for (int i = N - 1; i >= 0; --i) p.lineTo(wr.getX() + 6 + (wr.getWidth() - 12) * i / (N - 1), cy + thumb[(size_t) i] / mx * h);
+        p.closeSubPath();
+        g.setColour(Theme::arc(Theme::blue())); g.fillPath(p);
+        // where it will start (the first bar line)
+        if (plan.audio.getNumSamples() > 0 && plan.fileBpm > 0) {
+            double barN = plan.audio.getNumSamples(), beat = 60.0 * cv.engine().sr / plan.fileBpm;
+            g.setColour(Theme::txt().withAlpha(0.25f));
+            for (double x = plan.tempo.downbeatOffset; x < barN; x += beat * piece.beats)
+                g.fillRect((float) (wr.getX() + 6 + (wr.getWidth() - 12) * x / barN), wr.getY() + 4, 1.0f, wr.getHeight() - 8);
+        }
+    }
+    if (stage == Listening) { text(g, juce::String::fromUTF8("listening to the file: tempo, beat, key …"), 24, 176, 600, 10.0f, Theme::amber(), 1, 1); return; }
+    if (stage == Failed) { text(g, error, 24, 176, 740, 10.0f, Theme::red(), 1, 2); return; }
+    auto pieceKey = piece.key.tonic >= 0 ? piece.key.name() : juce::String("no key yet");
+    // what was heard
+    text(g, "THIS FILE", 24, 170, 120, 9.0f, Theme::sub(), 2, 1);
+    juce::String fl = plan.fileBpm > 0 ? juce::String(plan.fileBpm, 1) + " BPM" : juce::String("no clear beat");
+    fl << juce::String::fromUTF8("  ·  ") << plan.key.name();
+    int secs = (int) std::round(plan.seconds);
+    fl << juce::String::fromUTF8("  ·  ") << secs / 60 << ":" << juce::String(secs % 60).paddedLeft('0', 2);
+    if (plan.tempo.wholeBars && plan.tempo.bars > 0) fl << juce::String::fromUTF8("  ·  a ") << plan.tempo.bars << "-bar loop";
+    text(g, fl, 130, 168, 330, 10.5f, Theme::txt(), 2, 1);
+    if (plan.fileBpm > 0) text(g, "not right?", 392, 172, 80, 7.5f, Theme::sub(), 0, 1);
+    text(g, "THE PIECE", 24, 214, 120, 9.0f, Theme::sub(), 2, 1);
+    juce::String pl = juce::String(piece.bpm, 1) + " BPM  ·  " + juce::String(piece.beats) + "/4  ·  " + pieceKey;
+    if (piece.loopLen > 0) pl << juce::String::fromUTF8("  ·  this scene loops ") << (int) std::round(piece.loopLen / (piece.beatLen * piece.beats)) << " bars";
+    else if (!piece.hasLoops) pl << juce::String::fromUTF8("  ·  nothing recorded yet");
+    text(g, pl, 130, 212, 640, 10.5f, Theme::txt(), 2, 1);
+    // the two choices
+    auto card = [&](juce::Rectangle<int> r, bool on, const juce::String& head, const juce::StringArray& lines) {
+        g.setColour(on ? Theme::sel().withAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
+        g.setColour(on ? Theme::ink(Theme::sel()) : Theme::line()); g.drawRoundedRectangle(r.toFloat().reduced(0.5f), 14.0f, on ? 2.2f : 1.0f);
+        g.setColour(Theme::ink(Theme::txt())); g.setFont(Theme::font(13.0f, 2));
+        g.drawText((on ? juce::String::fromUTF8("●  ") : juce::String::fromUTF8("○  ")) + head, r.getX() + 18, r.getY() + 14, r.getWidth() - 30, 24, juce::Justification::centredLeft);
+        int y = r.getY() + 50;
+        for (auto& l : lines) { g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(9.0f, 0)); g.drawFittedText(l, r.getX() + 18, y, r.getWidth() - 34, 30, juce::Justification::topLeft, 2, 0.9f); y += 30; }
+    };
+    juce::StringArray keep { juce::String::fromUTF8("plays exactly as recorded - its own tempo and key") };
+    if (!piece.hasLoops) keep.add(juce::String::fromUTF8("the first file sets the tempo of the piece") + (plan.fileBpm > 0 ? " (about " + juce::String((int) std::round(plan.fileBpm)) + " BPM)" : juce::String()));
+    else keep.add(juce::String::fromUTF8("cut or filled to the loop of this scene"));
+    keep.add(juce::String::fromUTF8("best for sounds without a beat: drones, textures, voices"));
+    card(keepBox, !match, "KEEP AS IT IS", keep);
+    juce::StringArray ml;
+    if (plan.fileBpm <= 0) ml.add(juce::String::fromUTF8("no clear beat in the file: the tempo stays"));
+    else if (plan.matchTempo) ml.add("tempo  " + juce::String(plan.fileBpm, 1) + juce::String::fromUTF8(" → ") + juce::String(piece.bpm, 1) + " BPM  (" + juce::String((int) std::round(plan.fileBpm / piece.bpm * 100)) + " % speed)"
+                                  + (plan.tempo.downbeatOffset > cv.engine().sr * 0.02 ? juce::String::fromUTF8(", from its first bar line") : juce::String()));
+    else ml.add("tempo: as it is (TEMPO is off)");
+    if (!plan.matchKey) ml.add("key: as it is (KEY is off)");
+    else if (plan.key.tonic < 0) ml.add(juce::String::fromUTF8("no clear key in the file: the pitch stays"));
+    else if (piece.key.tonic < 0) ml.add(juce::String::fromUTF8("the piece has no key yet - record something first"));
+    else if (plan.semitones == 0) ml.add("already in the key of the piece (" + pieceKey + ")");
+    else ml.add(juce::String(plan.semitones > 0 ? "+" : "") + juce::String(plan.semitones) + (std::abs(plan.semitones) == 1 ? " semitone" : " semitones") + juce::String::fromUTF8(" → ") + pieceKey);
+    ml.add(juce::String::fromUTF8("length: ") + plan.fitText(piece));
+    card(matchBox, match, "MATCH THE PIECE", ml);
+    if (stage == Rendering || progress > 0.01f) {
+        auto bar = juce::Rectangle<float>((float) bx + 24, (float) box.getBottom() - 100, (float) box.getWidth() - 48, 8);
+        g.setColour(Theme::card2()); g.fillRoundedRectangle(bar, 4);
+        g.setColour(Theme::green()); g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * juce::jlimit(0.0f, 1.0f, progress.load())), 4);
+    }
+    text(g, stage == Rendering ? juce::String::fromUTF8("stretching and tuning at full quality …") : juce::String::fromUTF8("drop more files on any track - this window opens each time"),
+         24, box.getHeight() - 60, 420, 8.5f, Theme::sub(), 0, 2);
+}
+
 // ================================================================== HELP
 HelpSheet::HelpSheet(Canvas& c) : Sheet(c, "HELP", { 120, 40, 1200, 800 }) {
     subtitle = "everything ARCO does, in short";

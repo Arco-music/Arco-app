@@ -1,0 +1,369 @@
+// ARCO 1.2: tempo, key, onsets, and the high-quality stretch. (This file is built without -ffast-math: see CMakeLists.txt.)
+#include "Analysis.h"
+#include "../ThirdParty/signalsmith/signalsmith-stretch.h"
+#include <complex>
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+
+namespace arco {
+namespace analysis {
+
+static const char* NN[12] = { "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+const char* noteName(int pc) { return NN[((pc % 12) + 12) % 12]; }
+juce::String Key::name() const { return tonic < 0 ? juce::String("no clear key") : juce::String(noteName(tonic)) + (minor ? " minor" : " major"); }
+
+// ------------------------------------------------------------------ a small radix-2 FFT (magnitudes only are needed)
+struct FFT {
+    int n = 0; std::vector<std::complex<float>> w; std::vector<int> rev; std::vector<std::complex<float>> buf;
+    explicit FFT(int size) : n(size), w((size_t) size / 2), rev((size_t) size), buf((size_t) size) {
+        for (int i = 0; i < n / 2; ++i) w[(size_t) i] = std::polar(1.0f, (float) (-2.0 * M_PI * i / n));
+        int bits = 0; while ((1 << bits) < n) ++bits;
+        for (int i = 0; i < n; ++i) { int r = 0; for (int b = 0; b < bits; ++b) if (i & (1 << b)) r |= 1 << (bits - 1 - b); rev[(size_t) i] = r; }
+    }
+    // in: n real samples (windowed); out: n/2+1 magnitudes
+    void mags(const float* in, float* out) {
+        for (int i = 0; i < n; ++i) buf[(size_t) rev[(size_t) i]] = { in[i], 0.0f };
+        for (int len = 2; len <= n; len <<= 1) {
+            int step = n / len;
+            for (int i = 0; i < n; i += len)
+                for (int j = 0; j < len / 2; ++j) {
+                    auto u = buf[(size_t) (i + j)], v = buf[(size_t) (i + j + len / 2)] * w[(size_t) (j * step)];
+                    buf[(size_t) (i + j)] = u + v; buf[(size_t) (i + j + len / 2)] = u - v;
+                }
+        }
+        for (int i = 0; i <= n / 2; ++i) out[i] = std::abs(buf[(size_t) i]);
+    }
+};
+static std::vector<float> hann(int n) { std::vector<float> h((size_t) n); for (int i = 0; i < n; ++i) h[(size_t) i] = 0.5f - 0.5f * (float) std::cos(2 * M_PI * i / n); return h; }
+
+// ------------------------------------------------------------------ onset strength: log spectral flux, ~100 values per second
+Envelope onsetEnvelope(const float* x, int n, double sr) {
+    Envelope e; e.sr = sr;
+    int N = sr > 60000 ? 4096 : 2048;
+    int hop = (int) std::round(sr / 100.0); e.hop = hop;
+    if (n < N) return e;
+    FFT fft(N); auto win = hann(N);
+    std::vector<float> fr((size_t) N), mag((size_t) (N / 2 + 1)), prev((size_t) (N / 2 + 1), 0.0f), prevLin((size_t) (N / 2 + 1), 0.0f);
+    int b0 = (int) (30.0 * N / sr), b1 = juce::jmin(N / 2, (int) (8000.0 * N / sr)), bLow = juce::jmax(b0 + 2, (int) (150.0 * N / sr));
+    int frames = (n - N) / hop + 1;
+    e.v.assign((size_t) frames, 0.0f); e.low.assign((size_t) frames, 0.0f);
+    for (int f = 0; f < frames; ++f) {
+        const float* p = x + (size_t) f * hop;
+        for (int i = 0; i < N; ++i) fr[(size_t) i] = p[i] * win[(size_t) i];
+        fft.mags(fr.data(), mag.data());
+        float flux = 0, lowFlux = 0;
+        for (int b = b0; b <= b1; ++b) {
+            float m = std::log1p(100.0f * mag[(size_t) b] / N);
+            float d = m - prev[(size_t) b];
+            if (d > 0) flux += d;
+            if (b < bLow) { float dl = mag[(size_t) b] - prevLin[(size_t) b]; if (dl > 0) lowFlux += dl / N; prevLin[(size_t) b] = mag[(size_t) b]; }   // bass and kick: by their energy
+            prev[(size_t) b] = m;
+        }
+        e.v[(size_t) f] = f == 0 ? 0.0f : flux; e.low[(size_t) f] = f == 0 ? 0.0f : lowFlux;
+    }
+    // remove the slow part (a moving average of 0.4 s) and keep what rises
+    auto detrend = [](std::vector<float>& v, int w) {
+        std::vector<float> o(v.size()); double s = 0; int n2 = (int) v.size();
+        std::vector<double> c((size_t) n2 + 1, 0.0); for (int i = 0; i < n2; ++i) c[(size_t) i + 1] = c[(size_t) i] + v[(size_t) i];
+        for (int i = 0; i < n2; ++i) { int a = juce::jmax(0, i - w), b = juce::jmin(n2, i + w + 1); s = (c[(size_t) b] - c[(size_t) a]) / (b - a); o[(size_t) i] = juce::jmax(0.0f, v[(size_t) i] - (float) s); }
+        v.swap(o); };
+    detrend(e.v, 20); detrend(e.low, 20);
+    return e;
+}
+
+// ------------------------------------------------------------------ tempo, beat, downbeat
+Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
+    Tempo t;
+    auto e = onsetEnvelope(x, n, sr);
+    int F = (int) e.v.size();
+    if (F < 150) return t;                                   // under 1.5 s: too short to tell
+    double fps = sr / e.hop;
+    auto& v = e.v;
+    double mean = std::accumulate(v.begin(), v.end(), 0.0) / F;
+    std::vector<float> z((size_t) F); for (int i = 0; i < F; ++i) z[(size_t) i] = (float) (v[(size_t) i] - mean);
+    // autocorrelation up to 4 bars of the slowest tempo
+    int maxLag = juce::jmin(F - 1, (int) (fps * 60.0 / 40.0 * 4));
+    std::vector<double> r((size_t) maxLag + 1, 0.0);
+    for (int l = 1; l <= maxLag; ++l) { double s = 0; for (int i = 0; i + l < F; ++i) s += z[(size_t) i] * z[(size_t) (i + l)]; r[(size_t) l] = s / (F - l); }
+    double r0 = 0; for (int i = 0; i < F; ++i) r0 += (double) z[(size_t) i] * z[(size_t) i]; r0 /= F;
+    if (r0 <= 1e-12) return t;
+    auto at = [&](double l) { if (l < 1 || l >= maxLag) return 0.0; int i = (int) l; double f = l - i; return r[(size_t) i] * (1 - f) + r[(size_t) i + 1] * f; };
+    // a comb over the beat and its multiples, with a gentle preference for 70-160 BPM
+    auto score = [&](double bpm) {
+        double l = fps * 60.0 / bpm, s = 0;
+        for (int k = 1; k <= 4; ++k) s += at(l * k) / k;
+        s += 0.5 * at(l * bpb);
+        double c = prefer > 0 ? prefer : 115.0;
+        double wgt = std::exp(-0.5 * std::pow(std::log2(bpm / c) / 0.85, 2.0));
+        return s * wgt;
+    };
+    double best = 0, bestBpm = 0;
+    std::vector<double> sc;
+    for (double b = 50; b <= 220; b += 0.25) { double s = score(b); sc.push_back(s); if (s > best) { best = s; bestBpm = b; } }
+    if (best <= 0) return t;
+    // refine
+    for (double b = bestBpm - 0.25; b <= bestBpm + 0.25; b += 0.01) { double s = score(b); if (s > best) { best = s; bestBpm = b; } }
+    double avg = std::accumulate(sc.begin(), sc.end(), 0.0) / sc.size();
+    t.confidence = juce::jlimit(0.0, 1.0, (best - avg) / (best + 1e-12) * (best / (r0 * 1.6)));
+    // a loop: the file length is a whole number of bars - then the tempo is exactly that
+    double secs = n / sr;
+    double bestLoop = 0, loopErr = 1e9;
+    for (double mult : { 1.0, 2.0, 0.5, 1.5, 2.0 / 3.0 }) {
+        double cand = bestBpm * mult;
+        if (cand < 50 || cand > 220) continue;
+        if (mult != 1.0 && score(cand) < best * 0.6) continue;
+        double bars = secs * cand / 60.0 / bpb;
+        for (int nb : { 1, 2, 3, 4, 6, 8, 12, 16, 24, 32 }) {
+            double exactBpm = nb * bpb * 60.0 / secs;
+            double err = std::abs(exactBpm / cand - 1.0) + (mult == 1.0 ? 0.0 : 0.01);
+            if (err < 0.035 && err < loopErr) { loopErr = err; bestLoop = exactBpm; t.bars = nb; }
+            juce::ignoreUnused(bars);
+        }
+    }
+    if (bestLoop > 0) { bestBpm = bestLoop; t.wholeBars = true; }
+    else if (std::abs(bestBpm - std::round(bestBpm)) < 0.2) bestBpm = std::round(bestBpm);   // most music is made at a whole BPM
+    t.bpm = bestBpm;
+    // the beat grid: the phase where the onsets line up best
+    double P = fps * 60.0 / bestBpm;
+    auto gridSum = [&](double ph, double step, const std::vector<float>& env) {
+        double s = 0; int cnt = 0;
+        for (double p = ph; p < F - 1; p += step) { int i = (int) std::round(p); s += env[(size_t) i] + 0.5 * (i > 0 ? env[(size_t) i - 1] : 0) + 0.5 * env[(size_t) i + 1]; ++cnt; }
+        return cnt ? s / cnt : 0.0; };
+    double bestPh = 0, bestS = -1;
+    for (double ph = 0; ph < P; ph += 0.25) { double s = gridSum(ph, P, v); if (s > bestS) { bestS = s; bestPh = ph; } }
+    // a loop that starts on its beat: keep the start
+    bool snapped = t.wholeBars && (bestPh < 4.0 || P - bestPh < 4.0);
+    if (snapped) bestPh = 0;
+    const double centre = (sr > 60000 ? 4096 : 2048) * 0.5;       // a frame hears an onset best when it is in its middle
+    t.beatOffset = bestPh * e.hop + (snapped ? 0.0 : centre);
+    // the downbeat: the beat of the bar with the strongest low (bass, kick) onsets
+    double bestD = -1; int bestB = 0;
+    double s0 = 0;
+    double lowMean = std::accumulate(e.low.begin(), e.low.end(), 0.0) / F;
+    for (int b = 0; b < bpb; ++b) {
+        double s = gridSum(bestPh + b * P, P * bpb, e.low) / (lowMean + 1e-9) * 2.0 + gridSum(bestPh + b * P, P * bpb, v) / (mean + 1e-9);
+        if (b == 0) s0 = s;
+        if (s > bestD) { bestD = s; bestB = b; }
+    }
+    // a loop is usually cut on its bar line: keep its start unless another beat is clearly the "one"
+    if (t.wholeBars && bestPh == 0 && bestD < s0 * 1.3) bestB = 0;
+    t.downbeatOffset = (bestPh + bestB * P) * e.hop + (snapped ? 0.0 : centre);
+    return t;
+}
+
+// ------------------------------------------------------------------ key: a chroma profile against the Krumhansl key profiles
+Key key(const float* x, int n, double sr) {
+    Key k;
+    int N = 8192; if (sr > 60000) N = 16384;
+    if (n < N) return k;
+    FFT fft(N); auto win = hann(N);
+    std::vector<float> fr((size_t) N), mag((size_t) (N / 2 + 1));
+    double chroma[12] = {};
+    int hop = N / 2, frames = juce::jmin((n - N) / hop + 1, (int) (90.0 * sr / hop));
+    // which bins belong to which pitch class (65 Hz - 2.1 kHz), with weights to the two nearest semitones
+    struct BW { int pc; float w; };
+    std::vector<std::array<BW, 2>> map((size_t) (N / 2 + 1), { BW { 0, 0.0f }, BW { 0, 0.0f } });
+    for (int b = 1; b <= N / 2; ++b) {
+        double f = b * sr / N; if (f < 65 || f > 2100) continue;
+        double m = 12.0 * std::log2(f / 440.0) + 69.0; int lo = (int) std::floor(m); double fr2 = m - lo;
+        double ww = 1.0 / (1.0 + std::pow(f / 1000.0, 2.0));          // the high harmonics count less
+        map[(size_t) b] = { BW { ((lo % 12) + 12) % 12, (float) ((1 - fr2) * ww) }, BW { (((lo + 1) % 12) + 12) % 12, (float) (fr2 * ww) } };
+    }
+    for (int f = 0; f < frames; ++f) {
+        const float* p = x + (size_t) f * hop;
+        float en = 0;
+        for (int i = 0; i < N; ++i) { fr[(size_t) i] = p[i] * win[(size_t) i]; en += p[i] * p[i]; }
+        if (en / N < 1e-7f) continue;
+        fft.mags(fr.data(), mag.data());
+        double c[12] = {}, tot = 0;
+        for (int b = 1; b <= N / 2; ++b) { auto& mm = map[(size_t) b]; if (mm[0].w + mm[1].w <= 0) continue; double m2 = mag[(size_t) b];
+            // only the peaks of the spectrum (the notes), not the noise between them
+            if (b > 1 && b < N / 2 && (mag[(size_t) b] < mag[(size_t) b - 1] || mag[(size_t) b] < mag[(size_t) b + 1])) continue;
+            c[mm[0].pc] += m2 * mm[0].w; c[mm[1].pc] += m2 * mm[1].w; }
+        for (double vv : c) tot += vv;
+        if (tot > 0) for (int i = 0; i < 12; ++i) chroma[i] += std::sqrt(c[i] / tot);
+    }
+    static const double MAJ[12] = { 6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88 };
+    static const double MIN[12] = { 6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17 };
+    auto corr = [&](const double* prof, int tonic) {
+        double mx = 0, my = 0; for (int i = 0; i < 12; ++i) { mx += chroma[(i + tonic) % 12]; my += prof[i]; } mx /= 12; my /= 12;
+        double sxy = 0, sxx = 0, syy = 0;
+        for (int i = 0; i < 12; ++i) { double a = chroma[(i + tonic) % 12] - mx, b = prof[i] - my; sxy += a * b; sxx += a * a; syy += b * b; }
+        return sxx > 0 ? sxy / std::sqrt(sxx * syy) : 0.0; };
+    double best = -2, second = -2; int bt = -1; bool bm = false;
+    for (int tn = 0; tn < 12; ++tn)
+        for (int mi = 0; mi < 2; ++mi) {
+            double c = corr(mi ? MIN : MAJ, tn);
+            if (c > best) { second = best; best = c; bt = tn; bm = mi == 1; }
+            else if (c > second) second = c;
+        }
+    if (bt < 0 || best < 0.3) return k;
+    k.tonic = bt; k.minor = bm; k.confidence = juce::jlimit(0.0, 1.0, (best - 0.3) / 0.6 * 0.5 + (best - second) * 3.0);
+    return k;
+}
+
+// ------------------------------------------------------------------ onsets: the peaks of the onset envelope
+std::vector<Onset> onsets(const float* x, int n, double sr, float sens) {
+    std::vector<Onset> out;
+    auto e = onsetEnvelope(x, n, sr);
+    int F = (int) e.v.size(); if (F < 5) return out;
+    std::vector<float> s(e.v);
+    float mx = *std::max_element(s.begin(), s.end()); if (mx <= 0) return out;
+    float thr = mx * 0.12f / sens;
+    int lastF = -100;
+    for (int i = 2; i < F - 2; ++i) {
+        float a = s[(size_t) i];
+        if (a < thr || a < s[(size_t) i - 1] || a < s[(size_t) i + 1] || a < s[(size_t) i - 2] || a < s[(size_t) i + 2]) continue;
+        // a local threshold: louder than the neighbourhood
+        double loc = 0; int cnt = 0; for (int j = juce::jmax(0, i - 15); j < juce::jmin(F, i + 16); ++j) { loc += s[(size_t) j]; ++cnt; }
+        if (a < 1.5 * loc / cnt) continue;
+        if (i - lastF < 5) continue;                         // 50 ms apart at least
+        // the onset is a little before the flux peak: half a frame back, refined by the parabola
+        double y0 = s[(size_t) i - 1], y1 = a, y2 = s[(size_t) i + 1];
+        double d = (y0 - 2 * y1 + y2) != 0 ? 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2) : 0;
+        out.push_back({ (i + d) * e.hop + (e.sr > 60000 ? 4096 : 2048) * 0.5 - e.hop * 0.5, a / mx });
+        lastF = i;
+    }
+    return out;
+}
+
+// ------------------------------------------------------------------ the stretch
+juce::AudioBuffer<float> stretch(const juce::AudioBuffer<float>& in, double sr, int outLength, double semis) {
+    int ch = in.getNumChannels(), n = in.getNumSamples();
+    juce::AudioBuffer<float> out(ch, juce::jmax(1, outLength)); out.clear();
+    if (n < 64 || outLength < 64) return out;
+    if (outLength == n && std::abs(semis) < 0.001) { for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, in, c, 0, n); return out; }
+    signalsmith::stretch::SignalsmithStretch<float> st(1234);
+    st.presetDefault(ch, (float) sr);
+    st.setTransposeSemitones((float) semis, (float) (8000.0 / sr));
+    // the stretcher wants some input before the start: pad with silence on both sides, then cut
+    int pad = st.blockSamples() + st.intervalSamples();
+    double ratio = (double) outLength / n;
+    int inN = n + 2 * pad, outN = (int) std::round(inN * ratio);
+    std::vector<std::vector<float>> ib((size_t) ch, std::vector<float>((size_t) inN, 0.0f)), ob((size_t) ch, std::vector<float>((size_t) outN, 0.0f));
+    for (int c = 0; c < ch; ++c) std::copy(in.getReadPointer(c), in.getReadPointer(c) + n, ib[(size_t) c].begin() + pad);
+    st.exact(ib, inN, ob, outN);
+    int off = (int) std::round(pad * ratio);
+    for (int c = 0; c < ch; ++c) for (int i = 0; i < outLength; ++i) { int j = off + i; out.setSample(c, i, j < outN ? ob[(size_t) c][(size_t) j] : 0.0f); }
+    return out;
+}
+
+juce::AudioBuffer<float> resample(const juce::AudioBuffer<float>& in, double from, double to) {
+    if (std::abs(from - to) < 0.5 || in.getNumSamples() == 0) return in;
+    double ratio = from / to;
+    int outN = (int) std::floor(in.getNumSamples() / ratio);
+    juce::AudioBuffer<float> o(in.getNumChannels(), juce::jmax(1, outN)); o.clear();
+    for (int c = 0; c < in.getNumChannels(); ++c) { juce::WindowedSincInterpolator ip; ip.process(ratio, in.getReadPointer(c), o.getWritePointer(c), outN, in.getNumSamples(), 0); }
+    return o;
+}
+
+} // namespace analysis
+
+// ================================================================== the smart import
+juce::String ImportPlan::summary() const {
+    juce::String s;
+    s << (fileBpm > 0 ? juce::String(fileBpm, 1) + " BPM" : juce::String("no clear beat")) << juce::String::fromUTF8("  ·  ") << key.name();
+    return s;
+}
+
+bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::AudioFormatManager& fm, juce::String& error) {
+    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
+    if (r == nullptr) { error = "can't read " + f.getFileName() + " (use WAV, AIFF, MP3, FLAC or M4A)"; return false; }
+    p.file = f; p.fileSr = r->sampleRate;
+    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * 600));
+    if (n < 32) { error = "the file is empty"; return false; }
+    juce::AudioBuffer<float> tmp((int) juce::jlimit(1u, 2u, r->numChannels), (int) n);
+    r->read(&tmp, 0, (int) n, 0, true, tmp.getNumChannels() > 1);
+    p.seconds = n / r->sampleRate;
+    p.audio = analysis::resample(tmp, r->sampleRate, engineSr);
+    // listen to a mono version (the first 90 s are plenty)
+    int an = juce::jmin(p.audio.getNumSamples(), (int) (engineSr * 90));
+    std::vector<float> mono((size_t) an);
+    for (int i = 0; i < an; ++i) { float s = 0; for (int c = 0; c < p.audio.getNumChannels(); ++c) s += p.audio.getSample(c, i); mono[(size_t) i] = s / p.audio.getNumChannels(); }
+    p.tempo = analysis::tempo(mono.data(), an, engineSr);
+    p.key = analysis::key(mono.data(), an, engineSr);
+    p.fileBpm = p.tempo.bpm;
+    return true;
+}
+
+void planImport(ImportPlan& p, const PieceInfo& piece) {
+    p.semitones = 0;
+    if (p.matchKey && p.key.tonic >= 0 && piece.key.tonic >= 0) {
+        int d = ((piece.key.majorEquivalent() - p.key.majorEquivalent()) % 12 + 12) % 12;
+        p.semitones = d > 6 ? d - 12 : d;                     // the smallest move: -5 .. +6
+        if (p.semitones == 6) p.semitones = -6 + 0;          // a tritone either way: down sounds more natural
+    }
+    double barLen = piece.beatLen * piece.beats;
+    if (barLen <= 0) { p.outBars = 0; return; }
+    double start = p.matchTempo && p.fileBpm > 0 && !p.tempo.wholeBars ? p.tempo.downbeatOffset : 0.0;
+    double len = p.audio.getNumSamples() - start;
+    if (p.matchTempo && p.fileBpm > 0) len *= p.fileBpm / piece.bpm;
+    p.outBars = juce::jmax(1, (int) std::round(len / barLen));
+}
+juce::String ImportPlan::fitText(const PieceInfo& piece) const {
+    double barLen = piece.beatLen * piece.beats;
+    if (piece.loopLen <= 0 || barLen <= 0) return juce::String(outBars) + (outBars == 1 ? " bar" : " bars");
+    int Lb = juce::jmax(1, (int) std::round(piece.loopLen / barLen));
+    if (outBars >= Lb) return outBars == Lb ? juce::String(Lb) + " bars, the length of the loop" : "the first " + juce::String(Lb) + " bars (the loop is " + juce::String(Lb) + " bars)";
+    int nb = outBars; while (Lb % nb != 0) ++nb;
+    return juce::String(outBars) + (outBars == 1 ? " bar" : " bars") + ", repeated " + juce::String(Lb / nb) + juce::String::fromUTF8("× to fill the ") + juce::String(Lb) + "-bar loop";
+}
+
+juce::AudioBuffer<float> renderImport(const ImportPlan& p, const PieceInfo& piece, std::function<bool(float)> progress) {
+    const double sr = piece.sr;
+    bool tempoOn = p.matchTempo && p.fileBpm > 0;
+    double barLen = piece.beatLen * piece.beats;
+    bool isLoop = p.tempo.wholeBars && tempoOn;
+    int full = p.audio.getNumSamples();
+    int start = tempoOn ? juce::jlimit(0, juce::jmax(0, full - 64), (int) std::round(p.tempo.downbeatOffset)) : 0;
+    int ch = p.audio.getNumChannels();
+    int n = isLoop ? full : full - start;
+    if (n < 64) return {};
+    juce::AudioBuffer<float> src(ch, n);
+    if (isLoop) for (int c = 0; c < ch; ++c) { src.copyFrom(c, 0, p.audio, c, start, full - start); if (start > 0) src.copyFrom(c, full - start, p.audio, c, 0, start); }   // a loop turns around: its bar line comes first
+    else for (int c = 0; c < ch; ++c) src.copyFrom(c, 0, p.audio, c, start, n);
+    // the length it becomes: whole bars of the piece
+    int bars = juce::jmax(1, p.outBars);
+    long target = (long) std::llround(bars * barLen);
+    double ratio = tempoOn ? p.fileBpm / piece.bpm : 1.0;
+    if (progress) progress(0.1f);
+    juce::AudioBuffer<float> out;
+    if (isLoop) {
+        // a loop: stretch it as a circle (the end leads into the start), so it repeats without a seam
+        int wrap = juce::jmin(n / 2, (int) (sr * 0.5));
+        juce::AudioBuffer<float> circ(ch, n + 2 * wrap);
+        for (int c = 0; c < ch; ++c) { circ.copyFrom(c, 0, src, c, n - wrap, wrap); circ.copyFrom(c, wrap, src, c, 0, n); circ.copyFrom(c, wrap + n, src, c, 0, wrap); }
+        int outLen = (int) std::llround(target);
+        double r2 = (double) outLen / n;
+        auto st = analysis::stretch(circ, sr, (int) std::llround((n + 2 * wrap) * r2), p.semitones);
+        out.setSize(ch, outLen);
+        int off = (int) std::llround(wrap * r2);
+        for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, st, c, off, juce::jmin(outLen, st.getNumSamples() - off));
+    } else {
+        int outLen = (int) std::llround(n * ratio);
+        auto st = analysis::stretch(src, sr, outLen, p.semitones);
+        out.setSize(ch, (int) target); out.clear();
+        for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, st, c, 0, (int) juce::jmin((long) st.getNumSamples(), target));
+        // a gentle fade where it was cut
+        if (st.getNumSamples() > target) { int fl = juce::jmin((int) target / 4, (int) (sr * 0.03)); out.applyGainRamp((int) target - fl, fl, 1.0f, 0.0f); }
+    }
+    if (progress) progress(0.9f);
+    // in a scene that already has a loop: fill the loop exactly (repeat the file when it fits a whole number of times)
+    if (piece.loopLen > 0 && barLen > 0) {
+        long L = piece.loopLen;
+        int Lb = juce::jmax(1, (int) std::round(L / barLen));
+        int nb = bars;
+        if (nb < Lb) { while (Lb % nb != 0) ++nb; }               // pad up to a bar count that divides the loop
+        long unit = nb >= Lb ? L : (long) std::llround(nb * barLen);
+        juce::AudioBuffer<float> t(ch, (int) L); t.clear();
+        for (long pos = 0; pos < L; pos += unit)
+            for (int c = 0; c < ch; ++c) t.copyFrom(c, (int) pos, out, c, 0, (int) std::min({ (long) out.getNumSamples(), unit, L - pos }));
+        if (out.getNumSamples() > L) { int fl = (int) juce::jmin(L / 4, (long) (sr * 0.03)); t.applyGainRamp((int) L - fl, fl, 1.0f, 0.0f); }
+        out = std::move(t);
+    }
+    if (progress) progress(1.0f);
+    return out;
+}
+
+} // namespace arco

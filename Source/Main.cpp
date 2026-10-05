@@ -14,7 +14,18 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse");
+        if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
+            auto args = juce::StringArray::fromTokens(cmd, true);
+            juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
+            juce::AudioFormatManager fm; fm.registerBasicFormats();
+            arco::ImportPlan p; juce::String err;
+            if (arco::prepareImport(f, 48000, p, fm, err))
+                std::printf("%s: %.2f BPM (conf %.2f, loop %d, bars %d, beat %.3f s, bar line %.3f s), %s (conf %.2f)\n", f.getFileName().toRawUTF8(), p.fileBpm, p.tempo.confidence,
+                            (int) p.tempo.wholeBars, p.tempo.bars, p.tempo.beatOffset / 48000, p.tempo.downbeatOffset / 48000, p.key.name().toRawUTF8(), p.key.confidence);
+            else std::printf("%s\n", err.toRawUTF8());
+            std::fflush(stdout); quit(); return;
+        }
         host = std::make_unique<arco::AudioHost>(!test);
         if (cmd.contains("--screenshot")) { screenshot(cmd); return; }
         if (cmd.contains("--update-check")) {          // for testing the UPDATE button

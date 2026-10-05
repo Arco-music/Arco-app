@@ -363,6 +363,57 @@ bool AudioHost::importFile(const juce::File& f, int track) {
     return true;
 }
 
+bool AudioHost::importBuffer(const juce::AudioBuffer<float>& in, int track, const juce::String& name) {
+    long n = in.getNumSamples();
+    if (n < 17 || in.getNumChannels() < 1) { status = "nothing to import"; return false; }
+    auto b = std::make_shared<SharedBuffer>(); b->name = "st_import"; b->resize(n, 2);
+    std::memcpy(b->chan(0), in.getReadPointer(0), sizeof(float) * (size_t) n);
+    std::memcpy(b->chan(1), in.getReadPointer(juce::jmin(1, in.getNumChannels() - 1)), sizeof(float) * (size_t) n);
+    engine.setImport(b);
+    engine.set("st_looper", "imp_trk", track);
+    engine.set("st_looper", "imp_sr", engine.sr);
+    juce::Timer::callAfterDelay(60, [this, name] { model.press("st_looper", "imp_go"); status = "copying " + name + U(" into the track …"); });
+    return true;
+}
+
+PieceInfo AudioHost::pieceInfo(bool listenForKey) {
+    PieceInfo p; p.sr = engine.sr;
+    auto sv = [this](const char* n) { return (double) engine.snap(n).v.load(); };
+    int smask = (int) sv("smask");
+    p.hasLoops = smask > 0;
+    p.beats = juce::jmax(1, (int) std::round(p.hasLoops ? sv("sv_bts") : model.get("beats")));
+    if (p.hasLoops && sv("sv_bl") > 16) { p.beatLen = sv("sv_bl"); p.bpm = 60.0 * engine.sr / p.beatLen; }
+    else { p.bpm = juce::jlimit(30.0, 300.0, model.get("bpm")); p.beatLen = 60.0 * engine.sr / p.bpm; }
+    int sc = juce::jlimit(1, 4, model.sceneNow);
+    const char* LEN[4] = { "sv_len0", "sv_len1", "sv_len2", "sv_len3" };
+    p.loopLen = (long) sv(LEN[sc - 1]);
+    p.scene = sc;
+    { int hk = (int) sv("halo_key"); if (hk >= 0) { p.key.tonic = hk % 12; p.key.minor = false; p.key.confidence = 0.4; } }
+    if (listenForKey) listenKey(p);
+    return p;
+}
+void AudioHost::listenKey(PieceInfo& p) {
+    auto sv = [this](const char* n) { return (double) engine.snap(n).v.load(); };
+    int smask = (int) sv("smask"), sc = p.scene;
+    const char* LEN[4] = { "sv_len0", "sv_len1", "sv_len2", "sv_len3" };
+    if (smask == 0) return;
+    // listen to the loops of this scene (or the first scene that has some)
+    const char* L[4] = { "A", "B", "C", "D" }; const char* MASK[4] = { "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3" };
+    int use = (smask >> (sc - 1)) & 1 ? sc : 0;
+    for (int s = 1; s <= 4 && use == 0; ++s) if ((smask >> (s - 1)) & 1) use = s;
+    if (use > 0) {
+        long len = (long) sv(LEN[use - 1]); int mask = (int) sv(MASK[use - 1]);
+        auto& b = engine.buffer(std::string("st_loops") + L[use - 1]);
+        len = juce::jmin(len, b.len, (long) (engine.sr * 90));
+        if (len > 1024) {
+            std::vector<float> mix((size_t) len, 0.0f);
+            for (int t = 0; t < 8; ++t) if ((mask >> t) & 1) { const float* d = b.chan(t); for (long i = 0; i < len; ++i) mix[(size_t) i] += d[i]; }
+            auto k = analysis::key(mix.data(), (int) len, engine.sr);
+            if (k.tonic >= 0) p.key = k;
+        }
+    }
+}
+
 // ------------------------------------------------------------------ the show recording: one stereo .wav
 bool AudioHost::startRecording(const juce::File& f) {
     stopRecording();

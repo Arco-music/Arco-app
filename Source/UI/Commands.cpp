@@ -17,7 +17,7 @@ static int helpIndex(const char* title) {
 bool Canvas::autoMixAvailable() const { return false; }
 
 bool Canvas::anyOverlay() const {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { setup.get(), look.get(), synthWin.get(), exportSheet.get(), helpSheet.get(), aboutSheet.get(), overlayExtra() })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { setup.get(), look.get(), synthWin.get(), exportSheet.get(), helpSheet.get(), aboutSheet.get(), importSheet.get(), overlayExtra() })
         if (c != nullptr && c->isVisible()) return true;
     return false;
 }
@@ -36,7 +36,7 @@ juce::Component* Canvas::topWindow() const {
     for (int i = getNumChildComponents(); --i >= 0;) {
         auto* c = getChildComponent(i);
         if (c == learnLayer.get() || !c->isVisible()) continue;
-        if (c == setup.get() || c == look.get() || c == synthWin.get() || c == exportSheet.get() || c == helpSheet.get() || c == aboutSheet.get() || c == overlayExtra()) { best = c; break; }
+        if (c == setup.get() || c == look.get() || c == synthWin.get() || c == exportSheet.get() || c == helpSheet.get() || c == aboutSheet.get() || c == importSheet.get() || c == overlayExtra()) { best = c; break; }
     }
     return best;
 }
@@ -51,8 +51,9 @@ void Canvas::showMenu() {
 
 void Canvas::importInto(int track) {
     chooseFile("Import an audio file into TRACK " + juce::String(track), "*.wav;*.aif;*.aiff;*.mp3;*.flac;*.m4a;*.caf", false,
-               [this, track](juce::File f) { host.importFile(f, track); });
+               [this, track](juce::File f) { requestImport(f, track); });
 }
+void Canvas::requestImport(const juce::File& f, int track) { importSheet->open(f, track); }
 
 void Canvas::command(int id) {
     auto* win = dynamic_cast<juce::DocumentWindow*>(getTopLevelComponent());

@@ -39,6 +39,7 @@ target_sources(ARCO PRIVATE
     Source/App/AudioHost.cpp
     Source/App/PhoneLink.cpp
     Source/App/Render.cpp
+    Source/App/Analysis.cpp
     $<$<PLATFORM_ID:iOS>:Source/App/IOSAudio.mm>
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp
@@ -62,6 +63,8 @@ if(MSVC)
 else()
   target_compile_options(ARCO PRIVATE -O3 -ffast-math -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-parameter)
 endif()
+# Signalsmith Stretch must not be built with -ffast-math (Apple Clang 16.0 builds it wrongly)
+set_source_files_properties(Source/App/Analysis.cpp PROPERTIES COMPILE_OPTIONS "-fno-fast-math")
 target_link_libraries(ARCO PRIVATE ARCOData
     juce::juce_audio_utils juce::juce_audio_devices juce::juce_audio_formats juce::juce_gui_extra
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)

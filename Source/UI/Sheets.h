@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "Widgets.h"
 #include "../App/Render.h"
+#include "../App/Analysis.h"
 
 namespace arco {
 class Canvas;
@@ -50,6 +51,39 @@ private:
     Pill go { "EXPORT", [] { return Theme::sel(); }, 10.0f, 8.0f };
     Pill share { "SHOW", [] { return Theme::btn(); }, 8.5f, 7.0f };
     juce::Array<juce::File> written;
+};
+
+// a file dropped on a track (or chosen with FILE): keep it as it is, or fit it to the piece (tempo, bar line, key)
+class ImportSheet : public Sheet, private juce::Thread, private juce::Timer {
+public:
+    explicit ImportSheet(Canvas& c);
+    ~ImportSheet() override;
+    void open(const juce::File& f, int track);
+    void paintContent(juce::Graphics& g) override;
+    void dismiss() override { if (!isThreadRunning()) { setVisible(false); plan = {}; } }
+    void mouseDown(const juce::MouseEvent& e) override;
+private:
+    void run() override;
+    void timerCallback() override;
+    void replan();
+    void doImport();
+    enum Stage { Idle, Listening, Ready, Rendering, Failed } stage = Idle;
+    juce::File file; int track = 1;
+    ImportPlan plan; PieceInfo piece;
+    juce::String error;
+    std::atomic<float> progress { 0 };
+    std::atomic<bool> jobDone { false };
+    bool wantRender = false, match = true;
+    juce::AudioBuffer<float> result;
+    std::vector<float> thumb;
+    juce::Rectangle<int> keepBox, matchBox;
+    Pill go { "IMPORT", [] { return Theme::sel(); }, 10.0f, 8.0f };
+    Pill cancel { "CANCEL", [] { return Theme::btn(); }, 8.5f, 7.0f };
+    Pill half { juce::String::fromUTF8("½ TEMPO"), [] { return Theme::btn(); }, 7.0f, 6.0f };
+    Pill dbl { juce::String::fromUTF8("2× TEMPO"), [] { return Theme::btn(); }, 7.0f, 6.0f };
+    Pill tempoT { "TEMPO", [this] { return plan.matchTempo ? Theme::green() : Theme::btn(); }, 7.5f, 6.0f };
+    Pill keyT { "KEY", [this] { return plan.matchKey ? Theme::green() : Theme::btn(); }, 7.5f, 6.0f };
+    std::unique_ptr<ValueBox> bpmBox;
 };
 
 class HelpSheet : public Sheet {

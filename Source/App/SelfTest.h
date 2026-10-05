@@ -157,6 +157,63 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         waitFor([&] { return trk(1) == 3; }, 6.0);
         check(trk(1) == 3, "  track 2 plays the file", trk(1));
     }
+    // SMART IMPORT: hear the tempo and key of a file, fit it to the piece
+    {
+        const double fsr = 44100.0, bpm0 = 100.0; const int bars0 = 4;
+        int nS = (int) std::llround(bars0 * 4 * 60.0 / bpm0 * fsr);
+        juce::AudioBuffer<float> b(2, nS); b.clear();
+        juce::Random rnd(7);
+        double beat = 60.0 / bpm0 * fsr;
+        auto addTone = [&](double f, double amp, int a, int len) { for (int i = 0; i < len && a + i < nS; ++i) { double env = std::exp(-i / (fsr * 1.2)) * juce::jmin(1.0, i / 200.0);
+                float v = (float) (amp * env * (std::sin(2 * M_PI * f * i / fsr) + 0.5 * std::sin(4 * M_PI * f * i / fsr) + 0.25 * std::sin(6 * M_PI * f * i / fsr))); b.addSample(0, a + i, v); b.addSample(1, a + i, v); } };
+        for (int bt = 0; bt < bars0 * 4; ++bt) {
+            int a = (int) std::llround(bt * beat);
+            if (bt % 2 == 0) for (int i = 0; i < 6000 && a + i < nS; ++i) { float v = (float) (0.8 * std::exp(-i / 1500.0) * std::sin(2 * M_PI * (50 + 80 * std::exp(-i / 800.0)) * i / fsr)); b.addSample(0, a + i, v); b.addSample(1, a + i, v); }
+            else for (int i = 0; i < 4000 && a + i < nS; ++i) { float v = (float) (0.35 * std::exp(-i / 900.0) * (rnd.nextFloat() * 2 - 1)); b.addSample(0, a + i, v); b.addSample(1, a + i, v); }
+            int hh = (int) std::llround((bt + 0.5) * beat);
+            for (int i = 0; i < 1200 && hh + i < nS; ++i) { float v = (float) (0.12 * std::exp(-i / 250.0) * (rnd.nextFloat() * 2 - 1)); b.addSample(0, hh + i, v); b.addSample(1, hh + i, v); }
+            if (bt % 4 == 0) {   // A minor, then F major, C major, G major? keep it A minor: Am - Dm - Am - E
+                static const double CH[4][3] = { { 220.0, 261.63, 329.63 }, { 293.66, 349.23, 440.0 }, { 220.0, 261.63, 329.63 }, { 246.94, 329.63, 415.30 } };
+                static const double BASS[4] = { 110.0, 146.83, 110.0, 164.81 };
+                int bar = bt / 4;
+                for (double f : CH[bar % 4]) addTone(f, 0.08, a, (int) (beat * 4));
+                addTone(BASS[bar % 4], 0.12, a, (int) (beat * 4));
+            }
+        }
+        auto f = dir.getChildFile("selftest groove.wav"); f.deleteFile();
+        { juce::WavAudioFormat fmt; std::unique_ptr<juce::AudioFormatWriter> w(fmt.createWriterFor(new juce::FileOutputStream(f), fsr, 2, 24, {}, 0)); if (w) w->writeFromAudioSampleBuffer(b, 0, nS); }
+        ImportPlan plan; juce::String err;
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        bool ok = prepareImport(f, e.sr, plan, fm, err);
+        check(ok && std::abs(plan.fileBpm - bpm0) < 0.6, "SMART IMPORT: hears the tempo of a groove (BPM)", plan.fileBpm);
+        check(plan.tempo.wholeBars && plan.tempo.bars == bars0, "  knows it is a 4-bar loop", plan.tempo.bars);
+        check(plan.key.majorEquivalent() == 0, ("  hears the key: " + plan.key.name()).toRawUTF8());
+        PieceInfo pc; pc.sr = e.sr; pc.bpm = 120; pc.beats = 4; pc.beatLen = 60.0 * e.sr / 120.0; pc.loopLen = 0; pc.hasLoops = true;
+        pc.key.tonic = 2; pc.key.minor = false;                  // the piece is in D major: the file moves up 2 semitones
+        planImport(plan, pc);
+        check(plan.semitones == 2 && plan.outBars == 4, "  plans: +2 semitones, 4 bars", plan.semitones * 10 + plan.outBars);
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        auto out = renderImport(plan, pc);
+        double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+        long expectN = (long) std::llround(4 * 4 * pc.beatLen);
+        check(out.getNumSamples() == expectN, "  fitted: exactly 4 bars at 120 BPM (seconds)", out.getNumSamples() / e.sr);
+        std::vector<float> mono((size_t) out.getNumSamples()); for (int i = 0; i < out.getNumSamples(); ++i) mono[(size_t) i] = 0.5f * (out.getSample(0, i) + out.getSample(1, i));
+        auto t2 = analysis::tempo(mono.data(), (int) mono.size(), e.sr);
+        auto k2 = analysis::key(mono.data(), (int) mono.size(), e.sr);
+        check(std::abs(t2.bpm - 120.0) < 0.8, "  the result plays at 120 BPM", t2.bpm);
+        { auto f2 = dir.getChildFile("selftest groove fitted.wav"); f2.deleteFile(); juce::WavAudioFormat fmt; std::unique_ptr<juce::AudioFormatWriter> w(fmt.createWriterFor(new juce::FileOutputStream(f2), e.sr, 2, 24, {}, 0)); if (w) w->writeFromAudioSampleBuffer(out, 0, out.getNumSamples()); }
+        check(k2.majorEquivalent() == 2, ("  ... in the new key: " + k2.name()).toRawUTF8());
+        check(out.getMagnitude(0, out.getNumSamples()) < 1.5f && ms < 15000, "  clean, and quick (ms)", ms);
+        // in a scene with a 8-bar loop the 4 bars repeat twice
+        pc.loopLen = 2 * expectN;
+        auto out2 = renderImport(plan, pc);
+        float d = 0; for (int i = 0; i < (int) expectN; i += 7) d = juce::jmax(d, std::abs(out2.getSample(0, i) - out2.getSample(0, i + (int) expectN)));
+        check(out2.getNumSamples() == 2 * expectN && d < 1e-6f, "  in an 8-bar loop it repeats twice, seamless", out2.getNumSamples() / e.sr);
+        // and the looper takes it
+        check(h.importBuffer(out2.getNumSamples() > 0 ? out : out2, 3, "groove"), "  into track 3");
+        run(0.1, 0); m.press("st_looper", "imp_go");
+        check(waitFor([&] { return trk(2) == 3; }, 6.0), "  track 3 plays it", trk(2));
+    }
     // EXPORT: render the scene offline, normalise, limit, write, read back
     {
         Renderer rd(h);

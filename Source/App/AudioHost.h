@@ -6,6 +6,7 @@
 #include "../Model/Model.h"
 #include "PhoneLink.h"
 #include "SynthPlayer.h"
+#include "Analysis.h"
 
 namespace arco {
 
@@ -88,6 +89,11 @@ public:
     bool openSong(const juce::File& settingsOrFolder);
     // import an audio file into a track (1-8)
     bool importFile(const juce::File& f, int track);
+    // ... or audio already at the engine rate (the smart import: fitted to the piece)
+    bool importBuffer(const juce::AudioBuffer<float>& b, int track, const juce::String& name);
+    PieceInfo pieceInfo(bool listenForKey = true);   // the piece now: tempo, bar, loop length, key (from its loops)
+    void listenKey(PieceInfo& p);                    // the key of the loops (any thread)
+    juce::AudioFormatManager& formatManager() { return formats; }
     // recording the show
     bool startRecording(const juce::File& f);
     void stopRecording();
