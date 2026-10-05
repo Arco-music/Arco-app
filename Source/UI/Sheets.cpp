@@ -338,6 +338,122 @@ void ImportSheet::paintContent(juce::Graphics& g) {
          24, box.getHeight() - 60, 420, 8.5f, Theme::sub(), 0, 2);
 }
 
+// ================================================================== AUTO MIX
+AutoMixSheet::AutoMixSheet(Canvas& c) : Sheet(c, "AUTO MIX", { 170, 40, 1100, 800 }), juce::Thread("ARCO auto mix") {
+    subtitle = juce::String::fromUTF8("ARCO listens to every track, understands what it is, and mixes the piece - levels, EQ, compression, panning, effects in tempo, timing, master. Compare before / after at any time.");
+    struct T { const char* name; bool* v; };
+    T ts[7] = { { "LEVELS", &opt.levels }, { "EQ", &opt.eq }, { "COMPRESSION", &opt.dynamics }, { "PANNING", &opt.pan }, { "EFFECTS IN TEMPO", &opt.effects }, { "TIMING", &opt.timing }, { "MASTER", &opt.master } };
+    for (int i = 0; i < 7; ++i) {
+        bool* v = ts[i].v;
+        auto* p = new Pill(ts[i].name, [v] { return *v ? Theme::green() : Theme::btn(); }, 8.0f, 6.0f);
+        p->onClick = [this, v] { *v = !*v; repaint(); };
+        toggles.add(p); addAndMakeVisible(p);
+        p->setBounds(box.getX() + 24 + (i % 4) * 150, box.getY() + 110 + (i / 4) * 34, 142, 28);
+    }
+    choices(24, 200, { "NATURAL", "BALANCED", "PUNCHY" }, 120, [this] { return opt.style; }, [this](int i) { opt.style = i; });
+    choices(24, 262, { "OFF", "GENTLE", "HALF WAY", "TIGHT" }, 100, [this] { return opt.timing ? timingChoice : 0; },
+            [this](int i) { timingChoice = i; opt.timing = i > 0; static const float A[4] = { 0, 0.3f, 0.5f, 0.8f }; opt.timingAmount = A[i]; });
+    choices(24, 324, { "THIS SCENE", "ALL SCENES" }, 150, [this] { return opt.allScenes ? 1 : 0; }, [this](int i) { opt.allScenes = i == 1; });
+    opt.timingAmount = 0.3f;
+    addAndMakeVisible(go); go.setBounds(box.getX() + 680, box.getY() + 120, 380, 64);
+    go.onClick = [this] { start(); };
+    for (auto* p : { &before, &afterP, &keep, &undo }) addChildComponent(p);
+    before.onClick = [this] { showAB(false); };
+    afterP.onClick = [this] { showAB(true); };
+    keep.onClick = [this] { setVisible(false); };
+    undo.onClick = [this] { if (hasResult()) { automix::apply(cv.host, *result, false); result.reset(); report.r = nullptr; cv.showMessage("AUTO MIX undone"); repaint(); } };
+    view.setViewedComponent(&report, false); view.setScrollBarsShown(true, false);
+    addAndMakeVisible(view);
+    startTimerHz(15);
+}
+AutoMixSheet::~AutoMixSheet() { stopThread(10000); }
+
+void AutoMixSheet::resized() {
+    Sheet::resized();
+    before.setBounds(box.getX() + 680, box.getY() + 200, 120, 34);
+    afterP.setBounds(box.getX() + 806, box.getY() + 200, 120, 34);
+    undo.setBounds(box.getX() + 940, box.getY() + 200, 120, 34);
+    keep.setBounds(box.getX() + 940, box.getY() + 244, 120, 34);
+    view.setBounds(box.getX() + 24, box.getY() + 390, box.getWidth() - 48, box.getHeight() - 414);
+    report.setSize(view.getWidth() - 14, juce::jmax(view.getHeight(), report.heightFor(view.getWidth() - 14)));
+}
+
+void AutoMixSheet::start() {
+    if (busy) return;
+    if (cv.engine().snap("smask").v.load() < 0.5f) { cv.showMessage("record some loops first"); return; }
+    if (hasResult() && !after) automix::apply(cv.host, *result, true);   // start from the mix as it is now
+    job = automix::prepare(cv.host, opt);
+    busy = true; jobDone = false; progress = 0.01f;
+    startThread();
+}
+void AutoMixSheet::run() {
+    auto r = std::make_unique<AutoMixResult>(automix::run(job, [this](float p) { progress = p; return !threadShouldExit(); }));
+    pending = std::move(r);
+    jobDone = true;
+}
+void AutoMixSheet::timerCallback() {
+    if (jobDone && !isThreadRunning()) {
+        jobDone = false; busy = false;
+        if (pending && pending->ok) {
+            result = std::move(pending);
+            automix::apply(cv.host, *result, true); after = true;
+            report.r = result.get();
+            cv.showMessage(juce::String::fromUTF8("AUTO MIX ✓ ") + result->headline);
+            resized();
+        } else if (pending) { cv.showMessage(pending->error); report.r = pending.get(); }
+    }
+    bool has = hasResult();
+    before.setVisible(has); afterP.setVisible(has); keep.setVisible(has); undo.setVisible(has);
+    go.text = busy ? juce::String::fromUTF8("listening …") : (has ? "MIX AGAIN" : "MIX IT");
+    if (isVisible()) repaint();
+}
+void AutoMixSheet::showAB(bool a) {
+    if (!hasResult() || a == after) return;
+    automix::apply(cv.host, *result, a); after = a; repaint();
+}
+
+void AutoMixSheet::paintContent(juce::Graphics& g) {
+    text(g, "MAY CHANGE", 24, 88, 300, 8.5f, Theme::sub(), 2, 1);
+    text(g, "CHARACTER", 24, 180, 300, 8.5f, Theme::sub(), 2, 1);
+    text(g, juce::String::fromUTF8("TIMING - notes pulled towards the beat (the groove and swing stay)"), 24, 242, 600, 8.5f, Theme::sub(), 2, 1);
+    text(g, "WHICH LOOPS", 24, 304, 300, 8.5f, Theme::sub(), 2, 1);
+    if (busy || (progress > 0 && progress < 1)) {
+        auto bar = juce::Rectangle<float>((float) box.getX() + 680, (float) box.getY() + 194, 380, 6);
+        g.setColour(Theme::card2()); g.fillRoundedRectangle(bar, 3);
+        g.setColour(Theme::green()); g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * juce::jlimit(0.0f, 1.0f, progress.load())), 3);
+    }
+    if (hasResult()) {
+        text(g, result->headline, 680, 290, 400, 10.0f, Theme::txt(), 2, 2);
+        text(g, after ? juce::String::fromUTF8("you hear the mix") : juce::String::fromUTF8("you hear it as it was before"), 680, 326, 400, 8.5f, after ? Theme::green() : Theme::amber(), 1, 1);
+    }
+    g.setColour(Theme::card()); g.fillRoundedRectangle(view.getBounds().toFloat().expanded(8), 10.0f);
+    if (report.r == nullptr) text(g, juce::String::fromUTF8("What AUTO MIX did will be listed here, part by part."), 40, 404, 700, 9.0f, Theme::sub(), 0, 1);
+}
+
+int AutoMixSheet::Report::heightFor(int w) const {
+    if (r == nullptr) return 0;
+    int h = 10;
+    for (auto& l : r->report) { juce::TextLayout tl; juce::AttributedString a; a.append(l.what, Theme::font(9.0f, 0)); a.setWordWrap(juce::AttributedString::byWord); tl.createLayout(a, (float) w - 260); h += juce::jmax(34, (int) tl.getHeight() + 18); }
+    return h;
+}
+void AutoMixSheet::Report::paint(juce::Graphics& g) {
+    if (r == nullptr) return;
+    if (!r->ok && r->error.isNotEmpty()) { g.setColour(Theme::ink(Theme::amber())); g.setFont(Theme::font(10.0f, 1)); g.drawText(r->error, getLocalBounds().reduced(16, 10).withHeight(24), juce::Justification::centredLeft); return; }
+    int y = 10, w = getWidth();
+    for (auto& l : r->report) {
+        juce::TextLayout tl; juce::AttributedString a; a.append(l.what, Theme::font(9.0f, 0), Theme::ink(Theme::txt())); a.setWordWrap(juce::AttributedString::byWord);
+        tl.createLayout(a, (float) w - 260);
+        int h = juce::jmax(34, (int) tl.getHeight() + 18);
+        auto col = l.strip >= 0 ? Theme::strip(l.strip) : Theme::blue();
+        g.setColour(col); g.fillEllipse(14.0f, (float) y + 9, 9, 9);
+        g.setColour(Theme::ink(Theme::txt())); g.setFont(Theme::font(9.5f, 2)); g.drawText(l.who, 32, y + 4, 200, 18, juce::Justification::centredLeft);
+        g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(8.0f, 0)); g.drawText(l.role, 32, y + 20, 200, 14, juce::Justification::centredLeft);
+        tl.draw(g, juce::Rectangle<float>(240.0f, (float) y + 6, (float) w - 260, (float) h));
+        y += h;
+        g.setColour(Theme::line()); g.fillRect(14, y - 2, w - 28, 1);
+    }
+}
+
 // ================================================================== HELP
 HelpSheet::HelpSheet(Canvas& c) : Sheet(c, "HELP", { 120, 40, 1200, 800 }) {
     subtitle = "everything ARCO does, in short";
@@ -440,7 +556,7 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         m.addItem(item(cmdUndo, "Undo Last Recording", CMDKEY + "Z", cv.snap("undoav") > 0.5f));
         m.addItem(item(cmdResetAll, juce::String::fromUTF8("Clear All Loops…"), {}, loops));
         m.addSeparator();
-        m.addItem(item(cmdAutoMix, juce::String::fromUTF8("AUTO MIX…"), CMDKEY + "M", loops));
+        m.addItem(item(cmdAutoMix, juce::String::fromUTF8("AUTO MIX…"), juce::String::fromUTF8("⇧") + CMDKEY + "M", loops));
         m.addItem(item(cmdAB, "Compare Before / After AUTO MIX", {}, cv.autoMixAvailable()));
         m.addSeparator();
         m.addItem(item(cmdMidiLearn, cv.midiLearnActive() ? "Stop MIDI Learn" : juce::String::fromUTF8("MIDI Learn…"), CMDKEY + "L", true, cv.midiLearnActive()));

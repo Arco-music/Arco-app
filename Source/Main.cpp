@@ -95,10 +95,13 @@ public:
         if (cmd.contains("look")) mc->canvas.openLook(true);
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
-        if (cmd.contains("look")) mc->canvas.openLook(true);
-        if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
-        if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
-        juce::Timer::callAfterDelay(1500, [this, mc, out] {
+        if (cmd.contains("automix")) mc->canvas.command(arco::cmdAutoMix);
+        if (cmd.contains("export")) mc->canvas.command(arco::cmdExport);
+        if (cmd.contains("help")) mc->canvas.command(arco::cmdHelp);
+        if (cmd.contains("about")) mc->canvas.command(arco::cmdAbout);
+        if (cmd.contains("learn")) mc->canvas.setMidiLearn(true);
+        if (cmd.contains("import=")) mc->canvas.requestImport(juce::File(cmd.fromFirstOccurrenceOf("import=", false, false).upToFirstOccurrenceOf(" ", false, false)), 2);
+        juce::Timer::callAfterDelay(cmd.contains("import=") ? 4000 : 1500, [this, mc, out] {
             auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
             juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);
             delete mc; quit(); });

@@ -14,10 +14,10 @@ static int helpIndex(const char* title) {
     return 0;
 }
 
-bool Canvas::autoMixAvailable() const { return false; }
+bool Canvas::autoMixAvailable() const { return autoMixSheet && autoMixSheet->hasResult(); }
 
 bool Canvas::anyOverlay() const {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { setup.get(), look.get(), synthWin.get(), exportSheet.get(), helpSheet.get(), aboutSheet.get(), importSheet.get(), overlayExtra() })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { setup.get(), look.get(), synthWin.get(), exportSheet.get(), helpSheet.get(), aboutSheet.get(), importSheet.get(), autoMixSheet.get(), overlayExtra() })
         if (c != nullptr && c->isVisible()) return true;
     return false;
 }
@@ -36,12 +36,12 @@ juce::Component* Canvas::topWindow() const {
     for (int i = getNumChildComponents(); --i >= 0;) {
         auto* c = getChildComponent(i);
         if (c == learnLayer.get() || !c->isVisible()) continue;
-        if (c == setup.get() || c == look.get() || c == synthWin.get() || c == exportSheet.get() || c == helpSheet.get() || c == aboutSheet.get() || c == importSheet.get() || c == overlayExtra()) { best = c; break; }
+        if (c == setup.get() || c == look.get() || c == synthWin.get() || c == exportSheet.get() || c == helpSheet.get() || c == aboutSheet.get() || c == importSheet.get() || c == autoMixSheet.get() || c == overlayExtra()) { best = c; break; }
     }
     return best;
 }
-void Canvas::openAutoMix() {}
-void Canvas::autoMixCompare() {}
+void Canvas::openAutoMix() { autoMixSheet->setVisible(true); autoMixSheet->toFront(true); }
+void Canvas::autoMixCompare() { if (autoMixSheet->hasResult()) { autoMixSheet->showAB(!autoMixSheet->after); showMessage(autoMixSheet->after ? "AUTO MIX: after" : "AUTO MIX: before"); } }
 
 void Canvas::showMenu() {
     if (!menu) return;

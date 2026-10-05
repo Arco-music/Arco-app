@@ -420,7 +420,7 @@ PieceInfo AudioHost::pieceInfo(bool listenForKey) {
     const char* LEN[4] = { "sv_len0", "sv_len1", "sv_len2", "sv_len3" };
     p.loopLen = (long) sv(LEN[sc - 1]);
     p.scene = sc;
-    { int hk = (int) sv("halo_key"); if (hk >= 0) { p.key.tonic = hk % 12; p.key.minor = false; p.key.confidence = 0.4; } }
+    if (p.hasLoops) { int hk = (int) sv("halo_key"); if (hk >= 0 && sv("halo_used") > 0.5) { p.key.tonic = hk % 12; p.key.minor = false; p.key.confidence = 0.4; } }
     if (listenForKey) listenKey(p);
     return p;
 }

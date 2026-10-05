@@ -15,6 +15,7 @@ class ExportSheet;
 class HelpSheet;
 class AboutSheet;
 class ImportSheet;
+class AutoMixSheet;
 class AppMenu;
 class LearnOverlay;
 
@@ -65,6 +66,7 @@ public:
     std::unique_ptr<HelpSheet> helpSheet;
     std::unique_ptr<AboutSheet> aboutSheet;
     std::unique_ptr<ImportSheet> importSheet;
+    std::unique_ptr<AutoMixSheet> autoMixSheet;
     void requestImport(const juce::File& f, int track);   // the smart import window
     std::unique_ptr<AppMenu> menu;
     std::unique_ptr<LearnOverlay> learnLayer;

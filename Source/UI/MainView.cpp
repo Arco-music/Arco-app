@@ -276,6 +276,7 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     helpSheet = std::make_unique<HelpSheet>(*this); addChildComponent(helpSheet.get()); helpSheet->setBounds(0, 0, 1440, 880);
     aboutSheet = std::make_unique<AboutSheet>(*this); addChildComponent(aboutSheet.get()); aboutSheet->setBounds(0, 0, 1440, 880);
     importSheet = std::make_unique<ImportSheet>(*this); addChildComponent(importSheet.get()); importSheet->setBounds(0, 0, 1440, 880);
+    autoMixSheet = std::make_unique<AutoMixSheet>(*this); addChildComponent(autoMixSheet.get()); autoMixSheet->setBounds(0, 0, 1440, 880);
     menu = std::make_unique<AppMenu>(*this);
     synthWin = std::make_unique<SynthPanel>(*this);
     addChildComponent(synthWin.get()); synthWin->setBounds(0, 0, 1440, 880);

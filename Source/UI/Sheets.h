@@ -4,6 +4,7 @@
 #include "Widgets.h"
 #include "../App/Render.h"
 #include "../App/Analysis.h"
+#include "../App/AutoMix.h"
 
 namespace arco {
 class Canvas;
@@ -84,6 +85,38 @@ private:
     Pill tempoT { "TEMPO", [this] { return plan.matchTempo ? Theme::green() : Theme::btn(); }, 7.5f, 6.0f };
     Pill keyT { "KEY", [this] { return plan.matchKey ? Theme::green() : Theme::btn(); }, 7.5f, 6.0f };
     std::unique_ptr<ValueBox> bpmBox;
+};
+
+// AUTO MIX: choose what it may do, mix, read what it did, compare before / after
+class AutoMixSheet : public Sheet, private juce::Thread, private juce::Timer {
+public:
+    explicit AutoMixSheet(Canvas& c);
+    ~AutoMixSheet() override;
+    void paintContent(juce::Graphics& g) override;
+    void resized() override;
+    void dismiss() override { if (!isThreadRunning()) setVisible(false); }
+    void showAB(bool after);                  // BEFORE / AFTER
+    bool hasResult() const { return result != nullptr && result->ok; }
+    bool after = true;
+private:
+    void run() override;
+    void timerCallback() override;
+    void start();
+    AutoMixOptions opt;
+    AutoMixJob job;
+    std::unique_ptr<AutoMixResult> result, pending;
+    std::atomic<float> progress { 0 };
+    std::atomic<bool> busy { false }, jobDone { false };
+    int timingChoice = 1;
+    struct Report : juce::Component { AutoMixResult* r = nullptr; void paint(juce::Graphics& g) override; int heightFor(int w) const; };
+    Report report;
+    juce::Viewport view;
+    Pill go { "MIX IT", [] { return Theme::sel(); }, 11.0f, 9.0f };
+    Pill before { "BEFORE", [this] { return hasResult() && !after ? Theme::amber() : Theme::btn(); }, 8.5f, 7.0f };
+    Pill afterP { "AFTER", [this] { return hasResult() && after ? Theme::green() : Theme::btn(); }, 8.5f, 7.0f };
+    Pill keep { "KEEP", [] { return Theme::btn(); }, 8.5f, 7.0f };
+    Pill undo { "UNDO", [] { return Theme::btn(); }, 8.5f, 7.0f };
+    juce::OwnedArray<Pill> toggles;
 };
 
 class HelpSheet : public Sheet {

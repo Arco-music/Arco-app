@@ -30,7 +30,7 @@ public:
         g.fillAll(Theme::bg().withAlpha(0.18f));
         auto accent = Theme::amber();
         for (auto& w : widgets) {
-            if (w.c == nullptr || !w.c->isShowing()) continue;
+            if (w.c == nullptr || !shown(w.c)) continue;
             auto r = getLocalArea(w.c, w.c->getLocalBounds()).toFloat().expanded(2.0f);
             bool isWaiting = waiting.isNotEmpty() && w.id == waiting;
             auto link = host.linkText(w.id);
@@ -62,7 +62,7 @@ public:
         if (p.y < 56 && std::abs(p.x - getWidth() / 2) < 430) return;
         for (int i = widgets.size(); --i >= 0;) {
             auto& w = widgets.getReference(i);
-            if (w.c == nullptr || !w.c->isShowing()) continue;
+            if (w.c == nullptr || !shown(w.c)) continue;
             if (getLocalArea(w.c, w.c->getLocalBounds()).expanded(2).contains(p)) {
                 if (waiting.isEmpty() && host.linkText(w.id).isNotEmpty()) { host.unlink(w.id); repaint(); return; }
                 waiting = w.id;
@@ -101,6 +101,7 @@ private:
     }
     bool isStationPart(juce::Component* c) const { return dynamic_cast<LearnOverlay*>(c) == nullptr; }
     void timerCallback() override { collect(); repaint(); }
+    bool shown(juce::Component* c) const { for (; c != nullptr && c != &root; c = c->getParentComponent()) if (!c->isVisible()) return false; return c == &root; }
 };
 
 } // namespace arco
