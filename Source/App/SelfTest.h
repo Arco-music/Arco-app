@@ -3,6 +3,8 @@
 // scene memory, saving / opening a song, importing a file and the show recorder. Prints a report, returns failures.
 #include "AudioHost.h"
 #include "../UI/SynthPanel.h"
+#include "../UI/MainView.h"
+#include "../UI/LearnOverlay.h"
 #include "Render.h"
 #include <cstdio>
 #include <cmath>
@@ -333,6 +335,28 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         }
         check(allOk, "  every factory sound plays cleanly (loudest peak)", worst);
         applyFactorySynthPreset(m, 0); h.setSynthInto(0);
+    }
+    // MIDI LEARN: a knob and a button linked to MIDI controls
+    {
+        auto mc = std::make_unique<MainComponent>(h);
+        auto& cv = mc->canvas;
+        cv.setMidiLearn(true);
+        bool hasFrames = cv.learnLayer != nullptr && cv.learnLayer->isVisible();
+        { const juce::ScopedLock sl(h.midiLock); h.learnTarget = "p:master"; }
+        h.handleIncomingMidiMessage(nullptr, juce::MidiMessage::controllerEvent(1, 21, 90));
+        bool linked = h.linkText("p:master").isNotEmpty();
+        { const juce::ScopedLock sl(h.midiLock); h.learnTarget = "t:stop"; }
+        h.handleIncomingMidiMessage(nullptr, juce::MidiMessage::noteOn(1, 36, (juce::uint8) 100));
+        cv.setMidiLearn(false);
+        check(hasFrames && linked && h.linkText("t:stop").isNotEmpty(), "MIDI LEARN: a knob (CC 21) and a button (note 36) linked");
+        if (h.onMidiControl) h.onMidiControl("p:master", 2, 127, true);
+        double hi = m.get("master");
+        if (h.onMidiControl) h.onMidiControl("p:master", 2, 0, false);
+        check(hi > 99.0 && m.get("master") < 1.0, "  the MIDI knob moves MASTER all the way", hi);
+        auto* path = learn::find(&cv, learn::idOf(learn::find(&cv, "p:glue"), &cv));
+        check(path != nullptr && learn::find(&cv, "send:dly") != nullptr && learn::find(&cv, "trk1:rec") != nullptr, "  every control has a stable name");
+        m.set("master", 75); h.clearMidiMap();
+        check(h.linkText("p:master").isEmpty(), "  FORGET ALL unlinks everything");
     }
     // the sound card settings: what happens when a device does not open
     {

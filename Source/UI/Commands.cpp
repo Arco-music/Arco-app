@@ -4,6 +4,7 @@
 #include "SynthPanel.h"
 #include "Sheets.h"
 #include "HelpText.h"
+#include "LearnOverlay.h"
 
 namespace arco {
 
@@ -24,7 +25,21 @@ bool Canvas::anyOverlay() const {
 // (filled in as the big windows arrive)
 juce::Component* Canvas::overlayExtra() const { return nullptr; }
 void Canvas::openStudio() { showMessage("STUDIO opens here"); }
-void Canvas::setMidiLearn(bool on) { midiLearn = on; repaint(); }
+void Canvas::setMidiLearn(bool on) {
+    midiLearn = on;
+    if (on) learnLayer->start(); else learnLayer->stop();
+    showMessage(on ? juce::String("MIDI LEARN: click a control, then move a MIDI knob") : juce::String());
+    repaint();
+}
+juce::Component* Canvas::topWindow() const {
+    juce::Component* best = nullptr;
+    for (int i = getNumChildComponents(); --i >= 0;) {
+        auto* c = getChildComponent(i);
+        if (c == learnLayer.get() || !c->isVisible()) continue;
+        if (c == setup.get() || c == look.get() || c == synthWin.get() || c == exportSheet.get() || c == helpSheet.get() || c == aboutSheet.get() || c == overlayExtra()) { best = c; break; }
+    }
+    return best;
+}
 void Canvas::openAutoMix() {}
 void Canvas::autoMixCompare() {}
 

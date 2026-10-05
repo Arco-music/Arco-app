@@ -125,8 +125,7 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
                     auto id = l.id; int t = lt, v = lv;
                     juce::MessageManager::callAsync([this, id, t, v, press] { if (onMidiControl) onMidiControl(id, t, v, press); });
                 }
-            if (lt == 2) ccLast[(ch - 1) & 15][ln & 127] = lv;
-            if (handled) return;
+            if (handled) { if (lt == 2) ccLast[(ch - 1) & 15][ln & 127] = lv; return; }
         }
         if (m.isNoteOff()) { const juce::ScopedLock sl(midiLock); for (auto& l : midiLinks) if (l.type == 1 && l.num == m.getNoteNumber() && l.ch == ch) return; }
     }

@@ -15,6 +15,7 @@ class ExportSheet;
 class HelpSheet;
 class AboutSheet;
 class AppMenu;
+class LearnOverlay;
 
 // The instrument: drawn in a 1440 x 880 design space (the PDF layout) and scaled to the window.
 class Canvas : public juce::Component, private juce::Timer {
@@ -63,6 +64,8 @@ public:
     std::unique_ptr<HelpSheet> helpSheet;
     std::unique_ptr<AboutSheet> aboutSheet;
     std::unique_ptr<AppMenu> menu;
+    std::unique_ptr<LearnOverlay> learnLayer;
+    juce::Component* topWindow() const;         // the window open over the station, or nullptr
     void command(int id);                      // every menu item and shortcut (Commands.cpp)
     void showMenu();                           // the menus from the ARCO title (iPad, or anywhere)
     bool midiLearnActive() const { return midiLearn; }

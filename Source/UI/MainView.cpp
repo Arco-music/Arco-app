@@ -2,6 +2,7 @@
 #include "Panels.h"
 #include "SynthPanel.h"
 #include "Sheets.h"
+#include "LearnOverlay.h"
 
 namespace arco {
 
@@ -32,7 +33,7 @@ public:
         // header: select
         head = new Pill(name(), [this] { return c.model().selected == s ? Theme::sel() : Theme::card2(); }, 9.5f, 8.0f);
         head->onClick = [this] { c.model().select(s); };
-        add(head, { 4, 4, 104, 22 });
+        add(head, { 4, 4, 104, 22 }); head->setComponentID("strip" + juce::String(s) + ":select");
         wave = new WaveScreen(c.engine(), [this]() -> SharedBuffer* {
                 if (s < 4) return &c.engine().buffer("st_wavel");
                 int sc = (int) c.snap("lscene"); const char* L[4] = { "A", "B", "C", "D" };
@@ -45,10 +46,11 @@ public:
             auto* file = new Pill("FILE", [] { return Theme::btn(); }, 6.5f, 6.0f);
             file->onClick = [this, k] { c.chooseFile("Import an audio file into TRACK " + juce::String(k + 1), "*.wav;*.aif;*.aiff;*.mp3;*.flac;*.m4a", false,
                                                   [this, k](juce::File f) { c.host.importFile(f, k + 1); }); };
-            add(file, { 76, 76, 30, 18 });
+            add(file, { 76, 76, 30, 18 }); file->setComponentID("trk" + juce::String(k + 1) + ":file");
             auto btn = [&](juce::String t, ColourFn col, float fs, juce::Rectangle<int> r, std::string cmd) {
                 auto* p = new Pill(t, std::move(col), fs, 7.0f);
                 p->onClick = [this, cmd, k] { c.model().press("st_looper", cmd + std::to_string(k + 1)); };
+                p->setComponentID("trk" + juce::String(k + 1) + ":" + juce::String(cmd));
                 add(p, r); return p; };
             btn("REC", [] { return Theme::red(); }, 9.5f, { 6, 98, 49, 24 }, "rec");
             btn("CLR", [] { return Theme::btn(); }, 8.5f, { 57, 98, 49, 24 }, "clr");
@@ -57,25 +59,26 @@ public:
             sp->dynText = [this, k] { const char* S[4] = { "1x", "½x", "2x", "◀" }; int v = (int) c.snap("spdk"); return U(S[(v >> (2 * k)) & 3]); };
             auto* inb = new ValueBox([&m, k] { return m.get("src" + std::to_string(k + 1)); }, [&m, k](double v) { m.set("src" + std::to_string(k + 1), v); },
                                      1, 4, 0, [] { return Theme::strip(0); });
-            inb->fsize = 10.0f; add(inb, { 22, 150, 30, 18 });
+            inb->fsize = 10.0f; add(inb, { 22, 150, 30, 18 }); inb->setComponentID("p:src" + juce::String(k + 1));
         } else if (s == 0) {
             // the note and the tuner are painted
         }
         // pan, CUE, ROOM, M, S, fader, meter
         auto* pan = new Knob([&m, this] { return m.get("pan" + std::to_string(s)); }, [&m, this](double v) { m.set("pan" + std::to_string(s), v); },
                              -50, 50, 0, [] { return Theme::sub(); });
-        add(pan, { 8, 175, 30, 30 });
+        add(pan, { 8, 175, 30, 30 }); pan->setComponentID("p:pan" + juce::String(s));
         auto tog = [&](const char* t, const char* key, ColourFn on, juce::Rectangle<int> r) {
             std::string id = key + std::to_string(s);
             auto* p = new Pill(t, [this, id, on] { return c.model().get(id) > 0.5 ? on() : Theme::btn(); }, 8.0f, 6.0f);
             p->onClick = [this, id] { c.model().set(id, c.model().get(id) > 0.5 ? 0 : 1); };
+            p->setComponentID("p:" + juce::String(id));
             add(p, r); };
         tog("CUE", "cue", [] { return Theme::amber(); }, { 6, 220, 50, 20 });
         tog("ROOM", "room", [] { return Theme::green(); }, { 6, 244, 50, 20 });
         tog("M", "mute", [] { return Theme::red(); }, { 6, 268, 24, 20 });
         tog("S", "solo", [] { return Theme::blue(); }, { 32, 268, 24, 20 });
         auto* fd = new Fader([&m, this] { return m.get("vol" + std::to_string(s)); }, [&m, this](double v) { m.set("vol" + std::to_string(s), v); }, 0, 100, 71);
-        add(fd, { 66, 177, 18, 112 });
+        add(fd, { 66, 177, 18, 112 }); fd->setComponentID("p:vol" + juce::String(s));
         meter = new Meter([this] { return c.engine().peak("ch" + std::to_string(s)); }, true);
         add(meter, { 88, 177, 6, 112 });
         if (s < 4) { inMeter = new Meter([this] { return c.engine().peak("live_in" + std::to_string(s + 1)); }); add(inMeter, { 6, s == 0 ? 116 : 80, 100, 6 }); }
@@ -166,18 +169,19 @@ public:
                 kn = new Knob([&m, id] { return m.get(id); }, [&m, id](double v) { m.set(id, v); }, pd ? pd->lo : 0, pd ? pd->hi : 100, pd ? pd->def : 0,
                               [key] { return Theme::fx(key); });
             }
+            kn->setComponentID(id == "SEND" ? juce::String("send:" + key) : juce::String("p:" + id));
             kids.add(kn); addAndMakeVisible(kn); kn->setBounds(kx, ky, ds, ds);
             labels.push_back({ U(d.knobs[(size_t) j].label), juce::Rectangle<int>((int) (8 + cc * cw - 4), ky + ds + 1, (int) cw + 8, 13), id == "SEND" });
         }
         if (key == "frz") {
             auto* p = new Pill("HOLD", [&m] { return m.get("frz_on") > 0.5 ? Theme::fx("frz") : Theme::btn(); }, 7.5f, 6.0f);
             p->onClick = [&m] { m.set("frz_on", m.get("frz_on") > 0.5 ? 0 : 1); };
-            kids.add(p); addAndMakeVisible(p); p->setBounds(100, 6, 44, 17);
+            p->setComponentID("p:frz_on"); kids.add(p); addAndMakeVisible(p); p->setBounds(100, 6, 44, 17);
         }
         if (key == "drm") {
             auto* p = new Pill("ON", [&m] { return m.get("drm_on") > 0.5 ? Theme::green() : Theme::btn(); }, 7.5f, 6.0f);
             p->onClick = [&m] { m.set("drm_on", m.get("drm_on") > 0.5 ? 0 : 1); };
-            kids.add(p); addAndMakeVisible(p); p->setBounds(108, 6, 36, 17);
+            p->setComponentID("p:drm_on"); kids.add(p); addAndMakeVisible(p); p->setBounds(108, 6, 36, 17);
         }
         if (key == "shd") {
             auto nm = shadowNames();
@@ -185,7 +189,7 @@ public:
                 std::string id = "shd_v" + std::to_string(v);
                 auto* p = new Pill(U(nm[(size_t) v].c_str()), [&m, id] { return m.get(id) > 0.5 ? Theme::c(Theme::rgb(0.43f, 0.51f, 0.92f)) : Theme::btn(); }, 6.5f, 4.0f);
                 p->onClick = [&m, id] { m.set(id, m.get(id) > 0.5 ? 0 : 1); };
-                kids.add(p); addAndMakeVisible(p); p->setBounds(8 + (int) ((v % 6) * 22.5f), 27 + (v / 6) * 17, 21, 15);
+                p->setComponentID("p:" + juce::String(id)); kids.add(p); addAndMakeVisible(p); p->setBounds(8 + (int) ((v % 6) * 22.5f), 27 + (v / 6) * 17, 21, 15);
             }
         }
     }
@@ -275,6 +279,12 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     menu = std::make_unique<AppMenu>(*this);
     synthWin = std::make_unique<SynthPanel>(*this);
     addChildComponent(synthWin.get()); synthWin->setBounds(0, 0, 1440, 880);
+    learnLayer = std::make_unique<LearnOverlay>(*this, host);
+    addChildComponent(learnLayer.get()); learnLayer->setBounds(0, 0, 1440, 880);
+    learnLayer->onDone = [this] { setMidiLearn(false); };
+    learnLayer->activeWindow = [this]() -> juce::Component* { auto* w = topWindow(); return w != nullptr ? w : this; };
+    host.onMidiControl = [this](const juce::String& id, int t, int v, bool press) { if (auto* w = learn::find(this, id)) learn::apply(w, t, v, press); };
+    host.onLearned = [this] { if (learnLayer->isVisible()) learnLayer->learned(); };
     setWantsKeyboardFocus(true);
     host.onAction = [this](int a) { const char* W[4] = { "REC", U("PLAY / STOP").toRawUTF8(), "UNDO", "NEXT SCENE" };
         flash = a == 1 ? U("PLAY / STOP") : juce::String(W[a]); flashUntil = juce::Time::getMillisecondCounterHiRes() + 900; };
@@ -282,7 +292,7 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     layoutCards();
     startTimerHz(30);
 }
-Canvas::~Canvas() { stopTimer(); host.onAction = nullptr; }
+Canvas::~Canvas() { stopTimer(); host.onAction = nullptr; host.onMidiControl = nullptr; host.onLearned = nullptr; }
 
 void Canvas::chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs) {
    #if JUCE_IOS
@@ -346,12 +356,13 @@ void Canvas::buildTopBar() {
     mb->onClick = [this] { showMenu(); };
     // transport
     auto* play = add<Pill>({ 204, 15, 46, 38 }, U("▶"), [this] { int t = (int) snap("transport"); return t == 1 ? Theme::green() : (t == 2 ? Theme::amber() : Theme::btn()); }, 15.0f, 9.0f);
-    play->onClick = [this] { model().press("st_looper", "playall"); };
+    play->onClick = [this] { model().press("st_looper", "playall"); }; play->setComponentID("t:play");
     auto* stop = add<Pill>({ 254, 15, 46, 38 }, U("■"), [] { return Theme::btn(); }, 13.0f, 9.0f);
-    stop->onClick = [this] { model().press("st_looper", "stopall"); };
+    stop->onClick = [this] { model().press("st_looper", "stopall"); }; stop->setComponentID("t:stop");
     auto* undo = add<Pill>({ 304, 15, 46, 38 }, "UNDO", [this] { return snap("undoav") > 0.5f ? Theme::amber() : Theme::btn(); }, 8.5f, 9.0f);
-    undo->onClick = [this] { model().press("st_looper", "undo"); };
+    undo->onClick = [this] { model().press("st_looper", "undo"); }; undo->setComponentID("t:undo");
     auto* tap = add<Pill>({ 354, 15, 36, 18 }, "TAP", [] { return Theme::btn(); }, 7.0f, 6.0f);
+    tap->setComponentID("t:tap");
     tap->onClick = [this] {
         static double last = 0; double now = juce::Time::getMillisecondCounterHiRes(); double d = now - last; last = now;
         if (d > 200 && d < 2000) model().set("bpm", std::round(600000.0 / d) / 10.0); };
@@ -369,7 +380,7 @@ void Canvas::buildTopBar() {
         p->onClick = [&m, id] { m.set(id, m.get(id) > 0.5 ? 0 : 1); }; };
     tg({ 544, 30, 20, 20 }, "countin", [] { return Theme::amber(); });
     tg({ 584, 30, 20, 20 }, "clickall", [] { return Theme::red(); });
-    add<Knob>({ 616, 25, 28, 28 }, [&m] { return m.get("clickvol"); }, [&m](double v) { m.set("clickvol", v); }, 0, 100, 60, [] { return Theme::red(); });
+    add<Knob>({ 616, 25, 28, 28 }, [&m] { return m.get("clickvol"); }, [&m](double v) { m.set("clickvol", v); }, 0, 100, 60, [] { return Theme::red(); })->setComponentID("p:clickvol");
     auto ro = [&](juce::Rectangle<int> r, const char* bus) {
         auto* v = add<ValueBox>(r, [this, bus] { return (double) snap(bus); }, [](double) {}, 0, 999, 0); v->readOnly = true; v->flat = true; v->fsize = 13.0f; };
     ro({ 654, 27, 34, 24 }, "barno"); ro({ 690, 27, 34, 24 }, "beatno"); ro({ 726, 27, 36, 24 }, "loopbars");
@@ -384,10 +395,10 @@ void Canvas::buildTopBar() {
     // record the show
     auto* rec = add<Pill>({ 1052, 14, 58, 26 }, U("● REC"), [this] { return host.isRecording() ? Theme::red() : Theme::off(); }, 9.5f, 8.0f);
     rec->dynText = [this] { return host.isRecording() ? juce::String(U("■ STOP")) : juce::String(U("● REC")); };
-    rec->onClick = [this] { doRecShow(); };
+    rec->onClick = [this] { doRecShow(); }; rec->setComponentID("t:recshow");
     // master + glue
-    add<Knob>({ 1132, 25, 30, 30 }, [&m] { return m.get("master"); }, [&m](double v) { m.set("master", v); }, 0, 100, 75, [] { return Theme::txt(); });
-    add<Knob>({ 1172, 25, 30, 30 }, [&m] { return m.get("glue"); }, [&m](double v) { m.set("glue", v); }, 0, 100, 25, [] { return Theme::amber(); });
+    add<Knob>({ 1132, 25, 30, 30 }, [&m] { return m.get("master"); }, [&m](double v) { m.set("master", v); }, 0, 100, 75, [] { return Theme::txt(); })->setComponentID("p:master");
+    add<Knob>({ 1172, 25, 30, 30 }, [&m] { return m.get("glue"); }, [&m](double v) { m.set("glue", v); }, 0, 100, 25, [] { return Theme::amber(); })->setComponentID("p:glue");
     meters.add(add<Meter>({ 1212, 18, 7, 36 }, [this] { return engine().peak("glue_gr"); }, true));
     meters.add(add<Meter>({ 1270, 16, 42, 6 }, [this] { return engine().peak("live_in1"); }));
     meters.add(add<Meter>({ 1270, 32, 42, 5 }, [this] { return engine().peak("mainL"); }));
@@ -422,7 +433,7 @@ void Canvas::buildScenes() {
             if (sc / 8 == n) return Theme::amber();
             if ((mask >> i) & 1) return Theme::c(Theme::rgb(0.24f, 0.38f, 0.62f));
             return Theme::btn(); }, 13.0f, 8.0f);
-        tab->onClick = [this, i] { model().press("st_looper", "scene", 8, i + 1); };
+        tab->onClick = [this, i] { model().press("st_looper", "scene", 8, i + 1); }; tab->setComponentID("scene" + juce::String(i + 1));
         auto* cue = add<Pill>({ 128 + i * 98, 70, 30, 20 }, "CUE", [this, i] { return pvw == i + 1 ? Theme::amber() : Theme::btn(); }, 7.0f, 6.0f);
         cue->onClick = [this, i] { pvw = pvw == i + 1 ? 0 : i + 1; engine().set("st_looper", "pvw", pvw); };
     }
