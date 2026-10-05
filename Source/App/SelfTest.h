@@ -3,6 +3,7 @@
 // scene memory, saving / opening a song, importing a file and the show recorder. Prints a report, returns failures.
 #include "AudioHost.h"
 #include "../UI/SynthPanel.h"
+#include "Render.h"
 #include <cstdio>
 #include <cmath>
 
@@ -153,6 +154,35 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         m.press("st_looper", "imp_go");           // (the interface does this 60 ms later)
         waitFor([&] { return trk(1) == 3; }, 6.0);
         check(trk(1) == 3, "  track 2 plays the file", trk(1));
+    }
+    // EXPORT: render the scene offline, normalise, limit, write, read back
+    {
+        Renderer rd(h);
+        ExportOptions o; o.repeats = 2; o.tailSeconds = 2.0; o.loudness = 1; o.bits = 24; o.sampleRate = 48000;
+        juce::AudioBuffer<float> mix; double rate = 0;
+        bool okR = rd.renderMix(o, mix, rate, -1, nullptr);
+        double expect = e.snap("sv_len0").v.load() * 2 + 2.0 * e.sr;
+        check(okR && std::abs(mix.getNumSamples() - expect) < e.sr * 0.6, "EXPORT: the mix renders offline (seconds)", mix.getNumSamples() / e.sr);
+        check(mix.getMagnitude(0, mix.getNumSamples()) > 0.01f, "  it has the loops in it");
+        auto wav = dir.getChildFile("export test.wav"); juce::String rep;
+        bool w1 = Renderer::write(mix, rate, o, wav, rep);
+        check(w1, ("  WAV 24-bit written: " + rep).toRawUTF8());
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rr(fm.createReaderFor(wav));
+        juce::AudioBuffer<float> back(2, rr ? (int) rr->lengthInSamples : 0);
+        if (rr) rr->read(&back, 0, back.getNumSamples(), 0, true, true);
+        double lu = loud::integrated(back, 48000.0);
+        float tp = 0; for (int c = 0; c < 2; ++c) for (int i = 0; i < back.getNumSamples(); ++i) tp = std::max(tp, loud::truePeak(back.getReadPointer(c), back.getNumSamples(), i));
+        check(rr != nullptr && rr->bitsPerSample == 24 && std::abs(lu + 14.0) < 1.5, "  read back: about -14 LUFS (streaming level)", lu);
+        check(juce::Decibels::gainToDecibels(tp) <= -0.85f, "  true peak at or below -1 dBTP", juce::Decibels::gainToDecibels(tp));
+        ExportOptions f2 = o; f2.flac = true; f2.bits = 16; f2.sampleRate = 44100;
+        auto fl = dir.getChildFile("export test.flac");
+        bool w2 = Renderer::write(mix, rate, f2, fl, rep);
+        check(w2, ("  FLAC 16-bit 44.1 kHz written: " + rep).toRawUTF8());
+        std::unique_ptr<juce::AudioFormatReader> fr(fm.createReaderFor(fl));
+        check(fr != nullptr && (int) fr->sampleRate == 44100 && std::abs(fr->lengthInSamples / 44100.0 - mix.getNumSamples() / rate) < 0.1, "  FLAC reads back at 44.1 kHz, same length");
+        juce::OwnedArray<juce::AudioBuffer<float>> st; juce::StringArray nm; double sr2;
+        check(rd.dryStems(1, st, nm, sr2) && st.size() >= 2, "  dry stems: one per recorded track", st.size());
     }
     // 7 the show recorder
     {
