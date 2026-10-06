@@ -5,3 +5,10 @@ ARCO ON THE iPAD WITH SIDELOADLY (free, no Xcode)
 4. iPad: Settings > General > VPN & Device Management > your Apple ID > Trust.
    iPad (iOS 16+): Settings > Privacy & Security > Developer Mode > On (the iPad restarts).
 5. Open ARCO. Works 7 days; Sideloadly can renew it (or do step 3 again).
+
+THE SAME ARCO.ipa ON YOUR iPHONES (microphones + remote control)
+1. Do the same steps with each iPhone plugged in (Sideloadly: choose the iPhone).
+2. Open ARCO on the iPhone: it opens as a phone (no station window).
+3. Open ARCO on the Mac (or iPad), same Wi-Fi (or the iPhone on the cable): SETUP > iPHONES shows it.
+   Choose L1-L4: that phone's microphone plays as LIVE 1-4. Every phone is also a remote for the whole station.
+4. Allow "Local Network" when the iPhone asks (it is how the station finds it).
