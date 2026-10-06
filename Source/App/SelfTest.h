@@ -387,33 +387,44 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
             check(pkk > 0.05 && maxd < 1e-3, what.toRawUTF8(), maxd);
         }
     }
-    // phone microphone: a sender (as on the iPhone, 44.1 kHz) and the receiver (as on the Mac, 48 kHz) over the network
+    // phones: a phone (as on the iPhone, 44.1 kHz) found by the station (48 kHz): microphone, commands, screen
     {
-        MicSender snd; MicReceiver rcv;
-        snd.start(); juce::Thread::sleep(200);
-        rcv.connect(MicReceiver::WiFi, "127.0.0.1");
+        PhoneServer snd; snd.start("Test Phone"); juce::Thread::sleep(200);
+        h.phones.addAddress("127.0.0.1");
+        h.phones.tick();
+        PhoneConn* rcv = h.phones.conns.isEmpty() ? nullptr : h.phones.conns[0];
         const double sr = 44100.0, outSr = 48000.0; const int bn = 256, on = 256;
         std::vector<float> x(bn), y(on), all;
-        double ph2 = 0; int blocksIn = 0;
+        double ph2 = 0;
         auto t0 = juce::Time::getMillisecondCounterHiRes();
-        // real time: the phone sends a 441 Hz tone; the Mac pulls in its own blocks
         double inClock = 0, outClock = 0; int dAt2 = -1;
-        while (juce::Time::getMillisecondCounterHiRes() - t0 < 4000) {
+        while (rcv != nullptr && juce::Time::getMillisecondCounterHiRes() - t0 < 4000) {
             double now = (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0;
-            while (inClock < now) { for (auto& v : x) { v = 0.5f * (float) std::sin(ph2); ph2 += 2 * M_PI * 441.0 / sr; } snd.push(x.data(), bn, sr); inClock += bn / sr; ++blocksIn; }
-            while (outClock < now) { int d0 = rcv.dropouts.load(); rcv.pull(y.data(), on, outSr); if (outClock > 2.0 && dAt2 < 0) dAt2 = rcv.dropouts.load(); if (outClock > 2.0) all.insert(all.end(), y.begin(), y.end()); outClock += on / outSr;
-                if (std::getenv("ARCO_DEBUG") && rcv.dropouts.load() != d0) std::printf("    dropout at %.3f s (in %.3f) buffer %.1f ms\n", outClock, inClock, rcv.delayMs.load()); }
+            while (inClock < now) { for (auto& v : x) { v = 0.5f * (float) std::sin(ph2); ph2 += 2 * M_PI * 441.0 / sr; } snd.push(x.data(), bn, sr); inClock += bn / sr; }
+            while (outClock < now) { rcv->pull(y.data(), on, outSr); if (outClock > 2.0 && dAt2 < 0) dAt2 = rcv->dropouts.load(); if (outClock > 2.0) all.insert(all.end(), y.begin(), y.end()); outClock += on / outSr; }
             juce::Thread::sleep(1);
         }
-        check(rcv.connected(), "PHONE MIC: the Mac finds the phone (Wi-Fi)");
+        check(rcv != nullptr && rcv->connected() && rcv->name() == "Test Phone", "PHONES: the station finds the phone and knows its name");
         int zc = 0; for (size_t i = 1; i < all.size(); ++i) if ((all[i - 1] < 0) != (all[i] < 0)) ++zc;
-        double hz = zc / 2.0 / (all.size() / outSr);
+        double hz = all.empty() ? 0 : zc / 2.0 / (all.size() / outSr);
         float pkr = 0; for (auto v : all) pkr = std::max(pkr, std::abs(v));
-        check(std::abs(hz - 441.0) < 4.0 && pkr > 0.4f, "  the tone arrives at the right pitch (Hz)", hz);
-        check(rcv.delayMs.load() < 45.0f, "  the buffer adds only a few ms", rcv.delayMs.load());
-        check(rcv.dropouts.load() - dAt2 == 0, "  no dropouts once settled (2 s of sound)", rcv.dropouts.load() - dAt2);
-        // through the engine: phone on LIVE 2
-        rcv.disconnect(); snd.stop();
+        check(std::abs(hz - 441.0) < 4.0 && pkr > 0.4f, "  its microphone arrives at the right pitch (Hz)", hz);
+        check(rcv != nullptr && rcv->delayMs.load() < 45.0f, "  the buffer adds only a few ms", rcv ? rcv->delayMs.load() : 0);
+        check(rcv != nullptr && rcv->dropouts.load() - dAt2 == 0, "  no dropouts once settled (2 s of sound)", rcv ? rcv->dropouts.load() - dAt2 : -1);
+        // the remote: the phone moves a fader and asks for LIVE 2, the station answers with its state
+        juce::StringArray got; snd.onState = [&](const juce::StringArray& l) { got.addArray(l); };
+        snd.send("set vol5 33"); snd.send("live 2"); snd.send("press st_looper stopall 1 0");
+        for (int i = 0; i < 30; ++i) { juce::Thread::sleep(20); h.tickPhones(); }
+        snd.deliverNow();
+        check(std::abs(m.get("vol5") - 33) < 1e-6 && rcv != nullptr && rcv->live.load() == 2, "  the phone moves a fader and chooses LIVE 2");
+        bool hasVol = false, hasSong = false; for (auto& l : got) { if (l.startsWith("p vol5 33")) hasVol = true; if (l.startsWith("i song")) hasSong = true; }
+        check(hasVol && hasSong, "  the phone's screen gets the station's state", got.size());
+        // through the engine: the phone plays as LIVE 2
+        if (rcv != nullptr) { std::vector<float> b2(512); rcv->pull(b2.data(), 512, outSr); }
+        h.phones.setLive(rcv, 0); m.set("vol5", 71);
+        snd.stop();
+        { juce::OwnedArray<PhoneConn> old; { const juce::ScopedLock sl(h.phones.audioLock); old.swapWith(h.phones.conns); } }
+        h.phones.manual.clear(); h.phones.remembered.clear();
     }
     // ring numbering
     {

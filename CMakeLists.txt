@@ -47,7 +47,8 @@ target_sources(ARCO PRIVATE
     Source/UI/SynthPanel.cpp
     Source/UI/Sheets.cpp
     Source/UI/HelpText.cpp
-    Source/UI/Commands.cpp)
+    Source/UI/Commands.cpp
+    Source/UI/PhoneRemote.cpp)
 
 target_compile_definitions(ARCO PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"

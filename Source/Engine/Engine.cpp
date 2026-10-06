@@ -41,7 +41,7 @@ void Engine::prepare(double sampleRate) {
     fifoMode = false; accN = 0; outQ = 0;
     for (auto& v : accIn) v.assign(SUB, 0.0f);
     for (auto& v : qOut) v.assign(SUB, 0.0f);
-    accPhone.assign(SUB, 0.0f);
+    for (auto& a : accPhone) a.assign(SUB, 0.0f);
     mods.clear(); busToMod.clear(); graph.clear(); bus.clear();
     // ---- the shared buffers (sizes like the patch: 40 s loops, 2.3 s of pitch, 22 ms wave screens)
     auto mk = [&](const std::string& n, long frames, long ch) { auto& b = bufs[n]; b.name = n; b.resize(frames, ch); };
@@ -199,7 +199,7 @@ void Engine::process(const float* const* in, int numIn, float* const* out, int n
 
 void Engine::processFifo(const float* const* in, int numIn, float* const* out, int numOut, int numSamples) {
     numIn = std::min(numIn, MAXIO); numOut = std::min(numOut, MAXIO);
-    const float* phoneSrc = phoneData;
+    const float* phoneSrc[4] = { phoneData[0], phoneData[1], phoneData[2], phoneData[3] };
     const float* ip[MAXIO]; float* op[MAXIO];
     for (int c = 0; c < MAXIO; ++c) { ip[c] = accIn[c].data(); op[c] = qOut[c].data(); }
     int i = 0;
@@ -213,17 +213,17 @@ void Engine::processFifo(const float* const* in, int numIn, float* const* out, i
                 if (in[c]) std::memcpy(accIn[c].data() + accN, in[c] + i, sizeof(float) * (size_t) k);
                 else std::memset(accIn[c].data() + accN, 0, sizeof(float) * (size_t) k);
             }
-            if (phoneSrc) std::memcpy(accPhone.data() + accN, phoneSrc + i, sizeof(float) * (size_t) k);
+            for (int j = 0; j < 4; ++j) if (phoneSrc[j]) std::memcpy(accPhone[j].data() + accN, phoneSrc[j] + i, sizeof(float) * (size_t) k);
             accN += k; outQ -= k; i += k;
         }
         if (accN == SUB) {                      // a full block of input: compute the next block of output
             for (int c = 0; c < numOut; ++c) std::memset(qOut[c].data(), 0, sizeof(float) * SUB);
-            phoneData = phoneSrc ? accPhone.data() : nullptr;
+            for (int j = 0; j < 4; ++j) phoneData[j] = phoneSrc[j] ? accPhone[j].data() : nullptr;
             runSub(ip, numIn, op, numOut, 0, SUB);
             accN = 0; outQ = SUB;
         }
     }
-    phoneData = phoneSrc;
+    for (int j = 0; j < 4; ++j) phoneData[j] = phoneSrc[j];
 }
 
 void Engine::runSub(const float* const* in, int numIn, float* const* out, int numOut, int off, int n) {
@@ -237,7 +237,7 @@ void Engine::runSub(const float* const* in, int numIn, float* const* out, int nu
     for (int j = 0; j < 4; ++j) {
         float* d = B("live_in" + std::to_string(j + 1));
         int ch = inputChannel[j].load();
-        if (phoneData != nullptr && phoneLive.load() == j + 1) { std::memcpy(d, phoneData + off, sizeof(float) * (size_t) n);
+        if (phoneData[j] != nullptr) { std::memcpy(d, phoneData[j] + off, sizeof(float) * (size_t) n);
             if (n < SUB) std::memset(d + n, 0, sizeof(float) * (size_t) (SUB - n)); }
         else if (in != nullptr && ch >= 0 && ch < numIn && in[ch] != nullptr) { std::memcpy(d, in[ch] + off, sizeof(float) * (size_t) n);
             if (n < SUB) std::memset(d + n, 0, sizeof(float) * (size_t) (SUB - n)); }

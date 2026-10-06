@@ -121,8 +121,9 @@ public:
             }
             int y = s == 0 ? 125 : 89;
             bool syn = c.host.synthInto > 0 && c.host.synthInto == s;     // LIVE 2-4: synth plays here
-            bool ph = c.host.phoneLive == s + 1;
-            label(g, syn ? juce::String(U("♪ from the SYNTH")) : (ph ? juce::String(c.host.phone.connected() ? U("📱 iPhone / iPad mic") : U("📱 phone mic: not connected"))
+            auto phName = c.host.phoneOnLive(s + 1);
+            bool ph = phName.isNotEmpty();
+            label(g, syn ? juce::String(U("♪ from the SYNTH")) : (ph ? U("phone: ") + phName
                                                                      : "interface input " + juce::String(c.host.inputCh[s])), { 6, y, 100, 14 }, 7.5f,
                   syn ? Theme::violet() : Theme::sub());
         }
@@ -528,6 +529,8 @@ bool Canvas::keyPressed(const juce::KeyPress& k) {
 
 void Canvas::timerCallback() {
     model().tick();
+    host.pollImport();
+    if (!isVisible()) return;                                        // the phone view is showing
     if (++menuTick % 30 == 0 && menu) menu->menuItemsChanged();      // the Mac menu bar follows (recent songs, ticks)
     if (host.sigSettle > 0 && --host.sigSettle == 0) host.savedSignature = host.loopsSignature();
     layoutStrips();

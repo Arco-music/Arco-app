@@ -2,7 +2,7 @@
 #include <JuceHeader.h>
 #include "Widgets.h"
 #include "../App/AudioHost.h"
-#include "MicView.h"
+#include "PhoneRemote.h"
 
 namespace arco {
 
@@ -95,10 +95,11 @@ private:
 
 class MainComponent : public juce::Component {
 public:
-    explicit MainComponent(AudioHost& h) : canvas(h), mic(h) {
-        addAndMakeVisible(canvas); addChildComponent(mic);
-        mic.onBack = [this] { showMic(false); };
+    explicit MainComponent(AudioHost& h) : canvas(h), phone(h) {
+        addAndMakeVisible(canvas); addChildComponent(phone);
+        phone.onBack = [this] { showMic(false); };
         setSize(1440, 880);
+        if (AudioHost::isPhone()) { phone.showBack = false; showMic(true); }      // an iPhone is a phone: microphone + remote
     }
     void paint(juce::Graphics& g) override { g.fillAll(Theme::bg()); }
     void resized() override {
@@ -110,11 +111,17 @@ public:
         canvas.setBounds(0, 0, 1440, 880);
         float dx = area.getX() + (area.getWidth() - 1440 * s) * 0.5f, dy = area.getY() + (area.getHeight() - 880 * s) * 0.5f;
         canvas.setTransform(juce::AffineTransform::scale(s).translated(dx, dy));
-        mic.setBounds(area);
+        phone.setBounds(getLocalBounds());
     }
-    void showMic(bool on) { mic.setVisible(on); if (!on) mic.setSending(false); else mic.toFront(false); }
+    // this device as a phone for a station (iPad: from the menu; iPhone: always)
+    void showMic(bool on) {
+        if (on == phone.isVisible()) return;
+        phone.showBack = !AudioHost::isPhone();
+        phone.setVisible(on); canvas.setVisible(!on);
+        if (on) { phone.start(); phone.toFront(false); } else phone.stop();
+    }
     Canvas canvas;
-    MicView mic;
+    PhoneRemote phone;
 };
 
 } // namespace arco

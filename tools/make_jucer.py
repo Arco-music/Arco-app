@@ -47,10 +47,10 @@ w('  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1"/>')
 w('  <EXPORTFORMATS>')
 w('    <XCODE_IPHONE targetFolder="Builds/iOS" iosDeviceFamily="1,2" bigIcon="icnios" smallIcon="icnios" '
   'iPhoneScreenOrientation="UIInterfaceOrientationPortrait,UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" '
-  'iPadScreenOrientation="UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" '
+  'iPadScreenOrientation="UIInterfaceOrientationPortrait,UIInterfaceOrientationPortraitUpsideDown,UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" '
   'microphonePermissionNeeded="1" microphonePermissionsText="ARCO uses the microphone (or your audio interface) to record your instrument." '
   'iosBackgroundAudio="1" UIFileSharingEnabled="1" UISupportsDocumentBrowser="1" UIStatusBarHidden="1" '
-  'customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;NSLocalNetworkUsageDescription&lt;/key&gt;&lt;string&gt;ARCO sends this microphone to ARCO on your Mac over Wi-Fi.&lt;/string&gt;&lt;key&gt;LSSupportsOpeningDocumentsInPlace&lt;/key&gt;&lt;true/&gt;&lt;key&gt;UIRequiresFullScreen&lt;/key&gt;&lt;true/&gt;&lt;/dict&gt;&lt;/plist&gt;" '
+  'customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;NSLocalNetworkUsageDescription&lt;/key&gt;&lt;string&gt;ARCO finds your phones and your station (Mac or iPad) on the Wi-Fi: microphones and remote control.&lt;/string&gt;&lt;key&gt;LSSupportsOpeningDocumentsInPlace&lt;/key&gt;&lt;true/&gt;&lt;key&gt;NSBonjourServices&lt;/key&gt;&lt;array&gt;&lt;string&gt;_arco._tcp&lt;/string&gt;&lt;/array&gt;&lt;key&gt;UIRequiresFullScreen&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;" '
   'extraCompilerFlags="-Wno-unused-variable -Wno-unused-parameter">')
 w('      <CONFIGURATIONS>')
 w('        <CONFIGURATION name="Debug" isDebug="0" iosDeploymentTarget="15.0" optimisation="3" fastMath="1" targetName="ARCO"/>')

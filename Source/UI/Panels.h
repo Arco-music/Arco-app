@@ -48,6 +48,19 @@ private:
     juce::Rectangle<int> effectTile(int i) const;
 };
 
+// the phones the station found: each one a microphone on a LIVE input (or just a remote)
+class PhoneList : public juce::Component, private juce::Timer {
+public:
+    explicit PhoneList(Canvas& c) : cv(c) { startTimerHz(8); }
+    void paint(juce::Graphics& g) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+private:
+    Canvas& cv;
+    void timerCallback() override { if (isShowing()) repaint(); }
+    struct Hit { juce::Rectangle<int> r; int conn; int live; };
+    std::vector<Hit> hits;
+};
+
 // SETUP: the sound card, live inputs, headphones, speakers, recording timing, practice, tuner.
 class SetupPanel : public juce::Component, private juce::Timer {
 public:
@@ -64,6 +77,7 @@ private:
     std::unique_ptr<ArcoLaf> laf;
     juce::ComboBox phones;
     juce::TextEditor wifi;
+    std::unique_ptr<PhoneList> phoneList;
     Updater updater;
     juce::String updateText;
     void askKey(const juce::String& why);

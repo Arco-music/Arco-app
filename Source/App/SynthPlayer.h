@@ -54,6 +54,25 @@ public:
         bend = semis;
         for (int k = 0; k < NV; ++k) if (voice[k].vel > 0) eng.set("st_syn", "sn" + std::to_string(k), voice[k].note + bend);
     }
+    // the slide pad: one voice whose pitch glides freely (a float note), louder or softer while it sounds
+    void padOn(float pitch, float vel01) {
+        if (onFirstNote) onFirstNote();
+        padOff();
+        long best = -1; for (int k = 0; k < NV; ++k) if (voice[k].vel == 0 && (best < 0 || voice[k].age < voice[best].age)) best = k;
+        padVoice = best < 0 ? 0 : (int) best;
+        auto& v = voice[padVoice]; v.note = (int) std::round(pitch); v.vel = juce::jlimit(1, 127, (int) std::round(vel01 * 127)); v.age = ++clock;
+        eng.set("st_syn", "sn" + std::to_string(padVoice), pitch);
+        eng.set("st_syn", "sv" + std::to_string(padVoice), v.vel);
+        eng.set("st_syn", "sg" + std::to_string(padVoice), ++v.trig);
+    }
+    void padMove(float pitch, float expr01) {
+        if (padVoice < 0) return;
+        eng.set("st_syn", "sn" + std::to_string(padVoice), pitch);
+        setExpression(expr01);
+    }
+    void padOff() { if (padVoice >= 0) { release(padVoice); padVoice = -1; } }
+    void setExpression(float v01) { expr = v01; eng.set("st_syn", "expr", v01); }   // the slide pad's up / down (volume while playing)
+    float expression() const { return expr; }
     void allOff() {
         held.clear(); sustained.clear(); sustain = false;
         for (int k = 0; k < NV; ++k) release(k);
@@ -66,7 +85,8 @@ private:
     long clock = 0;
     std::vector<int> held, sustained;
     bool sustain = false;
-    float bend = 0;
+    float bend = 0, expr = 1;
+    int padVoice = -1;
     Engine& eng;
     bool mono() const { return paramValue("mono") > 0.5; }
     double glide() const { return paramValue("s_glide"); }

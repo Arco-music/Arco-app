@@ -20,13 +20,97 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
         const juce::ScopedTryLock sl(recLock);
         if (sl.isLocked() && threaded != nullptr) { const float* ch[2] = { l, r }; threaded->write(ch, n); recSamples += n; }
     };
+    if (openDevice && !isPhone()) phones.setEnabled(true);       // find the phones (Wi-Fi, cable)
+    startTimerHz(10);
+}
+
+bool AudioHost::isPhone() {
+   #if JUCE_IOS
+    return juce::SystemStats::getDeviceDescription().containsIgnoreCase("iPhone") || juce::SystemStats::getDeviceDescription().containsIgnoreCase("iPod");
+   #else
+    return false;
+   #endif
+}
+
+juce::String AudioHost::phoneOnLive(int live) {
+    for (auto* c : phones.conns) if (c->live.load() == live && c->connected()) return c->name();
+    return {};
+}
+
+// ------------------------------------------------------------------ phones: their commands, their screens
+void AudioHost::phoneCommand(PhoneConn& c, const juce::String& line) {
+    auto t = juce::StringArray::fromTokens(line, " ", "\"");
+    if (t.isEmpty()) return;
+    auto& w = t[0];
+    auto num = [&](int i) { return t[i].getDoubleValue(); };
+    if (w == "set" && t.size() >= 3) model.set(t[1].toStdString(), num(2));
+    else if (w == "press" && t.size() >= 3) model.press(t[1].toStdString(), t[2].toStdString(), t.size() > 3 ? t[3].getIntValue() : 1, t.size() > 4 ? t[4].getIntValue() : 0);
+    else if (w == "act" && t.size() >= 2) doAction(t[1].getIntValue());
+    else if (w == "sel" && t.size() >= 2) model.select(juce::jlimit(0, NSTRIP - 1, t[1].getIntValue()));
+    else if (w == "live" && t.size() >= 2) { phones.setLive(&c, juce::jlimit(0, 4, t[1].getIntValue())); saveSetup(); }
+    else if (w == "noteon" && t.size() >= 3) keys.noteOn(1, juce::jlimit(0, 127, t[1].getIntValue()), (float) juce::jlimit(0.01, 1.0, num(2)));
+    else if (w == "noteoff" && t.size() >= 2) keys.noteOff(1, juce::jlimit(0, 127, t[1].getIntValue()), 0.0f);
+    else if (w == "alloff") { synth.allOff(); synth.padOff(); }
+    else if (w == "padon" && t.size() >= 3) synth.padOn((float) num(1), (float) num(2));
+    else if (w == "padmove" && t.size() >= 3) synth.padMove((float) num(1), (float) num(2));
+    else if (w == "padoff") synth.padOff();
+    else if (w == "bend" && t.size() >= 2) synth.pitchBend((float) num(1));
+    else if (w == "expr" && t.size() >= 2) synth.setExpression((float) juce::jlimit(0.0, 1.0, num(1)));
+    else if (w == "sustain" && t.size() >= 2) synth.setSustain(t[1].getIntValue() != 0);
+    else if (w == "rec") {
+        if (isRecording()) stopRecording();
+        else {
+           #if JUCE_IOS
+            auto d = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("ARCO Recordings");
+           #else
+            auto d = juce::File::getSpecialLocation(juce::File::userMusicDirectory).getChildFile("ARCO Recordings");
+           #endif
+            d.createDirectory();
+            startRecording(d.getChildFile("show " + juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S") + ".wav"));
+        }
+    }
+    else if (w == "save") { if (songFolder.isDirectory()) saveSong(songFolder); else status = "save the song on the station first (it needs a name)"; }
+    else if (w == "card" && t.size() >= 3) { if (t[2] == "1") visibleCards.addIfNotAlreadyThere(t[1]); else visibleCards.removeString(t[1]); if (onCardsChanged) onCardsChanged(); saveSetup(); }
+}
+
+void AudioHost::tickPhones() {
+    phones.tick();
+    static const char* SN[] = { "statA", "statB", "transport", "scenes", "smask", "ebpm", "barno", "beatno", "loopbars", "ntn", "undoav", "spdk", "lscene", "sv_bts", "beat", "halo_key", "pitch", "tn_pitch", "syn_n" };
+    for (auto* c : phones.conns) {
+        if (!c->connected() || c->legacy()) { c->needFull = true; c->sent.clear(); c->sentInfo.clear(); continue; }
+        for (auto& line : c->takeCommands()) phoneCommand(*c, line);
+        bool full = c->needFull; c->needFull = false;
+        if (full) { c->sent.clear(); c->sentInfo.clear(); }
+        juce::String out;
+        auto num = [&](const char* tag, const std::string& id, double v, double eps) {
+            auto key = std::string(tag) + id;
+            auto it = c->sent.find(key);
+            if (it != c->sent.end() && std::abs(it->second - v) <= eps) return;
+            c->sent[key] = v; out << tag << " " << juce::String(id) << " " << juce::String(v, 3) << "\n"; };
+        auto info = [&](const std::string& id, const juce::String& v) {
+            auto it = c->sentInfo.find(id);
+            if (it != c->sentInfo.end() && it->second == v) return;
+            c->sentInfo[id] = v; out << "i " << juce::String(id) << " " << v.replaceCharacters("\n\r", "  ") << "\n"; };
+        for (auto& d : paramTable()) num("p", d.id, model.get(d.id), 1e-6);
+        for (auto* n : SN) num("s", n, engine.snap(n).v.load(), 1e-6);
+        num("s", "sel", model.selected, 0); num("s", "nlive", nLive, 0); num("s", "live", c->live.load(), 0); num("s", "rec", isRecording() ? 1 : 0, 0);
+        num("s", "synthInto", synthInto, 0); num("s", "scene", model.sceneNow, 0);
+        for (int s2 = 0; s2 < NSTRIP; ++s2) num("s", "lv" + std::to_string(s2), std::round(engine.peak("ch" + std::to_string(s2)) * 100.0) / 100.0, 0.02);
+        info("song", songFolder.isDirectory() ? songFolder.getFileName() : juce::String("new song"));
+        info("cards", visibleCards.joinIntoString(","));
+        info("status", status);
+        info("palette", Theme::pal().name);
+        for (int j = 1; j <= 4; ++j) info("phone" + std::to_string(j), phoneOnLive(j));
+        if (out.isNotEmpty()) c->sendState(out);
+    }
 }
 
 AudioHost::~AudioHost() {
     if (live) saveSetup();
     devices.removeMidiInputDeviceCallback({}, this);
-    phone.disconnect();
-    micOut.stop();
+    stopTimer();
+    phoneLink.stop();
+    phones.setEnabled(false);
     stopRecording();
     devices.removeAudioCallback(this);
     devices.closeAudioDevice();
@@ -39,7 +123,7 @@ juce::File AudioHost::setupFile() const {
 
 void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     double r = d->getCurrentSampleRate();
-    phoneBuf.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f);
+    for (auto& b : phoneBuf) b.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f);
     if (r != lastRate) {                     // a new sample rate: the engine starts again (loops are kept only at the same rate)
         lastRate = r;
         engine.prepare(r);
@@ -59,15 +143,19 @@ void AudioHost::handleAsyncUpdate() {
 
 void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n,
                                                  const juce::AudioIODeviceCallbackContext&) {
-    if (micMode.load()) {                        // iPhone / iPad as a microphone for the Mac: only send
-        if (numIn > 0 && in[0] != nullptr) micOut.push(in[0], n, lastRate > 0 ? lastRate : 48000.0);
+    if (micMode.load()) {                        // this device is a phone for a station: only send the microphone
+        if (numIn > 0 && in[0] != nullptr) phoneLink.push(in[0], n, lastRate > 0 ? lastRate : 48000.0);
         for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], n);
         return;
     }
-    if (phoneLive > 0 && phone.connected() && (int) phoneBuf.size() >= n) {
-        phone.pull(phoneBuf.data(), n, lastRate);
-        engine.phoneData = phoneBuf.data();
-    } else engine.phoneData = nullptr;
+    {   // the phones playing as LIVE inputs
+        const juce::ScopedTryLock sl(phones.audioLock);
+        for (int j = 0; j < 4; ++j) {
+            PhoneConn* c = sl.isLocked() ? phones.forLive(j + 1) : nullptr;
+            if (c != nullptr && (int) phoneBuf[j].size() >= n) { c->pull(phoneBuf[j].data(), n, lastRate); engine.phoneData[j] = phoneBuf[j].data(); }
+            else engine.phoneData[j] = nullptr;
+        }
+    }
     engine.process(in, numIn, out, numOut, n);
     int tt = testTone.load();
     if (tt > 0) {                                // TEST: a soft A (440 Hz) on outputs 1-2 and on the headphones
@@ -483,11 +571,11 @@ void AudioHost::saveSetup() {
     juce::Array<juce::var> g;
     for (int s = 0; s < 14; ++s) for (int k = 0; k < NSPK; ++k) if (engine.grid[s][k].load() > 0) { g.add(s); g.add(k); }
     o->setProperty("grid", g);
-    o->setProperty("phoneLive", phoneLive);
+    { juce::Array<juce::var> ph; for (auto& kv : phones.remembered) { auto* x = new juce::DynamicObject(); x->setProperty("name", kv.first); x->setProperty("live", kv.second); ph.add(juce::var(x)); }
+      o->setProperty("phones", ph); }
+    { juce::Array<juce::var> pm; for (auto& a : phones.manual) pm.add(a); o->setProperty("phoneAddresses", pm); }
     { juce::Array<juce::var> vc; for (auto& k : visibleCards) vc.add(k); o->setProperty("cards", vc); }
     { juce::Array<juce::var> rs; for (auto& k : recentSongs) rs.add(k); o->setProperty("recent", rs); }
-    o->setProperty("phoneWifi", phoneWifi);
-    o->setProperty("phoneMode", (int) phone.mode());
     juce::Array<juce::var> pd; for (auto& p : pedal) { pd.add(p.type); pd.add(p.num); pd.add(p.ch); }
     { const juce::ScopedLock sl(midiLock); juce::Array<juce::var> ml;
       for (auto& l : midiLinks) { auto* x = new juce::DynamicObject(); x->setProperty("id", l.id); x->setProperty("t", l.type); x->setProperty("n", l.num); x->setProperty("c", l.ch); ml.add(juce::var(x)); }
@@ -511,19 +599,15 @@ void AudioHost::loadSetup(bool openDevice) {
         if (v.hasProperty("palette")) Theme::setPalette(Theme::paletteByName(v["palette"].toString()));
         else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 0);
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
-        setPhoneLive(juce::jlimit(0, 4, (int) v.getProperty("phoneLive", 0)));
-        phoneWifi = v.getProperty("phoneWifi", "").toString();
+        if (auto* ph = v["phones"].getArray()) for (auto& x : *ph) phones.remembered[x["name"].toString()] = juce::jlimit(0, 4, (int) x["live"]);
+        if (auto* pm = v["phoneAddresses"].getArray()) for (auto& a : *pm) phones.addAddress(a.toString());
+        { auto old = v.getProperty("phoneWifi", "").toString(); if (old.isNotEmpty() && (int) v.getProperty("phoneLive", 0) > 0) phones.addAddress(old); }
         if (auto* rs = v["recent"].getArray()) for (auto& k : *rs) if (juce::File(k.toString()).isDirectory()) recentSongs.add(k.toString());
         if (auto* vc = v["cards"].getArray()) { visibleCards.clear(); for (auto& k : *vc) visibleCards.add(k.toString()); }
         if (auto* ml = v["midimap"].getArray()) { const juce::ScopedLock sl(midiLock); midiLinks.clear();
             for (auto& x : *ml) midiLinks.push_back({ x["id"].toString(), (int) x["t"], (int) x["n"], (int) x["c"] }); }
         if (auto* pd = v["pedals"].getArray())
             for (int a = 0; a < NumActions && a * 3 + 2 < pd->size(); ++a) pedal[a] = { (int) (*pd)[a * 3], (int) (*pd)[a * 3 + 1], (int) (*pd)[a * 3 + 2] };
-        if (openDevice && phoneLive > 0) {
-            int pm = (int) v.getProperty("phoneMode", 0);
-            if (pm == MicReceiver::Usb) phone.connect(MicReceiver::Usb);
-            else if (pm == MicReceiver::WiFi && phoneWifi.isNotEmpty()) phone.connect(MicReceiver::WiFi, phoneWifi);
-        }
         if (v["audio"].isString()) xml = juce::parseXML(v["audio"].toString());
     }
     if (openDevice) {

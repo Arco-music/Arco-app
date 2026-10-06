@@ -11,7 +11,7 @@
 
 namespace arco {
 
-class AudioHost : public juce::AudioIODeviceCallback, public juce::MidiInputCallback, private juce::MidiKeyboardState::Listener, private juce::AsyncUpdater {
+class AudioHost : public juce::AudioIODeviceCallback, public juce::MidiInputCallback, private juce::MidiKeyboardState::Listener, private juce::AsyncUpdater, private juce::Timer {
 public:
     explicit AudioHost(bool openDevice = true);   // false: tests / screenshots (no sound card, settings not saved)
     bool live = true;
@@ -37,17 +37,19 @@ public:
     void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
     int synthInto = 0;
 
-    // the phone microphone
-    MicReceiver phone;                       // Mac: an iPhone / iPad sends its microphone (cable or Wi-Fi)
-    MicSender micOut;                        // iPhone / iPad: MIC FOR MAC mode sends this device's microphone
-    std::atomic<bool> micMode { false };
-    int phoneLive = 0;                       // 0 off, 1-4 = which live input plays it
-    juce::String phoneWifi;                  // last Wi-Fi address typed
+    // phones (1.2): the station finds iPhones running ARCO - each one a microphone (on a LIVE input) and a remote control
+    PhoneHub phones;                         // the station side
+    PhoneServer phoneLink;                   // the phone side (this device is a phone for a station)
+    std::atomic<bool> micMode { false };     // this device is a phone now: the microphone goes to the station, nothing plays here
+    void tickPhones();                       // ~10x a second: commands from the phones, their screens kept current
+    void phoneCommand(PhoneConn& c, const juce::String& line);
+    juce::String phoneOnLive(int live);      // the name of the phone playing as LIVE n (or empty)
+    static bool isPhone();                   // an iPhone: it runs as a phone (microphone + remote), not as a station
+    std::function<void()> onCardsChanged;    // the effect cards were chosen from a phone
     juce::StringArray visibleCards = defaultVisibleCards();
     juce::StringArray recentSongs;            // File > Open Recent
     void addRecent(const juce::File& f) { recentSongs.removeString(f.getFullPathName()); recentSongs.insert(0, f.getFullPathName()); while (recentSongs.size() > 8) recentSongs.remove(8); saveSetup(); }
     void newSong();   // the effect cards on the main window (SETUP > EFFECTS)
-    void setPhoneLive(int v) { phoneLive = v; engine.phoneLive.store(v); }
 
     // the SYNTH: one keyboard state for the on-screen keys, the computer keys and MIDI keyboards
     juce::MidiKeyboardState keys;
@@ -118,6 +120,7 @@ public:
 
 private:
     void handleAsyncUpdate() override;
+    void timerCallback() override { tickPhones(); }
     juce::AudioFormatManager formats;
     struct PendingImport { std::shared_ptr<SharedBuffer> buf; int track; double sr; juce::String name; int stage = 0; double t = 0, started = 0; bool seenBusy = false; int stateBefore = 0; };
     std::deque<PendingImport> imports;
@@ -127,7 +130,7 @@ private:
     std::atomic<juce::int64> recSamples { 0 };
     double lastRate = 0;
     juce::AudioIODevice* rawDone = nullptr;
-    std::vector<float> phoneBuf;
+    std::vector<float> phoneBuf[4];
     int ccLast[16][128] = {};
     juce::File setupFile() const;
 };

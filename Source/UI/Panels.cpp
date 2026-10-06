@@ -272,33 +272,19 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     vb({ 760, 538, 54, 24 }, [&m] { return m.get("a4"); }, [&m](double v) { m.set("a4", v); }, 415, 466, [] { return Theme::amber(); });
     auto* gd = add<Pill>({ 900, 540, 22, 20 }, "", [&m] { return m.get("guard") > 0.5 ? Theme::green() : Theme::card2(); }, 8.0f, 5.0f);
     gd->onClick = [&m] { m.set("guard", m.get("guard") > 0.5 ? 0 : 1); };
-    // ---- iPhone / iPad as a microphone
-    const char* PM[3] = { "OFF", U("CABLE (USB)").toRawUTF8(), "WI-FI" };
-    juce::String pmn[3] = { "OFF", "CABLE (USB)", "WI-FI" };
+    // ---- phones: microphones and remotes
+    phoneList = std::make_unique<PhoneList>(cv);
+    addAndMakeVisible(*phoneList); phoneList->setBounds(box.getX() + 24, box.getY() + 676, 540, 104);
    #if JUCE_IOS
-    auto* mfm = add<Pill>({ 300, 736, 260, 24 }, U("USE THIS DEVICE AS A MIC FOR A MAC ▸"), [] { return Theme::violet(); }, 7.5f, 6.0f);
+    auto* mfm = add<Pill>({ 330, 784, 230, 22 }, U("USE THIS iPAD AS A PHONE ▸"), [] { return Theme::violet(); }, 7.5f, 6.0f);
     mfm->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); cv.openMic(true); };
    #endif
-    for (int i = 0; i < 3; ++i) {
-       #if JUCE_IOS
-        if (i == 1) continue;                       // the cable link is for a Mac
-       #endif
-        auto* p = add<Pill>({ 24 + i * 96, 684, 90, 24 }, pmn[i], [&h, i] { return (int) h.phone.mode() == i ? (i == 0 ? Theme::sel() : Theme::green()) : Theme::btn(); }, 8.0f, 6.0f);
-        p->onClick = [this, &h, i] {
-            if (i == 0) { h.phone.disconnect(); h.setPhoneLive(0); }
-            else { if (h.phoneLive == 0) h.setPhoneLive(1); h.phoneWifi = wifi.getText().trim();
-                   h.phone.connect(i == 1 ? MicReceiver::Usb : MicReceiver::WiFi, h.phoneWifi); }
-            h.saveSetup(); };
-    }
-    (void) PM;
     addAndMakeVisible(wifi);
-    wifi.setBounds(box.getX() + 320, box.getY() + 684, 130, 24);
-    wifi.setText(h.phoneWifi, false);
-    wifi.setTextToShowWhenEmpty("phone address", Theme::sub());
-    wifi.setFont(Theme::font(9.0f, 1));
-    wifi.setIndents(8, 5);
-    wifi.onReturnKey = [this, &h] { h.phoneWifi = wifi.getText().trim(); if (h.phoneLive == 0) h.setPhoneLive(1); h.phone.connect(MicReceiver::WiFi, h.phoneWifi); h.saveSetup(); };
-    vb({ 520, 684, 40, 24 }, [&h] { return (double) juce::jmax(1, h.phoneLive); }, [&h](double v) { if (h.phoneLive > 0) h.setPhoneLive((int) v); }, 1, 4, [] { return Theme::green(); });
+    wifi.setBounds(box.getX() + 24, box.getY() + 784, 170, 22);
+    wifi.setTextToShowWhenEmpty(U("add a phone by address"), Theme::sub());
+    wifi.setFont(Theme::font(8.5f, 1));
+    wifi.setIndents(8, 4);
+    wifi.onReturnKey = [this, &h] { h.phones.addAddress(wifi.getText().trim()); wifi.clear(); h.saveSetup(); };
     // ---- pedals & keys: learn a MIDI pedal for each action
     for (int a = 0; a < AudioHost::NumActions; ++a) {
         auto* p = add<Pill>({ 600 + a * 130, 716, 120, 22 }, "LEARN", [&h, a] { return h.learning.load() == a ? Theme::amber() : Theme::btn(); }, 7.5f, 5.0f);
@@ -306,6 +292,48 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
         p->onClick = [&h, a] { h.learning.store(h.learning.load() == a ? -1 : a); };
     }
     startTimerHz(10);
+}
+
+// ================================================================== the phones
+void PhoneList::paint(juce::Graphics& g) {
+    hits.clear();
+    auto& hub = cv.host.phones;
+    int y = 0;
+    auto text = [&](const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour c, int w = 0, juce::Justification j = juce::Justification::centredLeft) {
+        g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 1, 0.8f); };
+    int shown = 0;
+    for (int i = 0; i < hub.conns.size() && shown < 4; ++i) {
+        auto* c = hub.conns[i];
+        if (c->busyElsewhere.load() && !c->connected()) continue;
+        bool on = c->connected();
+        g.setColour(on ? Theme::green() : Theme::amber()); g.fillEllipse(2.0f, (float) y + 8, 8, 8);
+        auto nm = c->name().isNotEmpty() ? c->name() : (c->mode == PhoneConn::Usb ? juce::String("phone on the cable") : c->host);
+        text(nm, { 16, y + 1, 150, 22 }, 9.0f, Theme::txt(), 2);
+        juce::String st = on ? (juce::String(c->mode == PhoneConn::Usb ? "cable" : "Wi-Fi") + (c->live.load() > 0 ? juce::String::fromUTF8(" · ") + juce::String(c->delayMs.load(), 0) + " ms" : juce::String::fromUTF8(" · remote")))
+                             : c->statusText();
+        if (c->legacy()) st << " (update the phone to ARCO 1.2)";
+        text(st, { 168, y + 1, 150, 22 }, 7.5f, Theme::sub());
+        float lv = juce::jmin(1.0f, c->level.load() * 2.0f);
+        g.setColour(Theme::card2()); g.fillRoundedRectangle(322.0f, (float) y + 9, 54.0f, 6.0f, 3.0f);
+        g.setColour(Theme::green()); g.fillRoundedRectangle(322.0f, (float) y + 9, 54.0f * lv, 6.0f, 3.0f);
+        for (int l = 0; l <= 4; ++l) {
+            juce::Rectangle<int> r(386 + l * 31, y + 1, 28, 22);
+            bool sel = c->live.load() == l;
+            auto col = sel ? (l == 0 ? Theme::sel() : Theme::strip(l - 1)) : Theme::btn();
+            g.setColour(col); g.fillRoundedRectangle(r.toFloat(), 6.0f);
+            text(l == 0 ? juce::String::fromUTF8("–") : "L" + juce::String(l), r, 8.0f, Theme::textOn(col), 2, juce::Justification::centred);
+            hits.push_back({ r, i, l });
+        }
+        y += 26; ++shown;
+    }
+    if (shown == 0) {
+        text(juce::String::fromUTF8("No phone yet. Open ARCO on an iPhone on the same Wi-Fi (or plug it in) - it appears here by itself."), { 0, 2, getWidth(), 20 }, 8.0f, Theme::sub());
+        text(juce::String::fromUTF8("Then choose L1-L4: that phone's microphone plays as LIVE 1-4. Every phone is also a remote for the whole station."), { 0, 24, getWidth(), 20 }, 8.0f, Theme::sub());
+    }
+}
+void PhoneList::mouseUp(const juce::MouseEvent& e) {
+    for (auto& h : hits) if (h.r.contains(e.getPosition()) && h.conn < cv.host.phones.conns.size()) {
+        cv.host.phones.setLive(cv.host.phones.conns[h.conn], h.live); cv.host.saveSetup(); repaint(); return; }
 }
 
 SetupPanel::~SetupPanel() { audio = nullptr; phones.setLookAndFeel(nullptr); }
@@ -356,22 +384,7 @@ void SetupPanel::paint(juce::Graphics& g) {
     L("A4 =", 724, 540, 40, 9.0f, Theme::txt(), 2); L("Hz", 818, 540, 30, 9.0f, Theme::sub());
     L("feedback guard", 928, 541, 140, 9.0f, Theme::txt());
     L("PRACTICE: the loops slow down, the pitch stays. Recording waits until you are back at 100.", 600, 600, 500, 8.0f, Theme::sub());
-    head(U("iPHONE / iPAD AS MICROPHONE"), U("open ARCO on the phone, press MIC FOR MAC - then connect here"), 24, 640, 540);
-    L("plays as LIVE", 460, 688, 60, 8.0f, Theme::txt(), 2);
-    {
-        auto& ph = cv.host.phone;
-        juce::String st = ph.mode() == MicReceiver::Off ? juce::String(U("off - your sound card's inputs as usual")) : ph.statusText();
-        if (ph.connected()) st << U("  ·  delay ") << juce::String(ph.delayMs.load(), 1) << " ms";
-        L(st, 24, 716, 440, 8.0f, ph.connected() ? Theme::green() : (ph.mode() == MicReceiver::Off ? Theme::sub() : Theme::amber()), 1);
-        float lv = juce::jmin(1.0f, ph.level.load() * 2.0f);
-        g.setColour(Theme::card2()); g.fillRoundedRectangle((float) (X + 470), (float) (Y + 720), 90.0f, 10.0f, 3.0f);
-        g.setColour(Theme::green()); g.fillRoundedRectangle((float) (X + 470), (float) (Y + 720), 90.0f * lv, 10.0f, 3.0f);
-       #if JUCE_IOS
-        L(U("Another iPhone can send its microphone here over Wi-Fi."), 24, 740, 270, 7.5f, Theme::sub());
-       #else
-        L(U("Cable: the best sound and the smallest delay (about 10-15 ms). The phone's microphone is used raw - no voice filters."), 24, 740, 540, 7.5f, Theme::sub());
-       #endif
-    }
+    head(U("iPHONES"), U("open ARCO on your phones (same Wi-Fi, or the cable) - each one is a microphone and a remote"), 24, 640, 540);
     head(U("PEDALS & KEYS"), U("keep your hands on the instrument"), 600, 640, 520);
     const char* AN[4] = { "REC", "PLAY / STOP", "UNDO", "NEXT SCENE" };
     for (int a = 0; a < 4; ++a) {

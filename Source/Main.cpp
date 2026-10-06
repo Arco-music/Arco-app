@@ -95,6 +95,12 @@ public:
         if (cmd.contains("look")) mc->canvas.openLook(true);
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
+        if (cmd.contains("phone")) {
+            mc->setSize(cmd.contains("wide") ? 844 : 390, cmd.contains("wide") ? 390 : 844); mc->showMic(true); mc->phone.demo = true;
+            mc->phone.st.apply(juce::StringArray::fromLines("s ntn 4\ns nlive 2\ns statA 12851\ns transport 1\ns scenes 1\ns smask 3\ns ebpm 96\ns barno 3\ns beatno 2\ns live 1\n"
+                "i song Morning Etude\ni cards eq,dly,rev,spc,flg\ni phone1 Paulo's iPhone\np vol4 64\np pan5 -20\np spc4 30\ns lv4 0.5\ns lv0 0.7"));
+            int pg = cmd.fromFirstOccurrenceOf("page=", false, false).getIntValue(); mc->phone.setPage(pg);
+        }
         if (cmd.contains("automix")) mc->canvas.command(arco::cmdAutoMix);
         if (cmd.contains("export")) mc->canvas.command(arco::cmdExport);
         if (cmd.contains("help")) mc->canvas.command(arco::cmdHelp);
