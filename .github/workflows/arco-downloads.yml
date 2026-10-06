@@ -1,0 +1,28 @@
+name: ARCO downloads branch
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/arco-downloads.yml"]
+  workflow_run:
+    workflows: ["Build ARCO"]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Put the newest ARCO files on the arco-downloads branch (easy to fetch with git)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir out && cd out
+          TAG=$(gh release list -R ${{ github.repository }} --limit 20 --json tagName -q '.[].tagName' | grep '^v' | head -1)
+          gh release download "$TAG" -R ${{ github.repository }} -p ARCO-mac.zip -p ARCO.ipa
+          echo "$TAG" > VERSION.txt
+          git init -q -b arco-downloads
+          git config user.name ARCO; git config user.email p.a.cello1103@gmail.com
+          git add -A && git commit -qm "ARCO $TAG"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" arco-downloads
