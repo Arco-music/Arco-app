@@ -26,6 +26,7 @@
       <FILE id="7e0b30" name="ExtraFx.h" compile="0" resource="0" file="Source/Engine/ExtraFx.h"/>
       <FILE id="d58f3e" name="GenModules.h" compile="0" resource="0" file="Source/Engine/GenModules.h"/>
       <FILE id="7d60aa" name="StripMix.h" compile="0" resource="0" file="Source/Engine/StripMix.h"/>
+      <FILE id="c8f048" name="Synth2.h" compile="0" resource="0" file="Source/Engine/Synth2.h"/>
     </GROUP>
     <GROUP id="22188a" name="Source/Model">
       <FILE id="7c6102" name="ExtraParams.h" compile="0" resource="0" file="Source/Model/ExtraParams.h"/>
@@ -53,7 +54,6 @@
       <FILE id="5c13f9" name="fft-pffft.h" compile="0" resource="0" file="Source/ThirdParty/signalsmith/signalsmith-linear/platform/fft-pffft.h"/>
       <FILE id="4a6076" name="linear-accelerate.h" compile="0" resource="0" file="Source/ThirdParty/signalsmith/signalsmith-linear/platform/linear-accelerate.h"/>
       <FILE id="fa350d" name="linear-cmsisdsp.h" compile="0" resource="0" file="Source/ThirdParty/signalsmith/signalsmith-linear/platform/linear-cmsisdsp.h"/>
-      <FILE id="54d4f9" name="linear-xsimd-dispatch.cpp" compile="1" resource="0" file="Source/ThirdParty/signalsmith/signalsmith-linear/platform/linear-xsimd-dispatch.cpp"/>
       <FILE id="fc7030" name="linear-xsimd.h" compile="0" resource="0" file="Source/ThirdParty/signalsmith/signalsmith-linear/platform/linear-xsimd.h"/>
     </GROUP>
     <GROUP id="315107" name="Source/UI">

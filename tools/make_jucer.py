@@ -31,7 +31,7 @@ w('  <MAINGROUP id="grp000" name="ARCO">')
 for g, files in sorted(groups.items()):
     w(f'    <GROUP id="{uid(g)}" name={esc(g)}>')
     for p in files:
-        comp = "1" if p.endswith((".cpp", ".mm")) else "0"
+        comp = "1" if p.endswith((".cpp", ".mm")) and "ThirdParty" not in p else "0"
         extra = ' compilerFlagScheme="nofastmath"' if os.path.basename(p) == "Analysis.cpp" else ''   # Signalsmith Stretch: no -ffast-math
         w(f'      <FILE id="{uid(p)}" name={esc(os.path.basename(p))} compile="{comp}" resource="0" file={esc(p)}{extra}/>')
     w('    </GROUP>')
