@@ -481,6 +481,7 @@ void Canvas::themeChanged() {
 void Canvas::openSetup(bool show) { setup->setVisible(show); if (show) setup->toFront(true); }
 void Canvas::openMic(bool show) { if (auto* mc = findParentComponentOfClass<MainComponent>()) mc->showMic(show); }
 void Canvas::openLook(bool show) { look->setVisible(show); if (show) look->toFront(true); }
+void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
 void Canvas::doSave(bool askName) {

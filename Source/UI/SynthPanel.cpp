@@ -1,6 +1,7 @@
 #include "SynthPanel.h"
 #include "MainView.h"
 #include "Panels.h"
+#include "../Engine/Synth2.h"
 #include <cmath>
 
 namespace arco {
@@ -9,12 +10,15 @@ static void slab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> 
                  juce::Justification j = juce::Justification::centredLeft) {
     g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.8f);
 }
-static juce::Colour cOsc() { return Theme::c(Theme::rgb(0.62f, 0.48f, 1.00f)); }
-static juce::Colour cOscB() { return Theme::c(Theme::rgb(0.38f, 0.64f, 1.00f)); }
-static juce::Colour cFil() { return Theme::c(Theme::rgb(1.00f, 0.55f, 0.30f)); }
-static juce::Colour cEnv() { return Theme::c(Theme::rgb(0.30f, 0.82f, 0.62f)); }
+static juce::Colour cOsc(int o) { return o == 0 ? Theme::violet() : (o == 1 ? Theme::blue() : Theme::fx("cho")); }
+static juce::Colour cFil() { return Theme::amber(); }
+static juce::Colour cEnv() { return Theme::green(); }
 static juce::Colour cLfo() { return Theme::c(Theme::rgb(0.95f, 0.78f, 0.32f)); }
-static juce::Colour cVoi() { return Theme::c(Theme::rgb(0.93f, 0.47f, 0.80f)); }
+static juce::Colour cVoi() { return Theme::red(); }
+static juce::Colour srcColour(int s) {
+    switch (s) { case 1: case 2: case 3: return cLfo(); case 4: case 5: return cEnv(); case 6: case 7: case 8: case 9: return Theme::blue(); default: return Theme::violet(); }
+}
+static juce::String U8(const char* s) { return juce::String::fromUTF8(s); }
 
 // ------------------------------------------------------------------ presets
 struct Preset { const char* name; std::vector<std::pair<const char*, double>> v; };
@@ -45,6 +49,22 @@ static const std::vector<Preset>& factory() {
                     { "e1_r", 70 }, { "f_cut", 90 } } },
         { "Noise Wind", { { "a_lvl", 0 }, { "noise_lvl", 70 }, { "f_type", 50 }, { "f_cut", 50 }, { "f_res", 60 }, { "l_rate", 15 }, { "l_cut", 50 }, { "e1_a", 60 },
                           { "e1_r", 70 } } },
+        // SYNTH 2
+        { "FM Electric Piano", { { "a_mode", 1 }, { "a_wave", 30 }, { "a_warp", 15 }, { "e1_a", 0 }, { "e1_d", 60 }, { "e1_s", 25 }, { "e1_r", 40 }, { "f_cut", 80 },
+                                 { "m0_src", 4 }, { "m0_dst", 5 }, { "m0_amt", 45 }, { "e2_a", 0 }, { "e2_d", 35 }, { "e2_s", 0 }, { "vel_amt", 85 } } },
+        { "Fold Bass", { { "mono", 1 }, { "a_mode", 2 }, { "a_wave", 35 }, { "sub_lvl", 50 }, { "f_cut", 45 }, { "f_slope", 1 }, { "f_res", 25 }, { "f_env", 40 },
+                         { "e2_a", 0 }, { "e2_d", 30 }, { "e2_s", 20 }, { "e1_a", 0 }, { "e1_s", 85 }, { "e1_r", 15 }, { "s_glide", 12 },
+                         { "m0_src", 2 }, { "m0_dst", 5 }, { "m0_amt", 30 }, { "l2_rate", 45 }, { "l2_sync", 1 } } },
+        { "Sync Lead", { { "mono", 1 }, { "a_mode", 3 }, { "a_warp", 45 }, { "a_wave", 80 }, { "c_lvl", 35 }, { "c_semi", 12 }, { "c_wave", 50 }, { "f_cut", 75 },
+                         { "f_res", 20 }, { "e1_a", 2 }, { "e1_s", 85 }, { "e1_r", 25 }, { "s_glide", 18 },
+                         { "m0_src", 5 }, { "m0_dst", 8 }, { "m0_amt", 50 }, { "e3_a", 0 }, { "e3_d", 45 }, { "e3_s", 10 } } },
+        { "Arp Pluck (in tempo)", { { "arp_on", 1 }, { "arp_mode", 2 }, { "arp_rate", 3 }, { "arp_oct", 2 }, { "arp_gate", 45 }, { "a_uni", 2 }, { "a_det", 12 },
+                                    { "f_cut", 30 }, { "f_res", 35 }, { "f_env", 65 }, { "e2_a", 0 }, { "e2_d", 25 }, { "e2_s", 0 }, { "e1_a", 0 }, { "e1_d", 30 },
+                                    { "e1_s", 0 }, { "e1_r", 25 }, { "m0_src", 3 }, { "m0_dst", 16 }, { "m0_amt", 20 }, { "l3_rate", 25 } } },
+        { "Breathing Pad", { { "a_uni", 4 }, { "a_det", 25 }, { "b_lvl", 45 }, { "b_wave", 25 }, { "b_semi", 0 }, { "c_lvl", 30 }, { "c_mode", 1 }, { "c_wave", 20 },
+                             { "c_semi", 12 }, { "f_cut", 40 }, { "f_slope", 1 }, { "e1_a", 60 }, { "e1_s", 85 }, { "e1_r", 65 }, { "spread", 90 },
+                             { "m0_src", 2 }, { "m0_dst", 16 }, { "m0_amt", 35 }, { "l2_rate", 12 }, { "m1_src", 3 }, { "m1_dst", 20 }, { "m1_amt", 40 },
+                             { "l3_rate", 8 }, { "l3_shape", 90 } } },
     };
     return P;
 }
@@ -105,29 +125,228 @@ void SynthPanel::savePreset() {
     }), true);
 }
 
+
+// ------------------------------------------------------------------ a knob you can drop a modulation source on
+class SynthKnob : public Knob, public juce::DragAndDropTarget {
+public:
+    SynthKnob(SynthPanel& p, Model& m, const std::string& id_, const ParamDef& d, ColourFn col)
+        : Knob([&m, id_] { return m.get(id_); }, [&m, id_](double v) { m.set(id_, v); }, d.lo, d.hi, d.def, std::move(col)), panel(p), model(m), id(id_), dest(synthDestForKnob(id_)) {
+        setComponentID("p:" + juce::String(id_)); }
+    SynthPanel& panel; Model& model; std::string id; int dest; bool over = false;
+    void paint(juce::Graphics& g) override {
+        Knob::paint(g);
+        if (dest > 0) {
+            auto r = getLocalBounds().toFloat();
+            float rad = juce::jmin(r.getWidth(), r.getHeight()) * 0.5f;
+            int k = 0;
+            for (int m = 0; m < kModSlots; ++m) {
+                if ((int) model.get("m" + std::to_string(m) + "_dst") != dest || (int) model.get("m" + std::to_string(m) + "_src") == 0) continue;
+                float amt = (float) model.get("m" + std::to_string(m) + "_amt") / 100.0f;
+                const float a0 = juce::MathConstants<float>::pi * 1.25f, a1 = juce::MathConstants<float>::pi * 2.75f;
+                double v = get ? get() : def; float t = (float) ((v - lo) / juce::jmax(1e-9, hi - lo));
+                float ta = a0 + (a1 - a0) * t, tb = a0 + (a1 - a0) * juce::jlimit(0.0f, 1.0f, t + amt);
+                juce::Path p; p.addCentredArc(r.getCentreX(), r.getCentreY(), rad - 0.5f - k * 2.5f, rad - 0.5f - k * 2.5f, 0, juce::jmin(ta, tb), juce::jmax(ta, tb), true);
+                g.setColour(srcColour((int) model.get("m" + std::to_string(m) + "_src"))); g.strokePath(p, juce::PathStrokeType(2.0f));
+                ++k;
+            }
+        }
+        if (over) { g.setColour(Theme::amber()); g.drawEllipse(getLocalBounds().toFloat().reduced(1), 2.0f); }
+    }
+    bool isInterestedInDragSource(const SourceDetails& d) override { return dest > 0 && d.description.toString().startsWith("mod:"); }
+    void itemDragEnter(const SourceDetails&) override { over = true; repaint(); }
+    void itemDragExit(const SourceDetails&) override { over = false; repaint(); }
+    void itemDropped(const SourceDetails& d) override { over = false; panel.addMod(d.description.toString().substring(4).getIntValue(), id); repaint(); }
+    void mouseDown(const juce::MouseEvent& e) override {
+        if (e.mods.isPopupMenu() && dest > 0) {
+            juce::PopupMenu pm; int n = 0;
+            for (int m = 0; m < kModSlots; ++m) if ((int) model.get("m" + std::to_string(m) + "_dst") == dest && (int) model.get("m" + std::to_string(m) + "_src") > 0) {
+                pm.addItem(m + 1, "remove " + juce::String(synthModSources()[(size_t) model.get("m" + std::to_string(m) + "_src")]) + juce::String::fromUTF8(" → this knob")); ++n; }
+            if (n == 0) pm.addItem(-1, juce::String::fromUTF8("drag an LFO / ENV / MACRO dot here to move this knob"), false);
+            pm.showMenuAsync(juce::PopupMenu::Options(), [this](int r) { if (r > 0) { model.set("m" + std::to_string(r - 1) + "_src", 0); model.set("m" + std::to_string(r - 1) + "_amt", 0); repaint(); } });
+            return;
+        }
+        Knob::mouseDown(e);
+    }
+};
+
+// a dot to drag: a modulation source
+class ModChip : public juce::Component {
+public:
+    ModChip(SynthPanel& p, int s, juce::Colour c) : panel(p), src(s), col(c) { setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        setTooltip(juce::String::fromUTF8("drag onto any knob")); }
+    void paint(juce::Graphics& g) override {
+        auto r = getLocalBounds().toFloat().reduced(1);
+        g.setColour(col); g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
+        g.setColour(Theme::textOn(col)); g.setFont(Theme::font(7.0f, 2));
+        g.drawFittedText(juce::String::fromUTF8("⟿ ") + juce::String(synthModSources()[(size_t) src]), getLocalBounds(), juce::Justification::centred, 1, 0.7f);
+    }
+    void mouseDrag(const juce::MouseEvent& e) override { if (e.getDistanceFromDragStart() > 4 && !panel.isDragAndDropActive()) panel.startDragging("mod:" + juce::String(src), this); }
+    void setTooltip(const juce::String&) {}
+    SynthPanel& panel; int src; juce::Colour col;
+};
+
+// the modulation list
+class ModList : public juce::Component {
+public:
+    ModList(Model& m) : model(m) {}
+    Model& model;
+    int rowH = 30;
+    void paint(juce::Graphics& g) override {
+        int y = 0; int shown = 0;
+        for (int i = 0; i < kModSlots; ++i) {
+            int s = (int) model.get(k(i, "src")), d = (int) model.get(k(i, "dst"));
+            if (s == 0 && shown > 0 && i > lastUsed()) continue;
+            if (s == 0 && i > lastUsed() + 1) continue;
+            auto r = juce::Rectangle<int>(0, y, getWidth(), rowH - 4);
+            g.setColour(Theme::card2()); g.fillRoundedRectangle(r.toFloat(), 7.0f);
+            auto srcR = r.withWidth(96).reduced(4, 3), dstR = r.withX(r.getX() + 120).withWidth(110).reduced(4, 3), amtR = r.withX(r.getX() + 236).withWidth(r.getWidth() - 276).reduced(4, 8);
+            g.setColour(s ? srcColour(s) : Theme::btn()); g.fillRoundedRectangle(srcR.toFloat(), 6.0f);
+            slab(g, s ? juce::String(synthModSources()[(size_t) s]) : juce::String("+ source"), srcR, 8.0f, s ? Theme::textOn(srcColour(s)) : Theme::sub(), 2, juce::Justification::centred);
+            slab(g, juce::String::fromUTF8("→"), r.withX(r.getX() + 100).withWidth(20), 9.0f, Theme::sub(), 2, juce::Justification::centred);
+            g.setColour(Theme::btn()); g.fillRoundedRectangle(dstR.toFloat(), 6.0f);
+            slab(g, d ? juce::String(synthModDests()[(size_t) d].name) : juce::String("+ knob"), dstR, 8.0f, Theme::txt(), 2, juce::Justification::centred);
+            float a = (float) model.get(k(i, "amt")) / 100.0f;
+            g.setColour(Theme::scr()); g.fillRoundedRectangle(amtR.toFloat(), 4.0f);
+            float cx = amtR.getCentreX(), w = amtR.getWidth() * 0.5f * a;
+            g.setColour(s ? srcColour(s) : Theme::btn()); g.fillRoundedRectangle(juce::Rectangle<float>(juce::jmin(cx, cx + w), (float) amtR.getY(), std::abs(w), (float) amtR.getHeight()), 4.0f);
+            slab(g, juce::String((int) std::round(a * 100)), r.withX(r.getRight() - 40).withWidth(22), 8.0f, Theme::txt(), 1, juce::Justification::centredRight);
+            slab(g, juce::String::fromUTF8("✕"), r.withX(r.getRight() - 18).withWidth(16), 8.0f, Theme::sub(), 2, juce::Justification::centred);
+            y += rowH; ++shown;
+        }
+        if (lastUsed() < 0) slab(g, juce::String::fromUTF8("drag a ⟿ dot (LFO, ENV, MACRO) onto any knob - or choose here"), { 0, rowH + 4, getWidth(), 30 }, 8.0f, Theme::sub(), 0, juce::Justification::centred);
+    }
+    int lastUsed() const { int l = -1; for (int i = 0; i < kModSlots; ++i) if ((int) model.get(k(i, "src")) > 0 || (int) model.get(k(i, "dst")) > 0) l = i; return l; }
+    static std::string k(int i, const char* f) { return "m" + std::to_string(i) + "_" + f; }
+    int rowAt(int y) const { int row = y / rowH; int vis = 0;
+        for (int i = 0; i < kModSlots; ++i) { int s = (int) model.get(k(i, "src")); if (s == 0 && i > lastUsed() + 1) continue; if (s == 0 && vis > 0 && i > lastUsed()) continue; if (vis == row) return i; ++vis; } return -1; }
+    int dragRow = -1; float dragStart = 0; double amtStart = 0;
+    void mouseDown(const juce::MouseEvent& e) override {
+        int i = rowAt(e.y); if (i < 0) return;
+        int x = e.x;
+        if (x < 100) {
+            juce::PopupMenu pm; auto& S = synthModSources(); for (int s = 0; s < (int) S.size(); ++s) pm.addItem(s + 1, S[(size_t) s], true, (int) model.get(k(i, "src")) == s);
+            pm.showMenuAsync(juce::PopupMenu::Options(), [this, i](int r) { if (r > 0) { model.set(k(i, "src"), r - 1); if (model.get(k(i, "amt")) == 0) model.set(k(i, "amt"), 40); repaint(); } });
+        } else if (x > 116 && x < 232) {
+            juce::PopupMenu pm; auto& D = synthModDests(); for (int d = 0; d < (int) D.size(); ++d) pm.addItem(d + 1, D[(size_t) d].name, true, (int) model.get(k(i, "dst")) == d);
+            pm.showMenuAsync(juce::PopupMenu::Options(), [this, i](int r) { if (r > 0) { model.set(k(i, "dst"), r - 1); repaint(); } });
+        } else if (x > getWidth() - 18) { model.set(k(i, "src"), 0); model.set(k(i, "dst"), 0); model.set(k(i, "amt"), 0); repaint(); }
+        else { dragRow = i; dragStart = (float) e.x; amtStart = model.get(k(i, "amt")); }
+    }
+    void mouseDrag(const juce::MouseEvent& e) override { if (dragRow >= 0) { model.set(k(dragRow, "amt"), juce::jlimit(-100.0, 100.0, amtStart + (e.x - dragStart) / (getWidth() - 276) * 200.0)); repaint(); } }
+    void mouseUp(const juce::MouseEvent&) override { dragRow = -1; }
+    void mouseDoubleClick(const juce::MouseEvent& e) override { int i = rowAt(e.y); if (i >= 0 && e.x > 236 && e.x < getWidth() - 40) model.set(k(i, "amt"), 0); }
+};
+
+// ------------------------------------------------------------------ the other keyboards: slide pad, chords, scale grid
+class KeyPad : public juce::Component {
+public:
+    KeyPad(SynthPanel& p) : panel(p) {}
+    SynthPanel& panel; int mode = 1;
+    std::map<int, int> touches; juce::Point<float> padAt; bool padOn = false;
+    int key() const { int k = (int) panel.cv.snap("halo_key"); return k < 0 ? 0 : k % 12; }
+    static const int* chord(int i) { static const int CH[8][4] = { { 0, 4, 7, 12 }, { 2, 5, 9, -1 }, { 4, 7, 11, -1 }, { 5, 9, 12, -1 }, { 7, 11, 14, -1 }, { 9, 12, 16, -1 }, { 7, 11, 14, 17 }, { 12, 16, 19, 24 } }; return CH[i]; }
+    int scaleNote(int row, int col) const { static const int S[7] = { 0, 2, 4, 5, 7, 9, 11 }; int deg = col + row * 3; return 12 * (panel.octave) + key() + S[deg % 7] + 12 * (deg / 7); }
+    void paint(juce::Graphics& g) override {
+        auto r = getLocalBounds().toFloat();
+        g.setColour(Theme::scr()); g.fillRoundedRectangle(r, 10.0f);
+        if (mode == 1) {
+            for (int i = 0; i <= 24; ++i) { float x = r.getX() + r.getWidth() * i / 24.0f; int pc = (key() + i) % 12;
+                static const bool IN[12] = { 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1 };
+                g.setColour(Theme::txt().withAlpha(i % 12 == 0 ? 0.4f : (IN[(pc - key() + 12) % 12] ? 0.15f : 0.05f))); g.fillRect(x, r.getY() + 6, 1.0f, r.getHeight() - 12); }
+            slab(g, juce::String::fromUTF8("SLIDE PAD   ←  lower · higher  →    ↑ louder · softer ↓   (two octaves, gliding)"), getLocalBounds().reduced(12, 6).removeFromTop(16), 8.0f, Theme::sub());
+            if (padOn) { g.setColour(Theme::violet()); g.fillEllipse(juce::Rectangle<float>(30, 30).withCentre(padAt)); }
+        } else if (mode == 2) {
+            static const char* CN[8] = { "I", "ii", "iii", "IV", "V", "vi", "V7", "I+" };
+            float cw = r.getWidth() / 8;
+            for (int i = 0; i < 8; ++i) { auto c = juce::Rectangle<float>(r.getX() + i * cw, r.getY(), cw, r.getHeight()).reduced(4);
+                bool on = false; for (auto& t : touches) if (t.second == 1000 + i) on = true;
+                g.setColour(on ? Theme::violet() : Theme::card()); g.fillRoundedRectangle(c, 8.0f);
+                slab(g, CN[i], c.toNearestInt(), 15.0f, on ? Theme::textOn(Theme::violet()) : Theme::txt(), 2, juce::Justification::centred); }
+        } else {
+            int rows = 4, cols = 8; float cw = r.getWidth() / cols, ch = r.getHeight() / rows;
+            for (int y = 0; y < rows; ++y) for (int x = 0; x < cols; ++x) {
+                int n = scaleNote(rows - 1 - y, x); auto c = juce::Rectangle<float>(r.getX() + x * cw, r.getY() + y * ch, cw, ch).reduced(3);
+                bool on = false; for (auto& t : touches) if (t.second == n) on = true;
+                bool root = (n - key()) % 12 == 0;
+                g.setColour(on ? Theme::violet() : (root ? Theme::blue().withAlpha(0.6f) : Theme::card())); g.fillRoundedRectangle(c, 6.0f);
+                static const char* NN[12] = { "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+                slab(g, NN[n % 12], c.toNearestInt(), 8.5f, on ? Theme::textOn(Theme::violet()) : Theme::sub(), 1, juce::Justification::centred); }
+        }
+    }
+    int noteAt(juce::Point<float> p) const {
+        auto r = getLocalBounds().toFloat();
+        if (mode == 2) return 1000 + juce::jlimit(0, 7, (int) ((p.x - r.getX()) / (r.getWidth() / 8)));
+        int rows = 4, cols = 8; int x = juce::jlimit(0, cols - 1, (int) ((p.x - r.getX()) / (r.getWidth() / cols))), y = juce::jlimit(0, rows - 1, (int) ((p.y - r.getY()) / (r.getHeight() / rows)));
+        return scaleNote(rows - 1 - y, x);
+    }
+    void on(int n, bool down) {
+        auto& s = panel.cv.host.synth;
+        if (n >= 1000) { for (int i = 0; i < 4; ++i) { int v = chord(n - 1000)[i]; if (v < 0) continue; int nn = 12 * panel.octave + key() + v; if (down) panel.cv.host.keys.noteOn(1, nn, 0.8f); else panel.cv.host.keys.noteOff(1, nn, 0.0f); } }
+        else { if (down) panel.cv.host.keys.noteOn(1, n, 0.8f); else panel.cv.host.keys.noteOff(1, n, 0.0f); }
+        juce::ignoreUnused(s);
+    }
+    void pad(const juce::MouseEvent& e, int what) {
+        auto r = getLocalBounds().toFloat();
+        float x = juce::jlimit(0.0f, 1.0f, (e.position.x - r.getX()) / r.getWidth()), y = juce::jlimit(0.0f, 1.0f, 1.0f - (e.position.y - r.getY()) / r.getHeight());
+        float pitch = (float) (12 * panel.octave + key()) + x * 24.0f;
+        auto& s = panel.cv.host.synth;
+        if (what == 0) s.padOn(pitch, 0.3f + 0.7f * y); else if (what == 1) s.padMove(pitch, y); else s.padOff();
+        padAt = e.position; padOn = what != 2; repaint();
+    }
+    void mouseDown(const juce::MouseEvent& e) override { if (mode == 1) { pad(e, 0); return; } int n = noteAt(e.position); touches[e.source.getIndex()] = n; on(n, true); repaint(); }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        if (mode == 1) { pad(e, 1); return; }
+        int n = noteAt(e.position); auto it = touches.find(e.source.getIndex());
+        if (it != touches.end() && it->second != n) { on(it->second, false); it->second = n; on(n, true); repaint(); } }
+    void mouseUp(const juce::MouseEvent& e) override {
+        if (mode == 1) { pad(e, 2); return; }
+        auto it = touches.find(e.source.getIndex()); if (it != touches.end()) { on(it->second, false); touches.erase(it); } repaint(); }
+};
+
 // ------------------------------------------------------------------ building the window
-void SynthPanel::knob(int x, int y, const char* id, const char* label, ColourFn col) {
+void SynthPanel::knob(int pg, int x, int y, const std::string& id, const juce::String& label, ColourFn col, int size) {
     auto& m = cv.model();
     auto* d = m.def(id);
     if (d == nullptr) return;
-    std::string s = id;
-    add<Knob>({ x, y, 40, 40 }, [&m, s] { return m.get(s); }, [&m, s](double v) { m.set(s, v); }, d->lo, d->hi, d->def, std::move(col));
-    labels.push_back({ U(label), { box.getX() + x - 14, box.getY() + y + 41, 68, 13 } });
+    auto* k = new SynthKnob(*this, m, id, *d, std::move(col));
+    kids.add(k); addAndMakeVisible(k); k->setBounds(box.getX() + x, box.getY() + y, size, size); pages[pg].push_back(k);
+    labels.push_back({ label, { box.getX() + x - 16, box.getY() + y + size + 1, size + 32, 13 }, pg });
+}
+void SynthPanel::chip(int pg, int x, int y, int source, juce::Colour col) {
+    auto* c = new ModChip(*this, source, col);
+    kids.add(c); addAndMakeVisible(c); c->setBounds(box.getX() + x, box.getY() + y, 78, 18); if (pg >= 0) pages[pg].push_back(c);
+}
+void SynthPanel::addMod(int source, const std::string& knobId) {
+    auto& m = cv.model();
+    int d = synthDestForKnob(knobId); if (d <= 0) return;
+    for (int i = 0; i < kModSlots; ++i)   // the same pair again: make it stronger
+        if ((int) m.get("m" + std::to_string(i) + "_src") == source && (int) m.get("m" + std::to_string(i) + "_dst") == d) { m.set("m" + std::to_string(i) + "_amt", juce::jlimit(-100.0, 100.0, m.get("m" + std::to_string(i) + "_amt") + 20)); repaint(); return; }
+    for (int i = 0; i < kModSlots; ++i)
+        if ((int) m.get("m" + std::to_string(i) + "_src") == 0) {
+            m.set("m" + std::to_string(i) + "_src", source); m.set("m" + std::to_string(i) + "_dst", d); m.set("m" + std::to_string(i) + "_amt", 40);
+            cv.showMessage(juce::String(synthModSources()[(size_t) source]) + juce::String::fromUTF8(" → ") + synthModDests()[(size_t) d].name + juce::String::fromUTF8(" (drag in the list to change how much)"));
+            repaint(); return;
+        }
+    cv.showMessage("all 12 modulation slots are in use - remove one first");
+}
+void SynthPanel::setPage(int p) {
+    page = p;
+    for (int i = 0; i < 3; ++i) for (auto* c : pages[i]) c->setVisible(i == page);
+    repaint();
 }
 
 SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     auto& h = cv.host; auto& m = cv.model();
     setWantsKeyboardFocus(true);
-    auto* close = add<Pill>({ 1360 - 104, 14, 88, 26 }, U("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
+    auto* close = add<Pill>(-1, { 1360 - 104, 14, 88, 26 }, U8("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
     close->onClick = [this] { cv.host.synth.allOff(); setVisible(false); };
-    // where it plays, and recording it
     const char* INTO[4] = { "OFF", "LIVE 2", "LIVE 3", "LIVE 4" };
     for (int i = 0; i < 4; ++i) {
-        auto* p = add<Pill>({ 110 + i * 62, 60, 58, 24 }, INTO[i], [&h, i] { return h.synthInto == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f);
+        auto* p = add<Pill>(-1, { 110 + i * 62, 52, 58, 24 }, INTO[i], [&h, i] { return h.synthInto == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f);
         p->onClick = [&h, i] { h.setSynthInto(i); };
     }
     for (int t = 0; t < 8; ++t) {
-        auto* p = add<Pill>({ 520 + t * 36, 60, 32, 24 }, juce::String(t + 1), [this, t] {
+        auto* p = add<Pill>(-1, { 520 + t * 36, 52, 32, 24 }, juce::String(t + 1), [this, t] {
             int st = ((int) cv.snap(t < 4 ? "statA" : "statB") >> (4 * (t % 4))) & 15;
             bool mine = (int) cv.model().get("src" + std::to_string(t + 1)) == cv.host.synthInto + 1 && cv.host.synthInto > 0;
             if (mine && (st == 2 || st == 5 || st == 7)) return Theme::red();
@@ -135,77 +354,107 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
             return Theme::strip(t + 4).withMultipliedBrightness(0.75f); }, 9.0f, 6.0f);
         p->onClick = [&h, t] { h.recordSynthOn(t + 1); };
     }
-    // presets
-    auto* prev = add<Pill>({ 860, 60, 24, 24 }, U("◀"), [] { return Theme::btn(); }, 8.0f, 6.0f);
+    auto* prev = add<Pill>(-1, { 860, 52, 24, 24 }, U8("◀"), [] { return Theme::btn(); }, 8.0f, 6.0f);
     prev->onClick = [this] { int n = presetNames().size(); loadPreset((presetIndex + n - 1) % n); };
-    auto* name = add<Pill>({ 888, 60, 200, 24 }, "", [] { return Theme::card2(); }, 9.0f, 6.0f);
+    auto* name = add<Pill>(-1, { 888, 52, 200, 24 }, "", [] { return Theme::card2(); }, 9.0f, 6.0f);
     name->dynText = [this] { return presetNames()[presetIndex]; };
     name->textColour = [] { return Theme::txt(); };
     name->onClick = [this, name] {
         juce::PopupMenu pm; auto n = presetNames();
         for (int i = 0; i < n.size(); ++i) pm.addItem(i + 1, n[i], true, i == presetIndex);
         pm.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(name), [this](int r) { if (r > 0) loadPreset(r - 1); }); };
-    auto* next = add<Pill>({ 1092, 60, 24, 24 }, U("▶"), [] { return Theme::btn(); }, 8.0f, 6.0f);
+    auto* next = add<Pill>(-1, { 1092, 52, 24, 24 }, U8("▶"), [] { return Theme::btn(); }, 8.0f, 6.0f);
     next->onClick = [this] { int n = presetNames().size(); loadPreset((presetIndex + 1) % n); };
-    auto* sv = add<Pill>({ 1122, 60, 56, 24 }, "SAVE", [] { return Theme::c(Theme::rgb(0.20f, 0.36f, 0.60f)); }, 8.0f, 6.0f);
+    auto* sv = add<Pill>(-1, { 1122, 52, 56, 24 }, "SAVE", [] { return Theme::blue(); }, 8.0f, 6.0f);
     sv->onClick = [this] { savePreset(); };
-    auto* pan = add<Pill>({ 1186, 60, 150, 24 }, "ALL NOTES OFF", [] { return Theme::btn(); }, 8.0f, 6.0f);
-    pan->onClick = [this] { cv.host.keys.allNotesOff(0); cv.host.synth.allOff(); };
+    auto* off = add<Pill>(-1, { 1186, 52, 150, 24 }, "ALL NOTES OFF", [] { return Theme::btn(); }, 8.0f, 6.0f);
+    off->onClick = [this] { cv.host.keys.allNotesOff(0); cv.host.synth.allOff(); cv.host.synth.padOff(); };
+    // the pages
+    const char* PG[3] = { "SOUND", "MOVEMENT", "PLAY" };
+    for (int i = 0; i < 3; ++i) { auto* p = add<Pill>(-1, { 24 + i * 128, 90, 120, 28 }, PG[i], [this, i] { return page == i ? Theme::sel() : Theme::card(); }, 9.5f, 7.0f); p->onClick = [this, i] { setPage(i); }; }
 
-    // OSC A / OSC B
-    for (int o = 0; o < 2; ++o) {
-        int x0 = 24 + o * 412;
-        ColourFn col = o == 0 ? ColourFn(cOsc) : ColourFn(cOscB);
-        const char* P = o == 0 ? "a_" : "b_";
-        static std::string ids[2][7];
+    // ======== SOUND: three oscillators
+    for (int o = 0; o < 3; ++o) {
+        int x0 = 24 + o * 444;
+        std::string P = juce::String::charToString((juce::juce_wchar) ('a' + o)).toStdString() + "_";
+        const char* MD[4] = { "WAVE", "FM", "FOLD", "SYNC" };
+        for (int md = 0; md < 4; ++md) {
+            auto* p = add<Pill>(0, { x0 + 180 + md * 58, 136, 54, 20 }, MD[md], [&m, P, md, o] { return (int) m.get(P + "mode") == md ? cOsc(o) : Theme::btn(); }, 7.5f, 5.0f);
+            p->onClick = [&m, P, md] { m.set(P + "mode", md); };
+        }
         const char* names[7] = { "WAVE", "WARP", "SEMI", "FINE", "LEVEL", "UNISON", "DETUNE" };
         const char* keys[7] = { "wave", "warp", "semi", "fine", "lvl", "uni", "det" };
-        for (int k = 0; k < 7; ++k) { ids[o][k] = std::string(P) + keys[k]; knob(x0 + 16 + k * 54, 254, ids[o][k].c_str(), names[k], col); }
+        for (int k = 0; k < 7; ++k) knob(0, x0 + 14 + k * 59, 262, P + keys[k], names[k], [o] { return cOsc(o); });
     }
-    knob(864, 156, "sub_lvl", "SUB", [] { return Theme::txt(); });
-    knob(924, 156, "noise_lvl", "NOISE", [] { return Theme::sub(); });
-    knob(894, 250, "e2_wave", U("ENV 2 → WAVE").toRawUTF8(), cEnv);
-    // FILTER
+    // sub, noise, filter, voice
+    knob(0, 44, 418, "sub_lvl", "SUB", [] { return Theme::txt(); }); knob(0, 104, 418, "noise_lvl", "NOISE", [] { return Theme::sub(); });
+    knob(0, 164, 418, "e2_wave", U8("ENV 2 → WAVE"), cEnv);
     const char* FT[3] = { "LOW", "BAND", "HIGH" };
     for (int i = 0; i < 3; ++i) {
-        auto* p = add<Pill>({ 1160 + i * 56, 110, 52, 20 }, FT[i], [&m, i] { int t = (int) std::floor(m.get("f_type") / 100 * 2.99); return t == i ? cFil() : Theme::btn(); }, 7.5f, 5.0f);
+        auto* p = add<Pill>(0, { 400 + i * 56, 368, 52, 20 }, FT[i], [&m, i] { int t = (int) std::floor(m.get("f_type") / 100 * 2.99); return t == i ? cFil() : Theme::btn(); }, 7.5f, 5.0f);
         p->onClick = [&m, i] { m.set("f_type", i * 50.0); };
     }
-    knob(1030, 254, "f_cut", "CUTOFF", cFil); knob(1090, 254, "f_res", "RESO", cFil); knob(1150, 254, "f_drive", "DRIVE", cFil);
-    knob(1210, 254, "f_env", "ENV 2", cFil); knob(1270, 254, "f_key", "KEY", cFil);
-    // ENV 1 / ENV 2
-    const char* AD[4] = { "ATTACK", "DECAY", "SUSTAIN", "RELEASE" };
-    static std::string e1[4] = { "e1_a", "e1_d", "e1_s", "e1_r" }, e2[4] = { "e2_a", "e2_d", "e2_s", "e2_r" };
-    for (int k = 0; k < 4; ++k) knob(38 + k * 68, 486, e1[k].c_str(), AD[k], cEnv);
-    for (int k = 0; k < 4; ++k) knob(352 + k * 68, 486, e2[k].c_str(), AD[k], cEnv);
-    // LFO
-    knob(668, 486, "l_rate", "RATE", cLfo); knob(726, 486, "l_shape", "SHAPE", cLfo);
-    knob(784, 486, "l_wave", U("→ WAVE").toRawUTF8(), cLfo); knob(842, 486, "l_cut", U("→ CUTOFF").toRawUTF8(), cLfo); knob(900, 486, "l_pitch", U("→ PITCH").toRawUTF8(), cLfo);
-    auto* sy = add<Pill>({ 900, 368, 52, 20 }, "SYNC", [&m] { return m.get("l_sync") > 0.5 ? cLfo() : Theme::btn(); }, 7.5f, 5.0f);
-    sy->onClick = [&m] { m.set("l_sync", m.get("l_sync") > 0.5 ? 0 : 1); };
-    // VOICE
-    knob(1000, 486, "s_glide", "GLIDE", cVoi); knob(1058, 486, "spread", "SPREAD", cVoi); knob(1116, 486, "s_lvl", "LEVEL", cVoi);
-    auto* mo = add<Pill>({ 1180, 400, 64, 24 }, "MONO", [&m] { return m.get("mono") > 0.5 ? cVoi() : Theme::btn(); }, 8.0f, 6.0f);
+    for (int i = 0; i < 2; ++i) {
+        auto* p = add<Pill>(0, { 580 + i * 56, 368, 52, 20 }, i == 0 ? "12 dB" : "24 dB", [&m, i] { return (int) m.get("f_slope") == i ? cFil() : Theme::btn(); }, 7.5f, 5.0f);
+        p->onClick = [&m, i] { m.set("f_slope", i); };
+    }
+    knob(0, 270, 512, "f_cut", "CUTOFF", cFil); knob(0, 330, 512, "f_res", "RESO", cFil); knob(0, 390, 512, "f_drive", "DRIVE", cFil);
+    knob(0, 450, 512, "f_env", "ENV 2", cFil); knob(0, 510, 512, "f_key", "KEY", cFil); knob(0, 570, 512, "vel_amt", "VELOCITY", cFil);
+    knob(0, 740, 432, "s_glide", "GLIDE", cVoi); knob(0, 800, 432, "spread", "WIDTH", cVoi); knob(0, 860, 432, "s_lvl", "LEVEL", cVoi); knob(0, 920, 432, "bend_rng", "BEND RANGE", cVoi);
+    auto* mo = add<Pill>(0, { 740, 512, 70, 24 }, "MONO", [&m] { return m.get("mono") > 0.5 ? cVoi() : Theme::btn(); }, 8.0f, 6.0f);
     mo->onClick = [this, &m] { m.set("mono", m.get("mono") > 0.5 ? 0 : 1); cv.host.synth.allOff(); };
-    auto* fo = add<Pill>({ 1250, 400, 82, 24 }, "FOLLOW", [&m] { return m.get("follow") > 0.5 ? Theme::green() : Theme::btn(); }, 8.0f, 6.0f);
+    auto* fo = add<Pill>(0, { 820, 512, 82, 24 }, "FOLLOW", [&m] { return m.get("follow") > 0.5 ? Theme::green() : Theme::btn(); }, 8.0f, 6.0f);
     fo->onClick = [this, &m] { m.set("follow", m.get("follow") > 0.5 ? 0 : 1); if (m.get("follow") > 0.5 && cv.host.synthInto == 0) cv.host.setSynthInto(1); };
-    auto* fov = add<ValueBox>({ 1250, 470, 82, 24 }, [&m] { return m.get("f_oct"); }, [&m](double v) { m.set("f_oct", std::round(v)); }, -24, 24, 0, [] { return Theme::green(); });
+    auto* fov = add<ValueBox>(0, { 910, 512, 64, 24 }, [&m] { return m.get("f_oct"); }, [&m](double v) { m.set("f_oct", std::round(v)); }, -24, 24, 0, [] { return Theme::green(); });
     fov->fsize = 11.0f;
-    // keyboard
+
+    // ======== MOVEMENT: envelopes, LFOs, the list, macros
+    const char* AD[4] = { "ATTACK", "DECAY", "SUSTAIN", "RELEASE" };
+    const char* EP[3] = { "e1_", "e2_", "e3_" }; const char* EK[4] = { "a", "d", "s", "r" };
+    for (int e = 0; e < 3; ++e) for (int k = 0; k < 4; ++k) knob(1, 30 + e * 306 + k * 70, 262, std::string(EP[e]) + EK[k], AD[k], cEnv);
+    chip(1, 336 + 200, 138, 4, cEnv()); chip(1, 642 + 200, 138, 5, cEnv());
+    const char* LP[3] = { "l_", "l2_", "l3_" };
+    for (int l = 0; l < 3; ++l) {
+        knob(1, 30 + l * 306, 504, std::string(LP[l]) + "rate", "RATE", cLfo); knob(1, 96 + l * 306, 504, std::string(LP[l]) + "shape", "SHAPE", cLfo);
+        std::string sy = std::string(LP[l]) + "sync";
+        auto* p = add<Pill>(1, { 162 + l * 306, 512, 52, 22 }, "SYNC", [&m, sy] { return m.get(sy) > 0.5 ? cLfo() : Theme::btn(); }, 7.5f, 5.0f);
+        p->onClick = [&m, sy] { m.set(sy, m.get(sy) > 0.5 ? 0 : 1); };
+        chip(1, 30 + l * 306 + 200, 380, 1 + l, cLfo());
+    }
+    knob(1, 226, 504, "l_pitch", U8("→ PITCH"), cLfo); knob(1, 226 + 0, 432, "l_cut", U8("→ CUTOFF"), cLfo, 34); knob(1, 168, 432, "l_wave", U8("→ WAVE"), cLfo, 34);
+    auto* list = new ModList(m); kids.add(list); addAndMakeVisible(list); list->setBounds(box.getX() + 944, box.getY() + 166, 392, 300); pages[1].push_back(list);
+    for (int i = 0; i < 4; ++i) { knob(1, 960 + i * 92, 504, "mc" + std::to_string(i + 1), "MACRO " + juce::String(i + 1), [] { return Theme::violet(); }); chip(1, 940 + i * 92, 480, 10 + i, Theme::violet()); }
+
+    // ======== PLAY: the arpeggiator
+    auto* ao = add<Pill>(2, { 44, 170, 120, 34 }, "ARP ON", [&m] { return m.get("arp_on") > 0.5 ? Theme::green() : Theme::btn(); }, 10.0f, 8.0f);
+    ao->onClick = [this, &m] { cv.host.keys.allNotesOff(0); cv.host.synth.allOff(); m.set("arp_on", m.get("arp_on") > 0.5 ? 0 : 1); };
+    auto* ah = add<Pill>(2, { 172, 170, 90, 34 }, "HOLD", [&m] { return m.get("arp_hold") > 0.5 ? Theme::amber() : Theme::btn(); }, 9.0f, 8.0f);
+    ah->onClick = [&m] { m.set("arp_hold", m.get("arp_hold") > 0.5 ? 0 : 1); };
+    const char* AM[6] = { "UP", "DOWN", U8("UP-DOWN").toRawUTF8(), "RANDOM", "AS PLAYED", "CHORD" };
+    juce::String amn[6] = { "UP", "DOWN", "UP-DOWN", "RANDOM", "AS PLAYED", "CHORD" }; juce::ignoreUnused(AM);
+    for (int i = 0; i < 6; ++i) { auto* p = add<Pill>(2, { 44 + i * 100, 246, 94, 28 }, amn[i], [&m, i] { return (int) m.get("arp_mode") == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f); p->onClick = [&m, i] { m.set("arp_mode", i); }; }
+    juce::String rn[7] = { "1/4", "1/8", "1/8 T", "1/16", "1/16 T", "1/32", "1/2" };
+    for (int i = 0; i < 7; ++i) { auto* p = add<Pill>(2, { 44 + i * 86, 318, 80, 28 }, rn[i], [&m, i] { return (int) m.get("arp_rate") == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f); p->onClick = [&m, i] { m.set("arp_rate", i); }; }
+    for (int i = 1; i <= 4; ++i) { auto* p = add<Pill>(2, { 44 + (i - 1) * 70, 390, 64, 28 }, juce::String(i) + (i == 1 ? " oct" : " oct"), [&m, i] { return (int) m.get("arp_oct") == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f); p->onClick = [&m, i] { m.set("arp_oct", i); }; }
+    knob(2, 360, 384, "arp_gate", "GATE", [] { return Theme::violet(); });
+
+    // ======== the keyboards
     kb = std::make_unique<juce::MidiKeyboardComponent>(h.keys, juce::MidiKeyboardComponent::horizontalKeyboard);
     addAndMakeVisible(*kb);
     kb->setBounds(box.getX() + 24, box.getY() + 640, 1080, 160);
-    kb->setAvailableRange(24, 108);
-    kb->setOctaveForMiddleC(4);
-    kb->setLowestVisibleKey(36);
-    kb->setKeyWidth(1080.0f / 36.0f);
-    kb->setKeyPressBaseOctave(octave);
-    kb->setScrollButtonsVisible(false);
-    kb->setWantsKeyboardFocus(false);
-    auto* om = add<Pill>({ 24, 606, 30, 24 }, U("−"), [] { return Theme::btn(); }, 11.0f, 6.0f);
+    kb->setAvailableRange(24, 108); kb->setOctaveForMiddleC(4); kb->setLowestVisibleKey(36);
+    kb->setKeyWidth(1080.0f / 36.0f); kb->setKeyPressBaseOctave(octave); kb->setScrollButtonsVisible(false); kb->setWantsKeyboardFocus(false);
+    pad = std::make_unique<KeyPad>(*this); addChildComponent(*pad); pad->setBounds(kb->getBounds());
+    const char* KM[4] = { "KEYS", "SLIDE PAD", "CHORDS", "SCALE GRID" };
+    for (int i = 0; i < 4; ++i) {
+        auto* p = add<Pill>(-1, { 100 + i * 96, 606, 90, 24 }, KM[i], [this, i] { return keysMode == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f);
+        p->onClick = [this, i] { keysMode = i; kb->setVisible(i == 0); pad->setVisible(i > 0); static_cast<KeyPad*>(pad.get())->mode = i; cv.host.synth.allOff(); cv.host.synth.padOff(); repaint(); };
+    }
+    auto* om = add<Pill>(-1, { 24, 606, 30, 24 }, U8("−"), [] { return Theme::btn(); }, 11.0f, 6.0f);
     om->onClick = [this] { octave = juce::jmax(1, octave - 1); kb->setKeyPressBaseOctave(octave); repaint(); };
-    auto* op = add<Pill>({ 58, 606, 30, 24 }, "+", [] { return Theme::btn(); }, 11.0f, 6.0f);
+    auto* op = add<Pill>(-1, { 58, 606, 30, 24 }, "+", [] { return Theme::btn(); }, 11.0f, 6.0f);
     op->onClick = [this] { octave = juce::jmin(7, octave + 1); kb->setKeyPressBaseOctave(octave); repaint(); };
+    setPage(0);
     startTimerHz(30);
 }
 
@@ -214,15 +463,15 @@ SynthPanel::~SynthPanel() { stopTimer(); }
 void SynthPanel::visibilityChanged() {
     if (isVisible()) {
         auto bg = Theme::card();
-        kb->setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::lightMode() ? juce::Colour(0xfff4f4f6) : juce::Colour(0xffe8e8ee));
-        kb->setColour(juce::MidiKeyboardComponent::blackNoteColourId, juce::Colour(0xff1c1d24));
+        kb->setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::lightMode() ? juce::Colour(0xfff6f3ea) : juce::Colour(0xffe8e4dc));
+        kb->setColour(juce::MidiKeyboardComponent::blackNoteColourId, juce::Colour(0xff201820));
         kb->setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, bg.darker(0.3f));
-        kb->setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, cOsc().withAlpha(0.8f));
-        kb->setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, cOsc().withAlpha(0.25f));
+        kb->setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::violet().withAlpha(0.8f));
+        kb->setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, Theme::violet().withAlpha(0.25f));
         kb->setColour(juce::MidiKeyboardComponent::shadowColourId, juce::Colours::transparentBlack);
         kb->setColour(juce::MidiKeyboardComponent::upDownButtonBackgroundColourId, bg);
         juce::Timer::callAfterDelay(50, [sp = juce::Component::SafePointer<SynthPanel>(this)] { if (sp) sp->grabKeyboardFocus(); });
-    } else cv.host.synth.allOff();
+    } else { cv.host.synth.allOff(); cv.host.synth.padOff(); }
 }
 
 void SynthPanel::mouseDown(const juce::MouseEvent& e) {
@@ -231,27 +480,29 @@ void SynthPanel::mouseDown(const juce::MouseEvent& e) {
 }
 
 bool SynthPanel::keyPressed(const juce::KeyPress& k) {
-    // the computer keys play (A W S E D F T G Y H U J K O L P), Z / X = octave down / up, Esc closes
     if (k == juce::KeyPress::escapeKey) { cv.host.synth.allOff(); setVisible(false); return true; }
     auto c = juce::CharacterFunctions::toLowerCase(k.getTextCharacter());
     if (c == 'z') { octave = juce::jmax(1, octave - 1); kb->setKeyPressBaseOctave(octave); repaint(); return true; }
     if (c == 'x') { octave = juce::jmin(7, octave + 1); kb->setKeyPressBaseOctave(octave); repaint(); return true; }
     return kb->keyPressed(k);
 }
-
 bool SynthPanel::keyStateChanged(bool isDown) { return kb->keyStateChanged(isDown); }
 
 void SynthPanel::timerCallback() {
     if (!isVisible()) return;
-    repaint(box.getX() + 24, box.getY() + 100, 1312, 500);
+    repaint(box.getX() + 24, box.getY() + 120, 1312, 480);
     repaint(box.getX() + 1116, box.getY() + 606, 220, 200);
-    for (auto* k : kids) k->repaint();
+    for (auto* k : kids) if (k->isVisible()) k->repaint();
 }
 
 // ------------------------------------------------------------------ drawing
-static float oscWave(float p, float wave, float warp) {     // the same shapes the synth plays (without the anti-alias)
+static float oscWave(float p, float wave, float warp, int mode) {
+    const float tp = juce::MathConstants<float>::twoPi;
+    if (mode == 1) { static const float R[8] = { 0.5f, 1, 1.5f, 2, 3, 4, 5, 7 }; float r = R[juce::jlimit(0, 7, (int) (warp / 100.0f * 7.99f))]; return std::sin(tp * p + wave / 100.0f * 6.0f * std::sin(tp * p * r)); }
+    if (mode == 2) return std::sin(std::sin(tp * p) * (1.0f + wave / 100.0f * 7.0f) + warp / 100.0f * 1.5f);
+    if (mode == 3) { float ratio = 1.0f + warp / 100.0f * 7.0f; float ps = p * ratio; ps -= std::floor(ps); float b = wave / 100.0f; return (2 * ps - 1) * (0.5f + 0.5f * b) + std::sin(tp * p) * (0.5f - 0.5f * b); }
     float q = warp > 0.5f ? std::pow(p, 1 + warp / 100 * 4) : p;
-    float w[5] = { std::sin(juce::MathConstants<float>::twoPi * q), 1 - 4 * std::abs(q - 0.5f), 2 * q - 1, q < 0.5f ? 1.0f : -1.0f, (q < 0.12f ? 1.0f : -1.0f) * 0.8f + 0.6f };
+    float w[5] = { std::sin(tp * q), 1 - 4 * std::abs(q - 0.5f), 2 * q - 1, q < 0.5f ? 1.0f : -1.0f, (q < 0.12f ? 1.0f : -1.0f) * 0.8f + 0.6f };
     float wp = juce::jlimit(0.0f, 100.0f, wave) / 25.0f; int wi = juce::jmin(3, (int) wp); float wf = wp - wi;
     return w[wi] + (w[wi + 1] - w[wi]) * wf;
 }
@@ -269,95 +520,93 @@ void SynthPanel::paint(juce::Graphics& g) {
         L(title, x + 28, y + 9, w - 40, 10.5f, Theme::txt(), 2); };
     auto screen = [&](int x, int y, int w, int h) { g.setColour(Theme::scr()); g.fillRoundedRectangle((float) (X + x), (float) (Y + y), (float) w, (float) h, 6.0f);
         return juce::Rectangle<float>((float) (X + x + 6), (float) (Y + y + 6), (float) (w - 12), (float) (h - 12)); };
-    L("SYNTH", 24, 12, 200, 17.0f, Theme::txt(), 2);
-    L(U("play it with the keys below, the computer keys or a MIDI keyboard - or let the cello play it (FOLLOW) · it sounds through the LIVE strip it plays into, so every track can record it"),
-      130, 18, 1080, 8.5f, Theme::sub());
-    L("PLAYS INTO", 24, 63, 90, 8.5f, Theme::txt(), 2);
-    L("RECORD ON TRACK", 380, 63, 140, 8.5f, Theme::txt(), 2);
-    L("SOUND", 812, 63, 50, 8.5f, Theme::txt(), 2);
-
-    // OSC A / B with their wave
-    for (int o = 0; o < 2; ++o) {
-        int x0 = 24 + o * 412;
-        juce::Colour col = o == 0 ? cOsc() : cOscB();
-        const char* P = o == 0 ? "a_" : "b_";
-        card(x0, 100, 400, 226, o == 0 ? "OSC A" : "OSC B", col);
-        float lv = (float) m.get(std::string(P) + "lvl");
-        L(juce::String((int) m.get(std::string(P) + "uni")) + (m.get(std::string(P) + "uni") > 1 ? " voices" : " voice") + U("  ·  ")
-          + juce::String((int) m.get(std::string(P) + "semi")) + " st", x0 + 250, 108, 136, 8.0f, Theme::sub(), 1, juce::Justification::centredRight);
-        auto r = screen(x0 + 14, 132, 372, 104);
-        juce::Path p; float wv = (float) m.get(std::string(P) + "wave"), wp = (float) m.get(std::string(P) + "warp");
-        for (int i = 0; i <= 200; ++i) {
-            float ph = i / 200.0f * 2.0f; float v = oscWave(ph - std::floor(ph), wv, wp);
-            float x = r.getX() + r.getWidth() * i / 200.0f, y = r.getCentreY() - v * r.getHeight() * 0.42f * (0.25f + 0.75f * lv / 100.0f);
-            if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
+    auto curve = [&](juce::Rectangle<float> r, std::function<float(float)> f, juce::Colour c, float lv = 1.0f) {
+        juce::Path p; for (int i = 0; i <= 200; ++i) { float ph = i / 200.0f * 2.0f; float v = f(ph - std::floor(ph));
+            float x = r.getX() + r.getWidth() * i / 200.0f, y = r.getCentreY() - juce::jlimit(-1.2f, 1.2f, v) * r.getHeight() * 0.42f * lv;
+            if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y); }
+        g.setColour(c); g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); };
+    L("SYNTH 2", 24, 10, 200, 17.0f, Theme::txt(), 2);
+    L(U8("three oscillators, a mod matrix, an arpeggiator - drag a ⟿ dot onto any knob to move it · it plays through the LIVE strip below, so every track can record it"), 150, 16, 1080, 8.5f, Theme::sub());
+    L("PLAYS INTO", 24, 55, 90, 8.5f, Theme::txt(), 2);
+    L("RECORD ON TRACK", 380, 55, 140, 8.5f, Theme::txt(), 2);
+    L("SOUND", 812, 55, 50, 8.5f, Theme::txt(), 2);
+    if (page == 0) {
+        for (int o = 0; o < 3; ++o) {
+            int x0 = 24 + o * 444;
+            std::string P = juce::String::charToString((juce::juce_wchar) ('a' + o)).toStdString() + "_";
+            card(x0, 126, 432, 214, juce::String("OSC ") + juce::String::charToString((juce::juce_wchar) ('A' + o)), cOsc(o));
+            float lv = (float) m.get(P + "lvl");
+            auto r = screen(x0 + 14, 164, 404, 86);
+            float wv = (float) m.get(P + "wave"), wp = (float) m.get(P + "warp"); int md = (int) m.get(P + "mode");
+            curve(r, [wv, wp, md](float ph) { return oscWave(ph, wv, wp, md); }, cOsc(o).withAlpha(lv > 0.5f ? 1.0f : 0.3f), 0.25f + 0.75f * lv / 100.0f);
+            L(juce::String((int) m.get(P + "uni")) + (m.get(P + "uni") > 1 ? " voices" : " voice") + U8("  ·  ") + juce::String((int) m.get(P + "semi")) + " st", x0 + 260, 222, 150, 8.0f, Theme::sub(), 1, juce::Justification::centredRight);
         }
-        g.setColour(col.withAlpha(lv > 0.5f ? 1.0f : 0.3f)); g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
-    card(848, 100, 150, 226, U("SUB · NOISE"), Theme::txt());
-    // FILTER with its curve
-    card(1010, 100, 326, 226, "FILTER", cFil());
-    {
-        auto r = screen(1024, 136, 298, 100);
-        int ft = (int) std::floor(m.get("f_type") / 100 * 2.99);
-        float cut = (float) m.get("f_cut") / 100.0f, res = (float) m.get("f_res") / 100.0f;
-        juce::Path p;
-        for (int i = 0; i <= 150; ++i) {
-            float x = i / 150.0f, d = (x - cut) * 8.0f, mag;
-            float peak = res * 1.6f * std::exp(-d * d * 3.0f);
-            if (ft == 0) mag = (x < cut ? 1.0f : std::exp(-(x - cut) * 9.0f)) + peak;
-            else if (ft == 2) mag = (x > cut ? 1.0f : std::exp(-(cut - x) * 9.0f)) + peak;
-            else mag = std::exp(-d * d * 0.9f) * (0.8f + res) + peak * 0.5f;
-            float y = r.getBottom() - juce::jlimit(0.0f, 1.0f, mag / 2.0f) * r.getHeight();
-            if (i == 0) p.startNewSubPath(r.getX(), y); else p.lineTo(r.getX() + x * r.getWidth(), y);
+        card(24, 354, 220, 232, U8("SUB · NOISE"), Theme::txt());
+        card(256, 354, 460, 232, "FILTER", cFil());
+        {
+            auto r = screen(270, 396, 432, 96);
+            int ft = (int) std::floor(m.get("f_type") / 100 * 2.99); bool s24 = m.get("f_slope") > 0.5;
+            float cut = (float) m.get("f_cut") / 100.0f, res = (float) m.get("f_res") / 100.0f, k = s24 ? 16.0f : 9.0f;
+            juce::Path p;
+            for (int i = 0; i <= 150; ++i) {
+                float x = i / 150.0f, d = (x - cut) * 8.0f, mag;
+                float peak = res * 1.6f * std::exp(-d * d * 3.0f);
+                if (ft == 0) mag = (x < cut ? 1.0f : std::exp(-(x - cut) * k)) + peak;
+                else if (ft == 2) mag = (x > cut ? 1.0f : std::exp(-(cut - x) * k)) + peak;
+                else mag = std::exp(-d * d * (s24 ? 1.6f : 0.9f)) * (0.8f + res) + peak * 0.5f;
+                float y = r.getBottom() - juce::jlimit(0.0f, 1.0f, mag / 2.0f) * r.getHeight();
+                if (i == 0) p.startNewSubPath(r.getX(), y); else p.lineTo(r.getX() + x * r.getWidth(), y);
+            }
+            g.setColour(cFil()); g.strokePath(p, juce::PathStrokeType(2.0f));
         }
-        g.setColour(cFil()); g.strokePath(p, juce::PathStrokeType(2.0f));
-    }
-    // ENV 1 / ENV 2 shapes
-    auto env = [&](int x, int y, int w, int h, const char* pre, juce::Colour c) {
-        auto r = screen(x, y, w, h);
-        float a = (float) m.get(std::string(pre) + "a") / 100.0f, d = (float) m.get(std::string(pre) + "d") / 100.0f,
-              s = (float) m.get(std::string(pre) + "s") / 100.0f, rl = (float) m.get(std::string(pre) + "r") / 100.0f;
-        float tot = a + d + 0.5f + rl + 0.001f, W = r.getWidth();
-        float x1 = r.getX() + W * a / tot, x2 = x1 + W * d / tot, x3 = x2 + W * 0.5f / tot, x4 = r.getRight();
-        juce::Path p; p.startNewSubPath(r.getX(), r.getBottom()); p.lineTo(x1, r.getY()); p.quadraticTo(x1 + (x2 - x1) * 0.2f, r.getY() + (r.getBottom() - r.getY()) * (1 - s), x2, r.getBottom() - s * r.getHeight());
-        p.lineTo(x3, r.getBottom() - s * r.getHeight()); p.quadraticTo(x3 + (x4 - x3) * 0.2f, r.getBottom(), x4, r.getBottom());
-        g.setColour(c.withAlpha(0.18f)); juce::Path f = p; f.lineTo(r.getX(), r.getBottom()); f.closeSubPath(); g.fillPath(f);
-        g.setColour(c); g.strokePath(p, juce::PathStrokeType(2.0f)); };
-    card(24, 340, 300, 246, U("ENV 1 · LOUDNESS"), cEnv()); env(38, 376, 272, 90, "e1_", cEnv());
-    card(336, 340, 300, 246, U("ENV 2 · FILTER / WAVE"), cEnv()); env(350, 376, 272, 90, "e2_", cEnv());
-    // LFO
-    card(648, 340, 316, 246, "LFO", cLfo());
-    {
-        auto r = screen(662, 396, 288, 70);
-        float sh = (float) m.get("l_shape");
-        juce::Path p; juce::Random rnd(7);
-        float rv = 0;
-        for (int i = 0; i <= 200; ++i) {
-            float ph = i / 200.0f * 2.0f; ph -= std::floor(ph);
-            float v;
-            if (sh >= 87.5f) { if (i % 25 == 0) rv = rnd.nextFloat() * 2 - 1; v = rv; }
-            else v = oscWave(ph, juce::jmin(75.0f, sh), 0);
-            float x = r.getX() + r.getWidth() * i / 200.0f, y = r.getCentreY() - v * r.getHeight() * 0.42f;
-            if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
+        card(728, 354, 608, 232, "VOICE", cVoi());
+        L(m.get("mono") > 0.5 ? U8("one note at a time (lead / bass)") : U8("12 notes at once"), 1000, 392, 320, 8.0f, Theme::sub(), 1);
+        L(juce::String(cv.host.synth.sounding()) + " notes sounding", 1000, 410, 320, 8.0f, Theme::txt(), 1);
+        L(U8("FOLLOW: one voice sings what LIVE 1 plays  ·  octave"), 740, 548, 360, 7.5f, Theme::sub());
+    } else if (page == 1) {
+        auto env = [&](int x, int y, int w, int h, const char* pre, juce::Colour c) {
+            auto r = screen(x, y, w, h);
+            float a = (float) m.get(std::string(pre) + "a") / 100.0f, d = (float) m.get(std::string(pre) + "d") / 100.0f, s = (float) m.get(std::string(pre) + "s") / 100.0f, rl = (float) m.get(std::string(pre) + "r") / 100.0f;
+            float tot = a + d + 0.5f + rl + 0.001f, W = r.getWidth();
+            float x1 = r.getX() + W * a / tot, x2 = x1 + W * d / tot, x3 = x2 + W * 0.5f / tot, x4 = r.getRight();
+            juce::Path p; p.startNewSubPath(r.getX(), r.getBottom()); p.lineTo(x1, r.getY()); p.quadraticTo(x1 + (x2 - x1) * 0.2f, r.getY() + r.getHeight() * (1 - s), x2, r.getBottom() - s * r.getHeight());
+            p.lineTo(x3, r.getBottom() - s * r.getHeight()); p.quadraticTo(x3 + (x4 - x3) * 0.2f, r.getBottom(), x4, r.getBottom());
+            g.setColour(c.withAlpha(0.18f)); juce::Path f = p; f.lineTo(r.getX(), r.getBottom()); f.closeSubPath(); g.fillPath(f);
+            g.setColour(c); g.strokePath(p, juce::PathStrokeType(2.0f)); };
+        const char* ET[3] = { "ENV 1 · LOUDNESS", "ENV 2 · FILTER / WAVE", "ENV 3 · ANYTHING" };
+        const char* EP[3] = { "e1_", "e2_", "e3_" };
+        for (int e = 0; e < 3; ++e) { card(24 + e * 306, 126, 294, 214, U8(ET[e]), cEnv()); env(38 + e * 306, 164, 266, 84, EP[e], cEnv()); }
+        const char* LP[3] = { "l_", "l2_", "l3_" };
+        for (int l = 0; l < 3; ++l) {
+            card(24 + l * 306, 368, 294, 218, "LFO " + juce::String(l + 1), cLfo());
+            auto r = screen(38 + l * 306, 404, l == 0 ? 118 : 266, 60);
+            float sh = (float) m.get(std::string(LP[l]) + "shape"); int shapes = l == 0 ? 5 : 6; int s = juce::jlimit(0, shapes - 1, (int) (sh / 100.0f * (shapes - 0.01f)));
+            juce::Random rnd(7 + l); float rv = 0, rv2 = 0;
+            curve(r, [&](float ph) { switch (s) { case 0: return std::sin(6.2831853f * ph); case 1: return 1 - 4 * std::abs(ph - 0.5f); case 2: return 2 * ph - 1; case 3: return ph < 0.5f ? 1.0f : -1.0f;
+                    case 4: if (ph < 0.01f) rv = rnd.nextFloat() * 2 - 1; return rv; default: if (ph < 0.01f) { rv = rv2; rv2 = rnd.nextFloat() * 2 - 1; } return rv + (rv2 - rv) * ph * ph * (3 - 2 * ph); } }, cLfo());
+            L(m.get(std::string(LP[l]) + "sync") > 0.5 ? "in tempo" : "free", 38 + l * 306, 476, 120, 8.0f, Theme::sub(), 1);
         }
-        g.setColour(cLfo()); g.strokePath(p, juce::PathStrokeType(2.0f));
-        float lv = cv.snap("syn_lfo");
-        g.setColour(Theme::txt()); g.fillEllipse(r.getRight() - 10, r.getCentreY() - lv * r.getHeight() * 0.42f - 4, 8, 8);
-        L(m.get("l_sync") > 0.5 ? "in tempo" : "free", 662, 370, 120, 8.0f, Theme::sub(), 1);
+        card(930, 126, 406, 460, "MODULATION", Theme::violet());
+        L(U8("source → knob, how much (drag)  ·  right-click a knob to remove"), 944, 150, 380, 7.5f, Theme::sub());
+        L("MACROS", 944, 456, 100, 9.0f, Theme::txt(), 2);
+    } else {
+        card(24, 126, 620, 460, "ARPEGGIATOR", Theme::violet());
+        L(U8("hold a chord - it plays the notes one after the other, in the loop's tempo"), 44, 140, 560, 8.0f, Theme::sub());
+        L("PATTERN", 44, 226, 200, 8.5f, Theme::txt(), 2); L("SPEED", 44, 298, 200, 8.5f, Theme::txt(), 2); L("RANGE", 44, 370, 200, 8.5f, Theme::txt(), 2);
+        L(U8("HOLD: the notes keep playing after you let go - a new chord replaces them"), 44, 460, 560, 8.0f, Theme::sub());
+        card(656, 126, 680, 460, "WAYS TO PLAY", Theme::blue());
+        juce::StringArray tips {
+            U8("KEYS  ·  the piano below, the computer keys (A W S E D F T G Y H U J K O L P · Z / X = octave), or a MIDI keyboard"),
+            U8("SLIDE PAD  ·  left-right is the pitch (two octaves, gliding), up-down how loud - like a violin string with no frets"),
+            U8("CHORDS  ·  eight chords of the piece's key (HALO hears the key) - one finger, a whole chord"),
+            U8("SCALE GRID  ·  only the notes of the key, in rows a fourth apart: nothing sounds wrong"),
+            U8("iPHONE  ·  the phone's SYNTH page plays all of these too, from anywhere in the room"),
+            U8("FOLLOW  ·  (SOUND page) a voice sings exactly what your cello plays, an octave down or up") };
+        for (int i = 0; i < tips.size(); ++i) L(tips[i], 676, 170 + i * 62, 640, 9.0f, Theme::txt(), 0);
     }
-    // VOICE
-    card(976, 340, 360, 246, "VOICE", cVoi());
-    L(m.get("mono") > 0.5 ? U("one note at a time (lead / bass)") : U("8 notes at once"), 990, 372, 180, 8.0f, Theme::sub(), 1);
-    L(U("FOLLOW: one voice sings what LIVE 1 plays"), 1180, 430, 156, 7.5f, Theme::sub());
-    L("FOLLOW OCTAVE", 1180, 455, 156, 7.5f, Theme::sub());
-    L(juce::String(cv.host.synth.sounding()) + " / 8 notes sounding", 990, 400, 180, 8.0f, Theme::txt(), 1);
-    // knob labels
-    for (auto& lb : labels) slab(g, lb.t, lb.r, 7.5f, Theme::sub(), 1, juce::Justification::centred);
-    // keyboard info + output
-    L("KEYS FROM C" + juce::String(octave - 1), 96, 609, 96, 8.5f, Theme::txt(), 2);
-    L(U("  computer keys:  A W S E D F T G Y H U J K O L P  =  notes   ·   Z / X  =  octave   ·   MIDI keyboard: just plug it in   ·   Esc closes"),
-      190, 609, 900, 8.0f, Theme::sub());
+    for (auto& lb : labels) if (lb.page == page) slab(g, lb.t, lb.r, 7.5f, Theme::sub(), 1, juce::Justification::centred);
+    L("C" + juce::String(octave - 1), 492, 609, 40, 8.5f, Theme::txt(), 2);
+    L(keysMode == 0 ? U8("computer keys: A W S E D F T G Y H U J K O L P  ·  Z / X octave  ·  Esc closes") : U8("key of the piece: what HALO hears (C until then)"), 540, 609, 570, 8.0f, Theme::sub());
     {
         g.setColour(Theme::card()); g.fillRoundedRectangle((float) (X + 1116), (float) (Y + 606), 220.0f, 194.0f, 12.0f);
         L("OUTPUT", 1130, 614, 100, 9.0f, Theme::txt(), 2);
@@ -370,8 +619,8 @@ void SynthPanel::paint(juce::Graphics& g) {
             float x = r.getX() + r.getWidth() * i / (n - 1.0f), y = r.getCentreY() - juce::jlimit(-1.0f, 1.0f, v * 1.5f) * r.getHeight() * 0.48f;
             if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
         }
-        g.setColour(cOsc()); g.strokePath(p, juce::PathStrokeType(1.4f));
-        juce::String where = cv.host.synthInto > 0 ? U("→ LIVE ") + juce::String(cv.host.synthInto + 1) : juce::String("not playing anywhere (OFF)");
+        g.setColour(Theme::violet()); g.strokePath(p, juce::PathStrokeType(1.4f));
+        juce::String where = cv.host.synthInto > 0 ? U8("→ LIVE ") + juce::String(cv.host.synthInto + 1) : juce::String("not playing anywhere (OFF)");
         L(where, 1130, 768, 196, 8.5f, cv.host.synthInto > 0 ? Theme::green() : Theme::amber(), 1);
     }
 }

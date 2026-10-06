@@ -33,6 +33,7 @@ public:
     void openSetup(bool show);
     void themeChanged();                       // a new palette: everything repaints in it
     void openSynth(bool show);
+    void synthPage(int p);
     void openMic(bool show);
     bool keyPressed(const juce::KeyPress& k) override;
     void doSave(bool askName);

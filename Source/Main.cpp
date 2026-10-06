@@ -91,7 +91,7 @@ public:
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
-        if (cmd.contains("synth")) mc->canvas.openSynth(true);
+        if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue()); }
         if (cmd.contains("look")) mc->canvas.openLook(true);
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
