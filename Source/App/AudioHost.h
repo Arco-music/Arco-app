@@ -8,6 +8,7 @@
 #include "PhoneLink.h"
 #include "SynthPlayer.h"
 #include "Analysis.h"
+#include "Studio.h"
 
 namespace arco {
 
@@ -38,6 +39,7 @@ public:
     int synthInto = 0;
 
     // phones (1.2): the station finds iPhones running ARCO - each one a microphone (on a LIVE input) and a remote control
+    Studio studio { *this };                 // STUDIO: the song as a timeline (plays into outputs 1-2 and the headphones)
     PhoneHub phones;                         // the station side
     PhoneServer phoneLink;                   // the phone side (this device is a phone for a station)
     std::atomic<bool> micMode { false };     // this device is a phone now: the microphone goes to the station, nothing plays here

@@ -41,6 +41,7 @@ target_sources(ARCO PRIVATE
     Source/App/Render.cpp
     Source/App/Analysis.cpp
     Source/App/AutoMix.cpp
+    Source/App/Studio.cpp
     $<$<PLATFORM_ID:iOS>:Source/App/IOSAudio.mm>
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp
@@ -48,7 +49,8 @@ target_sources(ARCO PRIVATE
     Source/UI/Sheets.cpp
     Source/UI/HelpText.cpp
     Source/UI/Commands.cpp
-    Source/UI/PhoneRemote.cpp)
+    Source/UI/PhoneRemote.cpp
+    Source/UI/StudioView.cpp)
 
 target_compile_definitions(ARCO PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"

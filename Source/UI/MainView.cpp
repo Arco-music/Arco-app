@@ -294,7 +294,7 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     layoutCards();
     startTimerHz(30);
 }
-Canvas::~Canvas() { stopTimer(); host.onAction = nullptr; host.onMidiControl = nullptr; host.onLearned = nullptr; }
+Canvas::~Canvas() { stopTimer(); studioWindow = nullptr; host.onAction = nullptr; host.onMidiControl = nullptr; host.onLearned = nullptr; }
 
 void Canvas::chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs) {
    #if JUCE_IOS

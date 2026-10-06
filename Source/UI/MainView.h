@@ -16,6 +16,7 @@ class HelpSheet;
 class AboutSheet;
 class ImportSheet;
 class AutoMixSheet;
+class StudioView;
 class AppMenu;
 class LearnOverlay;
 
@@ -68,6 +69,8 @@ public:
     std::unique_ptr<AboutSheet> aboutSheet;
     std::unique_ptr<ImportSheet> importSheet;
     std::unique_ptr<AutoMixSheet> autoMixSheet;
+    std::unique_ptr<juce::Component> studioWindow;   // Mac: its own window; iPad: over the station
+    StudioView* studioView = nullptr;
     void requestImport(const juce::File& f, int track);   // the smart import window
     std::unique_ptr<AppMenu> menu;
     std::unique_ptr<LearnOverlay> learnLayer;

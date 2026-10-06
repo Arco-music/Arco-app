@@ -292,6 +292,38 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         m.press("st_looper", "scene", 8, 1);
         waitFor([&] { return scene() == 1; }, 6.0);
     }
+    // STUDIO: the loops as a song - build, edit, play, export, save, open, print the effects
+    {
+        juce::String why;
+        bool built = h.studio.buildFromStation(2, why);
+        auto& S = h.studio.song;
+        check(built && !S.clips.empty() && S.length() > 0, "STUDIO: the song is laid out from the scenes (lanes)", (double) S.lanes.size());
+        long len0 = S.length();
+        { size_t last = 0; for (size_t i = 0; i < S.clips.size(); ++i) if (S.clips[i].start + S.clips[i].length > S.clips[last].start + S.clips[last].length) last = i;
+          auto c = S.clips[last]; c.start += c.length; S.clips.push_back(c); }          // duplicate the last clip
+        check(S.length() > len0, "  a duplicated clip makes the song longer (s)", S.length() / S.sr);
+        juce::AudioBuffer<float> mix;
+        bool r = h.studio.renderAll(mix, nullptr);
+        float pk2 = mix.getMagnitude(0, mix.getNumSamples());
+        check(r && pk2 > 0.01f && pk2 < 2.0f && mix.getNumSamples() >= S.length(), "  it renders (peak)", pk2);
+        auto f = dir.getChildFile("studio test.wav"); juce::String rep; ExportOptions o;
+        bool wok = Renderer::write(mix, S.sr, o, f, rep);
+        check(wok && f.existsAsFile(), ("  export: " + rep).toRawUTF8());
+        h.studio.playing = true; h.studio.pos = 0;
+        std::vector<float> l(512, 0.0f), rr(512, 0.0f); h.studio.renderBlock(l.data(), rr.data(), 512); h.studio.renderBlock(l.data(), rr.data(), 512);
+        check(h.studio.pos.load() == 1024, "  it plays (the playhead moves)");
+        h.studio.playing = false;
+        auto sf = dir.getChildFile("studio song"); sf.deleteRecursively(); sf.createDirectory();
+        int nClips = (int) S.clips.size();
+        bool sv = h.studio.save(sf);
+        { const juce::ScopedLock sl(h.studio.lock); S = StudioSong(); }
+        bool ld = h.studio.load(sf);
+        check(sv && ld && (int) h.studio.song.clips.size() == nClips, "  saved with the song and opened again");
+        h.studio.buildFromStation(1, why);
+        bool pr = h.studio.printEffects(0, nullptr);
+        check(pr && !h.studio.song.sources[0].r.empty(), "  PRINT FX: a lane through the station's effects (stereo)");
+        { const juce::ScopedLock sl(h.studio.lock); h.studio.song = StudioSong(); }
+    }
     // EXPORT: render the scene offline, normalise, limit, write, read back
     {
         Renderer rd(h);

@@ -157,6 +157,11 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
         }
     }
     engine.process(in, numIn, out, numOut, n);
+    if (studio.playing.load() && numOut >= 2 && out[0] != nullptr && out[1] != nullptr) {     // STUDIO plays on top
+        studio.renderBlock(out[0], out[1], n);
+        int pf = engine.phonesFirst.load();
+        if (pf >= 2 && pf + 1 < numOut && out[pf] && out[pf + 1]) { juce::FloatVectorOperations::copy(out[pf], out[0], n); juce::FloatVectorOperations::copy(out[pf + 1], out[1], n); }
+    }
     int tt = testTone.load();
     if (tt > 0) {                                // TEST: a soft A (440 Hz) on outputs 1-2 and on the headphones
         int pf = engine.phonesFirst.load();
@@ -353,6 +358,7 @@ static bool writeBuffer(SharedBuffer& b, const juce::File& f, double sr, long fr
 
 // a fresh song: no loops, every song and scene setting back to its start (this computer's settings stay)
 void AudioHost::newSong() {
+    studio.playing = false; { const juce::ScopedLock sl(studio.lock); studio.song = StudioSong(); }
     model.press("st_looper", "rstall");
     model.resetSong();
     songFolder = juce::File();
@@ -369,6 +375,7 @@ juce::String AudioHost::loopsSignature() {
 
 bool AudioHost::saveSong(const juce::File& folder) {
     if (!folder.createDirectory()) { status = "could not make the folder"; return false; }
+    if (!studio.song.clips.empty()) studio.save(folder);           // STUDIO's arrangement goes with the song
     auto name = folder.getFileName();
     auto root = model.songState();
     auto* sess = new juce::DynamicObject();
@@ -404,6 +411,7 @@ static void readInto(juce::AudioFormatManager& fm, const juce::File& f, SharedBu
 }
 
 bool AudioHost::openSong(const juce::File& sel) {
+    studio.playing = false; { const juce::ScopedLock sl(studio.lock); studio.song = StudioSong(); }
     juce::File folder = sel.isDirectory() ? sel : sel.getParentDirectory();
     juce::File settings;
     if (sel.isDirectory()) { auto fs = folder.findChildFiles(juce::File::findFiles, false, "*-settings.json"); if (!fs.isEmpty()) settings = fs[0]; }

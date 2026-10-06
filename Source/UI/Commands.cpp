@@ -5,6 +5,7 @@
 #include "Sheets.h"
 #include "HelpText.h"
 #include "LearnOverlay.h"
+#include "StudioView.h"
 
 namespace arco {
 
@@ -23,8 +24,40 @@ bool Canvas::anyOverlay() const {
 }
 
 // (filled in as the big windows arrive)
-juce::Component* Canvas::overlayExtra() const { return nullptr; }
-void Canvas::openStudio() { showMessage("STUDIO opens here"); }
+juce::Component* Canvas::overlayExtra() const {
+   #if JUCE_IOS
+    return studioWindow.get();
+   #else
+    return nullptr;
+   #endif
+}
+namespace {
+struct StudioWindow : public juce::DocumentWindow {
+    StudioWindow(Canvas& c, StudioView* v) : juce::DocumentWindow("ARCO STUDIO", Theme::bg(), juce::DocumentWindow::allButtons), cv(c) {
+        setUsingNativeTitleBar(true); setContentOwned(v, false); setResizable(true, false); setResizeLimits(900, 600, 4000, 3000);
+        centreWithSize(1360, 820); }
+    void closeButtonPressed() override { setVisible(false); if (auto* v = dynamic_cast<StudioView*>(getContentComponent())) v->studio.playing = false; }
+    Canvas& cv;
+};
+}
+void Canvas::openStudio() {
+   #if JUCE_IOS
+    if (!studioWindow) {
+        auto* v = new StudioView(*this); studioView = v; studioWindow.reset(v);
+        addChildComponent(v); v->setBounds(0, 0, 1440, 880);
+        v->onClose = [this] { studioWindow->setVisible(false); };
+    }
+    studioWindow->setVisible(true); studioWindow->toFront(true);
+   #else
+    if (!studioWindow) {
+        auto* v = new StudioView(*this); studioView = v;
+        v->onClose = [this] { studioWindow->setVisible(false); };
+        studioWindow = std::make_unique<StudioWindow>(*this, v);
+    }
+    studioWindow->setVisible(true); studioWindow->toFront(true);
+   #endif
+    studioView->open();
+}
 void Canvas::setMidiLearn(bool on) {
     midiLearn = on;
     if (on) learnLayer->start(); else learnLayer->stop();
