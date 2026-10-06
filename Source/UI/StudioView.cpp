@@ -10,12 +10,12 @@ static void txt(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r
 
 StudioView::StudioView(Canvas& c) : studio(c.host.studio), cv(c), juce::Thread("ARCO studio job") {
     setWantsKeyboardFocus(true);
-    struct B { const char* t; std::function<void()> f; };
+    struct B { juce::String t; std::function<void()> f; };
     auto& st = studio;
     std::vector<B> bs = {
         { "PLAY", [this] { studio.playing = !studio.playing.load(); grabKeyboardFocus(); } },
-        { U8("⏮").toRawUTF8(), [this] { studio.pos = 0; scrollSec = 0; repaint(); } },
-        { U8("−").toRawUTF8(), [this] { pxPerSec = juce::jmax(4.0, pxPerSec / 1.5); repaint(); } },
+        { U8("⏮"), [this] { studio.pos = 0; scrollSec = 0; repaint(); } },
+        { U8("−"), [this] { pxPerSec = juce::jmax(4.0, pxPerSec / 1.5); repaint(); } },
         { "+", [this] { pxPerSec = juce::jmin(800.0, pxPerSec * 1.5); repaint(); } },
         { "SPLIT", [this] { split(); } },
         { "DUPLICATE", [this] { duplicate(); } },
@@ -27,10 +27,10 @@ StudioView::StudioView(Canvas& c) : studio(c.host.studio), cv(c), juce::Thread("
               juce::ModalCallbackFunction::create([this](int r) { if (r == 1) { juce::String why; if (studio.buildFromStation(4, why)) { buildPeaks(); selClip = -1; layoutInspector(); repaint(); } else cv.showMessage(why); } })); } },
         { "SAVE", [this] { if (cv.host.songFolder.isDirectory()) { cv.host.saveSong(cv.host.songFolder); cv.showMessage(studio.save(cv.host.songFolder) ? U8("STUDIO saved with the song ✓") : U8("could not save")); } else cv.showMessage("save the song on the station first (it needs a name)"); } },
         { "EXPORT", [this] { doExport(); } },
-        { U8("✕ CLOSE").toRawUTF8(), [this] { studio.playing = false; if (onClose) onClose(); } },
+        { U8("✕ CLOSE"), [this] { studio.playing = false; if (onClose) onClose(); } },
     };
     for (auto& b : bs) {
-        juce::String t = juce::String::fromUTF8(b.t);
+        juce::String t = b.t;
         auto* p = add<Pill>(t, [t, this] { if (t == "PLAY") return studio.playing.load() ? Theme::green() : Theme::btn(); if (t == "EXPORT") return Theme::sel(); return Theme::btn(); }, 8.5f, 7.0f);
         if (t == "PLAY") p->dynText = [this] { return studio.playing.load() ? juce::String(U8("■ STOP")) : juce::String(U8("▶ PLAY")); };
         p->onClick = b.f;
@@ -195,7 +195,7 @@ void StudioView::paint(juce::Graphics& g) {
     for (auto* k : masterKnobs) lab(k);
     double sec = studio.pos.load() / S.sr; double bars = sec / barSec;
     txt(g, "bar " + juce::String((int) bars + 1) + "." + juce::String((int) ((bars - std::floor(bars)) * S.beats) + 1) + U8("  ·  ") + juce::String((int) sec / 60) + ":" + juce::String((int) sec % 60).paddedLeft('0', 2)
-        + U8("  ·  ") + juce::String(S.bpm, 1) + " BPM", { getWidth() - 470, 18, 250, 22 }, 9.0f, Theme::sub(), 1, juce::Justification::centredRight);
+        + U8("  ·  ") + juce::String(S.bpm, 1) + " BPM", { 12, (int) topH + 3, (int) headW - 20, 20 }, 8.5f, Theme::txt(), 1);
     if (isThreadRunning() || (progress > 0 && progress < 1)) {
         auto bar = juce::Rectangle<float>(20, topH - 6, getWidth() - 40.0f, 4);
         g.setColour(Theme::card2()); g.fillRect(bar); g.setColour(Theme::green()); g.fillRect(bar.withWidth(bar.getWidth() * juce::jlimit(0.0f, 1.0f, progress.load())));

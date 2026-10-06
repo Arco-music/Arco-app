@@ -5,6 +5,7 @@
 #include "App/SelfTest.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
+#include "UI/StudioView.h"
 
 class ARCOApplication : public juce::JUCEApplication {
 public:
@@ -100,6 +101,23 @@ public:
             mc->phone.st.apply(juce::StringArray::fromLines("s ntn 4\ns nlive 2\ns statA 12851\ns transport 1\ns scenes 1\ns smask 3\ns ebpm 96\ns barno 3\ns beatno 2\ns live 1\n"
                 "i song Morning Etude\ni cards eq,dly,rev,spc,flg\ni phone1 Paulo's iPhone\np vol4 64\np pan5 -20\np spc4 30\ns lv4 0.5\ns lv0 0.7"));
             int pg = cmd.fromFirstOccurrenceOf("page=", false, false).getIntValue(); mc->phone.setPage(pg);
+        }
+        if (cmd.contains("studiodemo")) {
+            auto& S = host->studio.song; S = arco::StudioSong(); S.sr = 48000; S.bpm = 96;
+            const char* nm[4] = { "TRACK 1", "TRACK 2", "TRACK 3", "TRACK 4" };
+            for (int t = 0; t < 4; ++t) {
+                arco::StudioLane L; L.name = nm[t]; L.colour = 4 + t; L.vol = -3.0f * t; L.pan = t == 2 ? -0.4f : 0.0f; S.lanes.push_back(L);
+                arco::StudioSource src; src.name = juce::String("scene A - track ") + juce::String(t + 1); src.l.resize((size_t) (48000 * 10));
+                for (size_t i = 0; i < src.l.size(); ++i) { double tt = i / 48000.0; double env = std::exp(-std::fmod(tt, 0.625 * (t + 1)) * 3.0); src.l[i] = (float) (0.6 * env * std::sin(2 * M_PI * (110.0 * (t + 1)) * tt)); }
+                S.sources.push_back(src);
+                arco::StudioClip c; c.lane = t; c.source = t; c.start = (long) (t == 3 ? 48000 * 10 : 0); c.length = 48000 * (t == 3 ? 20 : 40); c.fadeIn = 2000; c.fadeOut = t == 0 ? 96000 : 200; S.clips.push_back(c);
+            }
+            host->studio.laneStrip = { 4, 5, 6, 7 }; host->studio.laneScene = { 1, 1, 1, 1 };
+            auto* sv = new arco::StudioView(mc->canvas); sv->setSize(1360, 820); host->studio.pos = 48000 * 12;
+            sv->open();
+            juce::Timer::callAfterDelay(1200, [this, sv, out] { auto img = sv->createComponentSnapshot(sv->getLocalBounds(), true, 1.5f);
+                juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os); delete sv; quit(); });
+            return;
         }
         if (cmd.contains("automix")) mc->canvas.command(arco::cmdAutoMix);
         if (cmd.contains("export")) mc->canvas.command(arco::cmdExport);
