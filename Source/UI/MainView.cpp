@@ -408,8 +408,9 @@ void Canvas::buildTopBar() {
     // windows
     auto* syn = add<Pill>({ 1326, 9, 50, 22 }, "SYNTH", [] { return Theme::c(Theme::rgb(0.40f, 0.30f, 0.70f)); }, 8.5f, 7.0f);
     syn->onClick = [this] { openSynth(true); };
-    auto* room = add<Pill>({ 1380, 9, 48, 22 }, "ROOM", [] { return Theme::off(); }, 8.5f, 7.0f);
-    room->onClick = [this] { openSetup(true); };
+    auto* studioB = add<Pill>({ 1380, 9, 48, 22 }, "STUDIO", [] { return Theme::blue(); }, 7.5f, 7.0f);
+    studioB->onClick = [this] { openStudio(); };
+    studioB->setComponentID("t:studio");
     auto* st = add<Pill>({ 1326, 35, 42, 20 }, "SETUP", [] { return Theme::off(); }, 7.5f, 7.0f);
     st->onClick = [this] { openSetup(true); };
     auto* lt = add<Pill>({ 1371, 35, 30, 20 }, "LIGHT", [] { return Theme::off(); }, 6.0f, 7.0f);
@@ -428,6 +429,11 @@ void Canvas::buildScenes() {
     auto* pn = add<Pill>({ 1336, 68, 18, 24 }, U("›"), [] { return Theme::btn(); }, 11.0f, 5.0f);
     pn->onClick = [this] { if (cardPage < numCardPages - 1) { ++cardPage; layoutCards(); } };
     pagePills = { pp, pn };
+    auto* am = add<Pill>({ 1092, 68, 110, 24 }, "AUTO MIX", [this] { return autoMixAvailable() ? Theme::green() : Theme::violet(); }, 8.0f, 6.0f);
+    am->onClick = [this] { openAutoMix(); };
+    am->setComponentID("t:automix");
+    auto* mi = add<Pill>({ 1208, 68, 96, 24 }, U("MIDI LEARN"), [this] { return midiLearn ? Theme::amber() : Theme::btn(); }, 7.5f, 6.0f);
+    mi->onClick = [this] { setMidiLearn(!midiLearn); };
     for (int i = 0; i < 4; ++i) {
         auto* tab = add<Pill>({ 64 + i * 98, 66, 62, 28 }, juce::String::charToString((juce::juce_wchar) ('A' + i)), [this, i] {
             int sc = (int) snap("scenes"), mask = (int) snap("smask"), n = i + 1;
@@ -572,13 +578,13 @@ void Canvas::paint(juce::Graphics& g) {
     // scenes row
     label(g, "SCENE", { 16, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
     if (juce::Time::getMillisecondCounterHiRes() < flashUntil) {
-        g.setColour(Theme::amber()); g.fillRoundedRectangle(1290, 68, 134, 24, 6.0f);
-        label(g, flash, { 1290, 68, 134, 24 }, 9.5f, juce::Colours::black, 2, juce::Justification::centred);
+        g.setColour(Theme::amber()); g.fillRoundedRectangle(930, 68, 150, 24, 6.0f);
+        label(g, flash, { 930, 68, 150, 24 }, 9.5f, Theme::textOn(Theme::amber()), 2, juce::Justification::centred);
     }
     label(g, "TRACKS", { 462, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
     int s = model().selected;
     label(g, juce::String(U("SEND ▸ ")) + (s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3)), { 566, 72, 260, 16 }, 9.0f, Theme::txt(), 2);
-    if (numCardPages > 1) label(g, "EFFECTS " + juce::String(cardPage + 1) + " / " + juce::String(numCardPages), { 1220, 73, 90, 16 }, 8.0f, Theme::sub(), 2, juce::Justification::centredRight);
+    if (numCardPages > 1) label(g, juce::String(cardPage + 1) + " / " + juce::String(numCardPages), { 1270, 94, 140, 12 }, 7.0f, Theme::sub(), 1, juce::Justification::centredRight);
 }
 
 } // namespace arco

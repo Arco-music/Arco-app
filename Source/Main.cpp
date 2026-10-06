@@ -122,8 +122,7 @@ public:
             setContentOwned(mc, false);
             setFullScreen(true);
             setVisible(true);
-            // an iPhone is mostly a microphone for the Mac: it opens on MIC FOR MAC (the station is one tap away)
-            if (juce::SystemStats::getDeviceDescription().containsIgnoreCase("iPhone")) { mc->mic.backText = "OPEN THE STATION"; mc->showMic(true); }
+            juce::ignoreUnused(mc);               // (an iPhone opens as a phone: MainComponent does it)
             return;
            #endif
             setContentOwned(new arco::MainComponent(h), true);

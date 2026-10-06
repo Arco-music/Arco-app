@@ -35,7 +35,8 @@ jobs:
       - name: Self-test (Mac)
         run: |
           APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
-          "$APP/Contents/MacOS/ARCO" --selftest | tee dist/selftest-mac.txt
+          "$APP/Contents/MacOS/ARCO" --selftest | tee dist/selftest-mac.txt || true
+          grep "FAIL" dist/selftest-mac.txt | while IFS= read -r l; do echo "::error::$l"; done
           grep -q " 0 failed" dist/selftest-mac.txt
       - name: Screenshots
         run: |
@@ -83,6 +84,7 @@ jobs:
           for i in $(seq 1 120); do sleep 2; grep -q "checks," dist/selftest-ipad.txt 2>/dev/null && break; done
           sleep 2
           cat dist/selftest-ipad.txt | tail -5
+          grep "FAIL" dist/selftest-ipad.txt | while IFS= read -r l; do echo "::error::iPad $l"; done
           grep -q " 0 failed" dist/selftest-ipad.txt
       - name: Pack ARCO.ipa (for Sideloadly - it signs it with your Apple ID)
         run: |
