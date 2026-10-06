@@ -17,6 +17,8 @@
       <FILE id="c1bafd" name="Render.cpp" compile="1" resource="0" file="Source/App/Render.cpp"/>
       <FILE id="6dd06d" name="Render.h" compile="0" resource="0" file="Source/App/Render.h"/>
       <FILE id="8637f6" name="SelfTest.h" compile="0" resource="0" file="Source/App/SelfTest.h"/>
+      <FILE id="8debd5" name="Studio.cpp" compile="1" resource="0" file="Source/App/Studio.cpp"/>
+      <FILE id="ba601d" name="Studio.h" compile="0" resource="0" file="Source/App/Studio.h"/>
       <FILE id="efd528" name="SynthPlayer.h" compile="0" resource="0" file="Source/App/SynthPlayer.h"/>
       <FILE id="ada1db" name="Updater.h" compile="0" resource="0" file="Source/App/Updater.h"/>
     </GROUP>
@@ -69,6 +71,8 @@
       <FILE id="200fb2" name="PhoneRemote.h" compile="0" resource="0" file="Source/UI/PhoneRemote.h"/>
       <FILE id="fcdebe" name="Sheets.cpp" compile="1" resource="0" file="Source/UI/Sheets.cpp"/>
       <FILE id="af4daa" name="Sheets.h" compile="0" resource="0" file="Source/UI/Sheets.h"/>
+      <FILE id="0113ff" name="StudioView.cpp" compile="1" resource="0" file="Source/UI/StudioView.cpp"/>
+      <FILE id="35d58b" name="StudioView.h" compile="0" resource="0" file="Source/UI/StudioView.h"/>
       <FILE id="dc0181" name="SynthPanel.cpp" compile="1" resource="0" file="Source/UI/SynthPanel.cpp"/>
       <FILE id="21e659" name="SynthPanel.h" compile="0" resource="0" file="Source/UI/SynthPanel.h"/>
       <FILE id="4544e2" name="Theme.h" compile="0" resource="0" file="Source/UI/Theme.h"/>

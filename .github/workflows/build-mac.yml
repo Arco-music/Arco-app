@@ -60,7 +60,7 @@ jobs:
           set -o pipefail
           xcodebuild -project ARCO.xcodeproj -target "ARCO - App" -configuration Release -sdk iphoneos \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/out/device" -quiet build 2>&1 | tee build.log || {
-            grep -E "error:|Error " build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
+            grep -E "error:|Error |Undefined|referenced from|ld: " build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
           ls -la out/device/ARCO.app | head -5
       - name: Build for the iPad simulator
         run: |
