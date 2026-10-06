@@ -480,6 +480,36 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
             worst = std::max(worst, pk2);
         }
         check(allOk, "  every factory sound plays cleanly (loudest peak)", worst);
+        // SYNTH 2: the new oscillator modes, the 24 dB filter, the modulation matrix, the arpeggiator, the slide pad
+        {
+            applyFactorySynthPreset(m, 0); m.set("mono", 0); m.set("s_glide", 0);
+            bool modesOk = true; std::string bad;
+            for (int md = 0; md < 4; ++md) {
+                m.set("a_mode", md); m.set("a_wave", 60); m.set("a_warp", 40); m.set("c_lvl", 50); m.set("c_mode", (md + 1) % 4); m.set("f_slope", md % 2);
+                h.keys.noteOn(1, 57, 0.8f); float pk2 = run(0.8, 0); h.keys.noteOff(1, 57, 0); run(1.0, 0);
+                if (!(pk2 > 0.02f && pk2 < 2.0f) || nan) { modesOk = false; bad += " mode " + std::to_string(md) + "=" + std::to_string(pk2); }
+            }
+            check(modesOk, ("SYNTH 2: WAVE / FM / FOLD / SYNC, 12 and 24 dB, all clean" + bad).c_str());
+            m.set("a_mode", 0); m.set("c_lvl", 0); m.set("f_slope", 0);
+            // LFO 2 (fast square) -> VOLUME: the level jumps up and down
+            m.set("l2_rate", 70); m.set("l2_shape", 55); m.set("m0_src", 2); m.set("m0_dst", synthDestForKnob("s_lvl")); m.set("m0_amt", -90);
+            h.keys.noteOn(1, 60, 0.9f); run(0.5, 0);
+            float lo = 9, hi2 = 0; for (int i = 0; i < 40; ++i) { float pp = run(0.02, 0); lo = std::min(lo, pp); hi2 = std::max(hi2, pp); }
+            h.keys.noteOff(1, 60, 0); run(1.0, 0); m.set("m0_src", 0); m.set("m0_amt", 0);
+            check(hi2 > 2.5f * std::max(lo, 1e-4f), "  the matrix: LFO 2 moves the volume (loud / soft)", hi2 / std::max(lo, 1e-4f));
+            // the arpeggiator: a held chord becomes notes in tempo
+            m.set("arp_on", 1); m.set("arp_rate", 3); m.set("arp_mode", 0); m.set("e1_r", 5); m.set("e1_a", 0);
+            for (int nn : { 60, 64, 67 }) h.synth.noteOn(nn, 0.8f);
+            int peaks = 0; bool above = false; float maxV = 0;
+            for (int i = 0; i < 190; ++i) { float v2 = e.snap("syn_n").v.load(); run(0.0107, 0); maxV = std::max(maxV, v2); if (v2 >= 1 && !above) { ++peaks; above = true; } if (v2 < 1) above = false; }
+            for (int nn : { 60, 64, 67 }) h.synth.noteOff(nn);
+            m.set("arp_on", 0); run(1.0, 0);
+            check(peaks >= 3, "  ARPEGGIATOR: one note after the other, in tempo (notes in 2 s)", peaks);
+            // the slide pad: a gliding voice, louder and softer
+            h.synth.padOn(60.0f, 0.8f); run(0.3, 0); h.synth.padMove(64.5f, 0.2f); run(0.2, 0); float soft = run(0.3, 0); h.synth.padMove(64.5f, 1.0f); run(0.2, 0); float loud = run(0.3, 0); h.synth.padOff(); run(1.0, 0);
+            check(loud > soft * 1.5f && !nan, "  SLIDE PAD: glides, and up = louder", loud / std::max(soft, 1e-4f));
+            applyFactorySynthPreset(m, 0);
+        }
         applyFactorySynthPreset(m, 0); h.setSynthInto(0);
     }
     // MIDI LEARN: a knob and a button linked to MIDI controls

@@ -5,6 +5,7 @@
 // (included at the end of ParamTable.h)
 #include <deque>
 #include <JuceHeader.h>
+#include "../Engine/Synth2.h"
 
 namespace arco {
 
@@ -79,8 +80,34 @@ inline const std::vector<ParamDef>& mixParams() {
     return p;
 }
 
+// SYNTH 2: the new parameters (the old SYNTH's stay as they were), saved with the song
+inline const std::vector<ParamDef>& synthParams() {
+    static std::deque<std::string> names;
+    static const std::vector<ParamDef> p = [] {
+        std::vector<ParamDef> v;
+        auto add = [&](const std::string& id, double def, double lo, double hi, int kind) { names.push_back(id); v.push_back({ names.back().c_str(), { "st_syn" }, def, lo, hi, 1, kind }); };
+        add("c_wave", 25, 0, 100, 0); add("c_warp", 0, 0, 100, 0); add("c_semi", 12, -24, 24, 2); add("c_fine", 0, -50, 50, 0);
+        add("c_lvl", 0, 0, 100, 0); add("c_uni", 1, 1, 5, 2); add("c_det", 25, 0, 100, 0);
+        add("a_mode", 0, 0, 3, 2); add("b_mode", 0, 0, 3, 2); add("c_mode", 0, 0, 3, 2);
+        add("f_slope", 0, 0, 1, 1);
+        add("e3_a", 20, 0, 100, 0); add("e3_d", 50, 0, 100, 0); add("e3_s", 0, 0, 100, 0); add("e3_r", 40, 0, 100, 0);
+        add("l2_rate", 20, 0, 100, 0); add("l2_shape", 0, 0, 100, 0); add("l2_sync", 0, 0, 1, 1);
+        add("l3_rate", 10, 0, 100, 0); add("l3_shape", 90, 0, 100, 0); add("l3_sync", 0, 0, 1, 1);
+        for (int m = 0; m < kModSlots; ++m) {
+            add("m" + std::to_string(m) + "_src", 0, 0, (double) synthModSources().size() - 1, 2);
+            add("m" + std::to_string(m) + "_dst", 0, 0, (double) synthModDests().size() - 1, 2);
+            add("m" + std::to_string(m) + "_amt", 0, -100, 100, 0);
+        }
+        for (int m = 1; m <= 4; ++m) add("mc" + std::to_string(m), 0, 0, 100, 0);
+        add("arp_on", 0, 0, 1, 1); add("arp_mode", 0, 0, 5, 2); add("arp_rate", 3, 0, 6, 2); add("arp_oct", 1, 1, 4, 2); add("arp_gate", 60, 10, 100, 0); add("arp_hold", 0, 0, 1, 1);
+        add("vel_amt", 65, 0, 100, 0); add("bend_rng", 2, 1, 12, 2);
+        return v;
+    }();
+    return p;
+}
+
 inline const std::vector<ParamDef>& paramTable() {
-    static const std::vector<ParamDef> t = [] { auto v = paramTableBase(); for (auto& d : extraParams()) v.push_back(d); for (auto& d : mixParams()) v.push_back(d); return v; }();
+    static const std::vector<ParamDef> t = [] { auto v = paramTableBase(); for (auto& d : extraParams()) v.push_back(d); for (auto& d : mixParams()) v.push_back(d); for (auto& d : synthParams()) v.push_back(d); return v; }();
     return t;
 }
 

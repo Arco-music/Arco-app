@@ -16,6 +16,7 @@ public:
     void noteOn(int note, float vel01) {
         if (onFirstNote) onFirstNote();
         int vel = juce::jlimit(1, 127, (int) std::round(vel01 * 127.0f));
+        if (arp()) { eng.set("st_syn", "hn" + std::to_string(juce::jlimit(0, 127, note)), vel); arpDown.push_back(note); return; }   // the arpeggiator plays them
         if (mono()) {
             held.erase(std::remove(held.begin(), held.end(), note), held.end());
             bool legato = !held.empty();
@@ -37,6 +38,9 @@ public:
         setVoice(v, note, vel, true);
     }
     void noteOff(int note) {
+        if (std::find(arpDown.begin(), arpDown.end(), note) != arpDown.end()) {
+            arpDown.erase(std::remove(arpDown.begin(), arpDown.end(), note), arpDown.end());
+            eng.set("st_syn", "hn" + std::to_string(juce::jlimit(0, 127, note)), 0); return; }
         if (sustain) { sustained.push_back(note); return; }
         if (mono()) {
             held.erase(std::remove(held.begin(), held.end(), note), held.end());
@@ -50,9 +54,9 @@ public:
         sustain = on;
         if (!on) { auto s = sustained; sustained.clear(); for (int n : s) noteOff(n); }
     }
-    void pitchBend(float semis) {                // -2 .. +2: every sounding voice bends
+    void pitchBend(float semis) {                // -2 .. +2 (the wheel); SYNTH 2 scales it by BEND RANGE
         bend = semis;
-        for (int k = 0; k < NV; ++k) if (voice[k].vel > 0) eng.set("st_syn", "sn" + std::to_string(k), voice[k].note + bend);
+        eng.set("st_syn", "bend", semis);
     }
     // the slide pad: one voice whose pitch glides freely (a float note), louder or softer while it sounds
     void padOn(float pitch, float vel01) {
@@ -74,11 +78,13 @@ public:
     void setExpression(float v01) { expr = v01; eng.set("st_syn", "expr", v01); }   // the slide pad's up / down (volume while playing)
     float expression() const { return expr; }
     void allOff() {
+        for (int n : arpDown) eng.set("st_syn", "hn" + std::to_string(juce::jlimit(0, 127, n)), 0);
+        arpDown.clear();
         held.clear(); sustained.clear(); sustain = false;
         for (int k = 0; k < NV; ++k) release(k);
     }
     int sounding() const { int c = 0; for (auto& v : voice) c += v.vel > 0; return c; }
-    static constexpr int NV = 8;
+    static constexpr int NV = 12;
 private:
     struct Voice { int note = 60, vel = 0, trig = 0; long age = 0; };
     Voice voice[NV];
@@ -89,6 +95,8 @@ private:
     int padVoice = -1;
     Engine& eng;
     bool mono() const { return paramValue("mono") > 0.5; }
+    bool arp() const { return paramValue("arp_on") > 0.5; }
+    std::vector<int> arpDown;
     double glide() const { return paramValue("s_glide"); }
     std::function<double(const char*)> param;
 public:
@@ -98,7 +106,7 @@ private:
     void setVoice(int k, int note, int vel, bool retrigger) {
         auto& v = voice[k];
         v.note = note; v.vel = vel; v.age = ++clock;
-        eng.set("st_syn", "sn" + std::to_string(k), note + bend);
+        eng.set("st_syn", "sn" + std::to_string(k), (double) note);
         eng.set("st_syn", "sv" + std::to_string(k), vel);
         if (retrigger) eng.set("st_syn", "sg" + std::to_string(k), ++v.trig);
     }

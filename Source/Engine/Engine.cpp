@@ -59,7 +59,12 @@ void Engine::prepare(double sampleRate) {
     // order matters: the same order the patch's signal flows in (the SYNTH uses the previous block's beat)
     addNode<Listen>(this, mods, busToMod, graph, b, "st_listen", { "live_in1" }, { "pitch", "-", "lev1" });
     addNode<Tune>(this, mods, busToMod, graph, b, "st_tune", { "live_in1", "pitch" }, { "tune_out", "tn_pitch", "tn_corr", "tn_note" });
-    addNode<Synth>(this, mods, busToMod, graph, b, "st_syn", { "pitch", "beat_prev" }, { "synL", "synR", "syn_mono", "syn_n", "syn_lfo" });
+    {   // SYNTH 2
+        auto* sm = new Synth2Mod(); mods.emplace_back(sm); busToMod["st_syn"] = (int) mods.size() - 1; sm->syn.init(sr);
+        const float* pi = B("pitch"); const float* be = B("beat_prev"); const float* bp = B("ebpm");
+        float* o[5] = { B("synL"), B("synR"), B("syn_mono"), B("syn_n"), B("syn_lfo") };
+        graph.push_back([sm, pi, be, bp, o]() { sm->syn.process(pi, be, bp, o[0], o[1], o[2], o[3], o[4], SUB); });
+    }
     graph.push_back([this]() {                     // live 1 = input or TUNE; live 2-4 = input or SYNTH
         float* li = B("live_in1"); float* tu = B("tune_out"); float* l1 = B("live1");
         float target = tuneAmt > 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.02 * sr);
@@ -131,7 +136,6 @@ void Engine::prepare(double sampleRate) {
     for (auto& mp : mods) {
         if (auto* x = dynamic_cast<Mod<Listen>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Tune>*>(mp.get())) x->m.init(sr);
-        else if (auto* x = dynamic_cast<Mod<Synth>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Looper>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Channels>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Halo>*>(mp.get())) x->m.init(sr);

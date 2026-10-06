@@ -11,6 +11,7 @@
 #include "GenModules.h"
 #include "ExtraFx.h"
 #include "StripMix.h"
+#include "Synth2.h"
 
 namespace arco {
 
@@ -54,6 +55,14 @@ struct MasterMixMod : IModule {
     MasterMix mx;
     int paramIndex(const std::string& n) override { return mx.paramIndex(n); }
     void setp(int i, double v) override { mx.setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
+};
+
+struct Synth2Mod : IModule {
+    Synth2 syn;
+    int paramIndex(const std::string& n) override { return syn.paramIndex(n); }
+    void setp(int i, double v) override { syn.setParam(i, v); }
     void bind(const std::string&, SharedBuffer&) override {}
     double* data(const std::string&) override { return nullptr; }
 };
