@@ -1,7 +1,7 @@
 name: Build ARCO
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -103,6 +103,7 @@ jobs:
 
   release:
     needs: [mac, ipad]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

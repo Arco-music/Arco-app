@@ -25,13 +25,15 @@ w = out.append
 w('<?xml version="1.0" encoding="UTF-8"?>')
 w(f'<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="{VERSION}" bundleIdentifier="com.pacello.arco" '
   f'companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" '
+  f'compilerFlagSchemes="nofastmath" '
   f'defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">')
 w('  <MAINGROUP id="grp000" name="ARCO">')
 for g, files in sorted(groups.items()):
     w(f'    <GROUP id="{uid(g)}" name={esc(g)}>')
     for p in files:
         comp = "1" if p.endswith((".cpp", ".mm")) else "0"
-        w(f'      <FILE id="{uid(p)}" name={esc(os.path.basename(p))} compile="{comp}" resource="0" file={esc(p)}/>')
+        extra = ' compilerFlagScheme="nofastmath"' if os.path.basename(p) == "Analysis.cpp" else ''   # Signalsmith Stretch: no -ffast-math
+        w(f'      <FILE id="{uid(p)}" name={esc(os.path.basename(p))} compile="{comp}" resource="0" file={esc(p)}{extra}/>')
     w('    </GROUP>')
 w('    <GROUP id="grpres" name="Resources">')
 for f in ["Inter-Regular.otf", "Inter-SemiBold.otf", "Inter-Bold.otf", "icon.png"]:
@@ -51,7 +53,7 @@ w('    <XCODE_IPHONE targetFolder="Builds/iOS" iosDeviceFamily="1,2" bigIcon="ic
   'microphonePermissionNeeded="1" microphonePermissionsText="ARCO uses the microphone (or your audio interface) to record your instrument." '
   'iosBackgroundAudio="1" UIFileSharingEnabled="1" UISupportsDocumentBrowser="1" UIStatusBarHidden="1" '
   'customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;NSLocalNetworkUsageDescription&lt;/key&gt;&lt;string&gt;ARCO finds your phones and your station (Mac or iPad) on the Wi-Fi: microphones and remote control.&lt;/string&gt;&lt;key&gt;LSSupportsOpeningDocumentsInPlace&lt;/key&gt;&lt;true/&gt;&lt;key&gt;NSBonjourServices&lt;/key&gt;&lt;array&gt;&lt;string&gt;_arco._tcp&lt;/string&gt;&lt;/array&gt;&lt;key&gt;UIRequiresFullScreen&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;" '
-  'extraCompilerFlags="-Wno-unused-variable -Wno-unused-parameter">')
+  'extraCompilerFlags="-Wno-unused-variable -Wno-unused-parameter" nofastmath="-fno-fast-math">')
 w('      <CONFIGURATIONS>')
 w('        <CONFIGURATION name="Debug" isDebug="0" iosDeploymentTarget="15.0" optimisation="3" fastMath="1" targetName="ARCO"/>')
 w('        <CONFIGURATION name="Release" isDebug="0" iosDeploymentTarget="15.0" optimisation="3" fastMath="1" targetName="ARCO"/>')

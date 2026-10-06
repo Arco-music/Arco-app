@@ -4,11 +4,15 @@
 <plist>
   <dict>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>ARCO sends this microphone to ARCO on your Mac over Wi-Fi.</string>
+    <string>ARCO finds your phones and your station (Mac or iPad) on the Wi-Fi: microphones and remote control.</string>
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_arco._tcp</string>
+    </array>
     <key>UIRequiresFullScreen</key>
-    <true/>
+    <false/>
     <key>NSMicrophoneUsageDescription</key>
     <string>ARCO uses the microphone (or your audio interface) to record your instrument.</string>
     <key>LSRequiresIPhoneOS</key>
@@ -30,9 +34,9 @@
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>NSHumanReadableCopyright</key>
     <string></string>
     <key>NSHighResolutionCapable</key>
@@ -51,6 +55,8 @@
     </array>
     <key>UISupportedInterfaceOrientations~ipad</key>
     <array>
+      <string>UIInterfaceOrientationPortrait</string>
+      <string>UIInterfaceOrientationPortraitUpsideDown</string>
       <string>UIInterfaceOrientationLandscapeLeft</string>
       <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
