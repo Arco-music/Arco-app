@@ -18,7 +18,7 @@ class Updater : private juce::Thread {
 public:
     Updater() : juce::Thread("ARCO update") {}
     ~Updater() override { stopThread(4000); }
-    static constexpr const char* repo = "pacello1103-png/ARCO";
+    static constexpr const char* repo = "Arco-music/Arco-app";
     static int build() { return ARCO_BUILD; }
     static juce::String releasesPage() { return "https://github.com/" + juce::String(repo) + "/releases/latest"; }
 
