@@ -2,10 +2,11 @@
 //  - "auto": the best built-in microphone (the bottom one, all-around pattern); a cable / USB interface that is plugged in wins.
 //  - or a chosen input: built-in front / back / bottom, the headset cable, a USB interface, a Bluetooth headset.
 //  - the output: whatever iOS routes to (cable, Bluetooth, AirPlay), chosen with the system picker; or the speaker forced.
-#include "IOSAudio.h"
+// (Apple's headers first: after JuceHeader.h's "using namespace juce", their Point / AudioBuffer would clash with JUCE's)
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
 #import <UIKit/UIKit.h>
+#include "IOSAudio.h"
 
 namespace arco::ios {
 
