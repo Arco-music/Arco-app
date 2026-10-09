@@ -98,6 +98,8 @@ inline const std::vector<ParamDef>& synthParams() {
         add("c_wave", 25, 0, 100, 0); add("c_warp", 0, 0, 100, 0); add("c_semi", 12, -24, 24, 2); add("c_fine", 0, -50, 50, 0);
         add("c_lvl", 0, 0, 100, 0); add("c_uni", 1, 1, 5, 2); add("c_det", 25, 0, 100, 0);
         add("a_mode", 0, 0, 3, 2); add("b_mode", 0, 0, 3, 2); add("c_mode", 0, 0, 3, 2);
+        add("d_wave", 50, 0, 100, 0); add("d_warp", 0, 0, 100, 0); add("d_semi", 7, -24, 24, 2); add("d_fine", 0, -50, 50, 0);
+        add("d_lvl", 0, 0, 100, 0); add("d_uni", 1, 1, 5, 2); add("d_det", 25, 0, 100, 0); add("d_mode", 0, 0, 3, 2);
         add("f_slope", 0, 0, 1, 1);
         add("e3_a", 20, 0, 100, 0); add("e3_d", 50, 0, 100, 0); add("e3_s", 0, 0, 100, 0); add("e3_r", 40, 0, 100, 0);
         add("l2_rate", 20, 0, 100, 0); add("l2_shape", 0, 0, 100, 0); add("l2_sync", 0, 0, 1, 1);

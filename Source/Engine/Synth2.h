@@ -1,5 +1,5 @@
 #pragma once
-// ARCO 1.2: SYNTH 2. 12 voices, 3 oscillators (WAVE morph / FM / FOLD / SYNC, unison up to 5), sub, noise, a resonant
+// ARCO 1.2: SYNTH 2 (1.3: 4 oscillators). 12 voices, 4 oscillators (WAVE morph / FM / FOLD / SYNC, unison up to 5), sub, noise, a resonant
 // filter (12 or 24 dB, low / band / high), 3 envelopes, 3 LFOs, a modulation matrix (12 slots: any source to any of the
 // knobs below), 4 macros, glide, mono / legato, FOLLOW (a voice sings the note LIVE 1 plays), and an arpeggiator in tempo.
 // The old SYNTH's parameters keep their meaning, so every preset sounds as before.
@@ -32,20 +32,22 @@ inline const std::vector<SynthDest>& synthModDests() {
         { "CUTOFF", "f_cut", 100 }, { "RESO", "f_res", 100 }, { "DRIVE", "f_drive", 100 }, { "VOLUME", "s_lvl", 100 }, { "PAN", "spread", 100 },
         { "LFO 1 RATE", "l_rate", 100 }, { "LFO 2 RATE", "l2_rate", 100 }, { "LFO 3 RATE", "l3_rate", 100 }, { "DETUNE", "a_det", 100 },
         { "A FINE", "a_fine", 100 }, { "B FINE", "b_fine", 100 }, { "C FINE", "c_fine", 100 },
+        { "D PITCH", "d_semi", 24 }, { "D WAVE", "d_wave", 100 }, { "D WARP", "d_warp", 100 }, { "D LEVEL", "d_lvl", 100 }, { "D FINE", "d_fine", 100 },
     };
     return d;
 }
 inline int synthDestForKnob(const std::string& knob) {
     auto& d = synthModDests();
     for (int i = 1; i < (int) d.size(); ++i) if (knob == d[(size_t) i].knob) return i;
-    if (knob == "b_det" || knob == "c_det") return 24;
+    if (knob == "b_det" || knob == "c_det" || knob == "d_det") return 24;
     return 0;
 }
 constexpr int kModSlots = 12;
 
 class Synth2 {
 public:
-    static constexpr int NV = 12, NU = 5, NO = 3;
+    static constexpr int NV = 12, NU = 5, NO = 4;
+    static constexpr int NM = 33;   // modulation destinations
     Synth2() { build(); }
     void init(double sampleRate) {
         sr = sampleRate;
@@ -131,15 +133,16 @@ public:
                 float pv = v.pitch + bendSemis + lfo[0] * std::pow(P.lpitch / 100.0f, 2.0f) + M[1];
                 float wmod = lfo[0] * P.lwave / 100.0f * 50.0f + v.env[1] * P.e2wave / 100.0f * 50.0f;
                 float sL = 0, sR = 0;
+                static const int DP[NO] = { 2, 3, 4, 28 }, DW[NO] = { 5, 6, 7, 29 }, DR[NO] = { 8, 9, 10, 30 }, DL[NO] = { 11, 12, 13, 31 }, DF[NO] = { 25, 26, 27, 32 };
                 for (int o = 0; o < NO; ++o) {
                     auto& O = P.osc[o];
-                    float lv = std::clamp(O.lvl / 100.0f + M[11 + o] / 100.0f, 0.0f, 1.0f);
+                    float lv = std::clamp(O.lvl / 100.0f + M[DL[o]] / 100.0f, 0.0f, 1.0f);
                     if (lv <= 0.001f) continue;
                     int nu = std::clamp((int) O.uni, 1, NU);
-                    float wave = std::clamp(O.wave + wmod + M[5 + o], 0.0f, 100.0f), warp = std::clamp(O.warp + M[8 + o], 0.0f, 100.0f);
+                    float wave = std::clamp(O.wave + wmod + M[DW[o]], 0.0f, 100.0f), warp = std::clamp(O.warp + M[DR[o]], 0.0f, 100.0f);
                     float det = std::clamp(O.det + M[24], 0.0f, 100.0f);
                     float ug = lv / std::sqrt((float) nu);
-                    float base = pv + O.semi + M[2 + o] + (O.fine + M[25 + o] * 0.5f) / 100.0f;
+                    float base = pv + O.semi + M[DP[o]] + (O.fine + M[DF[o]] * 0.5f) / 100.0f;
                     int mode = std::clamp((int) O.mode, 0, 3);
                     for (int u = 0; u < nu; ++u) {
                         float uo = nu > 1 ? (u / (float) (nu - 1)) * 2.0f - 1.0f : 0.0f;
@@ -212,7 +215,7 @@ private:
         float env[3] { 0, 0, 0 }; int st[3] { 0, 0, 0 };
         float ph[NO][NU] {}, ph2[NO][NU] {}, subPh = 0;
         Svf f[4];
-        float mod[28] {};
+        float mod[NM] {};
         unsigned ctl = 0;
         void clearFilters() { for (auto& x : f) x = Svf(); }
     };
@@ -232,13 +235,13 @@ private:
 
     void reg(const std::string& n, float* p) { idx[n] = (int) slot.size(); slot.push_back(p); }
     void build() {
-        const char* on[NO] = { "a", "b", "c" };
+        const char* on[NO] = { "a", "b", "c", "d" };
         for (int o = 0; o < NO; ++o) {
             std::string p = on[o];
             reg(p + "_wave", &P.osc[o].wave); reg(p + "_warp", &P.osc[o].warp); reg(p + "_semi", &P.osc[o].semi); reg(p + "_fine", &P.osc[o].fine);
             reg(p + "_lvl", &P.osc[o].lvl); reg(p + "_uni", &P.osc[o].uni); reg(p + "_det", &P.osc[o].det); reg(p + "_mode", &P.osc[o].mode);
         }
-        P.osc[1] = { 75, 0, -12, 5, 0, 1, 25, 0 }; P.osc[2] = { 25, 0, 12, 0, 0, 1, 25, 0 };
+        P.osc[1] = { 75, 0, -12, 5, 0, 1, 25, 0 }; P.osc[2] = { 25, 0, 12, 0, 0, 1, 25, 0 }; P.osc[3] = { 50, 0, 7, 0, 0, 1, 25, 0 };
         reg("sub_lvl", &P.sub); reg("noise_lvl", &P.noise); reg("f_type", &P.ftype); reg("f_cut", &P.fcut); reg("f_res", &P.fres); reg("f_drive", &P.fdrive);
         reg("f_env", &P.fenv); reg("f_key", &P.fkey); reg("f_slope", &P.slope);
         reg("e1_a", &P.e1a); reg("e1_d", &P.e1d); reg("e1_s", &P.e1s); reg("e1_r", &P.e1r);
@@ -320,7 +323,7 @@ private:
         float g[3] = { 0, 0, 0 };
         for (int m = 0; m < kModSlots; ++m) {
             int s = (int) P.msrc[m], d = (int) P.mdst[m];
-            if (s <= 0 || d <= 0 || d >= 28 || std::abs(P.mamt[m]) < 0.01f) continue;
+            if (s <= 0 || d <= 0 || d >= NM || std::abs(P.mamt[m]) < 0.01f) continue;
             float x = 0; bool global = true;
             switch (s) {
                 case 1: x = lfo[0]; break; case 2: x = lfo[1]; break; case 3: x = lfo[2]; break;

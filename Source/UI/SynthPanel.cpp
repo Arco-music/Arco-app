@@ -10,7 +10,7 @@ static void slab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> 
                  juce::Justification j = juce::Justification::centredLeft) {
     g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.8f);
 }
-static juce::Colour cOsc(int o) { return o == 0 ? Theme::violet() : (o == 1 ? Theme::blue() : Theme::fx("cho")); }
+static juce::Colour cOsc(int o) { return o == 0 ? Theme::violet() : (o == 1 ? Theme::blue() : (o == 2 ? Theme::fx("cho") : Theme::fx("phs"))); }
 static juce::Colour cFil() { return Theme::amber(); }
 static juce::Colour cEnv() { return Theme::green(); }
 static juce::Colour cLfo() { return Theme::c(Theme::rgb(0.95f, 0.78f, 0.32f)); }
@@ -25,46 +25,39 @@ struct Preset { const char* name; std::vector<std::pair<const char*, double>> v;
 static const std::vector<Preset>& factory() {
     static const std::vector<Preset> P = {
         { "Init", {} },
-        { "Warm Pad", { { "a_uni", 3 }, { "a_det", 20 }, { "b_lvl", 50 }, { "b_wave", 25 }, { "b_semi", 0 }, { "b_fine", 7 }, { "f_cut", 45 }, { "f_res", 15 },
-                        { "f_env", 20 }, { "e1_a", 55 }, { "e1_d", 60 }, { "e1_s", 80 }, { "e1_r", 60 }, { "e2_a", 50 }, { "e2_d", 70 }, { "e2_s", 40 }, { "e2_r", 60 },
-                        { "l_rate", 20 }, { "l_cut", 15 }, { "spread", 80 }, { "s_lvl", 65 } } },
-        { "Supersaw Lead", { { "a_uni", 5 }, { "a_det", 45 }, { "b_lvl", 40 }, { "b_wave", 50 }, { "b_semi", 12 }, { "b_uni", 3 }, { "b_det", 30 }, { "f_cut", 70 },
-                             { "f_res", 25 }, { "f_env", 30 }, { "e1_a", 2 }, { "e1_s", 80 }, { "e1_r", 30 }, { "s_glide", 20 }, { "spread", 90 }, { "mono", 1 } } },
-        { "Cello Shadow (FOLLOW)", { { "follow", 1 }, { "f_oct", -12 }, { "a_wave", 25 }, { "a_warp", 20 }, { "sub_lvl", 40 }, { "f_cut", 50 }, { "e1_a", 20 },
-                                     { "e1_r", 50 }, { "s_glide", 30 }, { "l_pitch", 8 }, { "l_rate", 35 } } },
-        { "Glass Keys", { { "a_wave", 0 }, { "a_warp", 60 }, { "b_wave", 25 }, { "b_lvl", 40 }, { "b_semi", 12 }, { "f_cut", 85 }, { "e1_a", 0 }, { "e1_d", 55 },
-                          { "e1_s", 30 }, { "e1_r", 45 }, { "l_rate", 40 }, { "l_wave", 20 } } },
-        { "Deep Bass", { { "mono", 1 }, { "a_wave", 75 }, { "a_warp", 10 }, { "sub_lvl", 70 }, { "b_lvl", 0 }, { "f_cut", 30 }, { "f_res", 30 }, { "f_drive", 40 },
-                         { "f_env", 45 }, { "e2_a", 0 }, { "e2_d", 30 }, { "e2_s", 10 }, { "e1_a", 0 }, { "e1_s", 80 }, { "e1_r", 15 }, { "s_glide", 10 } } },
-        { "Pluck", { { "a_uni", 2 }, { "a_det", 15 }, { "f_cut", 25 }, { "f_res", 35 }, { "f_env", 70 }, { "e2_a", 0 }, { "e2_d", 28 }, { "e2_s", 0 }, { "e2_r", 25 },
-                     { "e1_a", 0 }, { "e1_d", 35 }, { "e1_s", 0 }, { "e1_r", 30 } } },
-        { "Strings", { { "a_uni", 4 }, { "a_det", 30 }, { "b_wave", 50 }, { "b_lvl", 60 }, { "b_semi", 0 }, { "b_fine", -8 }, { "b_uni", 3 }, { "f_cut", 55 },
-                       { "f_env", 15 }, { "e1_a", 45 }, { "e1_d", 50 }, { "e1_s", 85 }, { "e1_r", 55 }, { "l_rate", 30 }, { "l_pitch", 6 }, { "spread", 85 } } },
-        { "Vocal Warp", { { "a_wave", 25 }, { "a_warp", 70 }, { "l_wave", 40 }, { "l_rate", 25 }, { "f_type", 50 }, { "f_cut", 55 }, { "f_res", 45 }, { "e1_a", 15 },
-                          { "e1_s", 80 } } },
-        { "Sub Drone", { { "a_wave", 0 }, { "sub_lvl", 80 }, { "noise_lvl", 8 }, { "f_cut", 35 }, { "e1_a", 70 }, { "e1_r", 75 }, { "l_rate", 10 }, { "l_cut", 25 } } },
-        { "Brass", { { "a_uni", 2 }, { "a_det", 10 }, { "f_cut", 35 }, { "f_env", 60 }, { "e2_a", 15 }, { "e2_d", 40 }, { "e2_s", 50 }, { "e1_a", 8 }, { "e1_s", 85 },
-                     { "e1_r", 25 } } },
-        { "Bell", { { "a_wave", 0 }, { "a_warp", 85 }, { "b_wave", 0 }, { "b_semi", 19 }, { "b_lvl", 45 }, { "b_warp", 50 }, { "e1_a", 0 }, { "e1_d", 75 }, { "e1_s", 0 },
-                    { "e1_r", 70 }, { "f_cut", 90 } } },
-        { "Noise Wind", { { "a_lvl", 0 }, { "noise_lvl", 70 }, { "f_type", 50 }, { "f_cut", 50 }, { "f_res", 60 }, { "l_rate", 15 }, { "l_cut", 50 }, { "e1_a", 60 },
-                          { "e1_r", 70 } } },
-        // SYNTH 2
-        { "FM Electric Piano", { { "a_mode", 1 }, { "a_wave", 30 }, { "a_warp", 15 }, { "e1_a", 0 }, { "e1_d", 60 }, { "e1_s", 25 }, { "e1_r", 40 }, { "f_cut", 80 },
-                                 { "m0_src", 4 }, { "m0_dst", 5 }, { "m0_amt", 45 }, { "e2_a", 0 }, { "e2_d", 35 }, { "e2_s", 0 }, { "vel_amt", 85 } } },
-        { "Fold Bass", { { "mono", 1 }, { "a_mode", 2 }, { "a_wave", 35 }, { "sub_lvl", 50 }, { "f_cut", 45 }, { "f_slope", 1 }, { "f_res", 25 }, { "f_env", 40 },
-                         { "e2_a", 0 }, { "e2_d", 30 }, { "e2_s", 20 }, { "e1_a", 0 }, { "e1_s", 85 }, { "e1_r", 15 }, { "s_glide", 12 },
-                         { "m0_src", 2 }, { "m0_dst", 5 }, { "m0_amt", 30 }, { "l2_rate", 45 }, { "l2_sync", 1 } } },
-        { "Sync Lead", { { "mono", 1 }, { "a_mode", 3 }, { "a_warp", 45 }, { "a_wave", 80 }, { "c_lvl", 35 }, { "c_semi", 12 }, { "c_wave", 50 }, { "f_cut", 75 },
-                         { "f_res", 20 }, { "e1_a", 2 }, { "e1_s", 85 }, { "e1_r", 25 }, { "s_glide", 18 },
-                         { "m0_src", 5 }, { "m0_dst", 8 }, { "m0_amt", 50 }, { "e3_a", 0 }, { "e3_d", 45 }, { "e3_s", 10 } } },
-        { "Arp Pluck (in tempo)", { { "arp_on", 1 }, { "arp_mode", 2 }, { "arp_rate", 3 }, { "arp_oct", 2 }, { "arp_gate", 45 }, { "a_uni", 2 }, { "a_det", 12 },
-                                    { "f_cut", 30 }, { "f_res", 35 }, { "f_env", 65 }, { "e2_a", 0 }, { "e2_d", 25 }, { "e2_s", 0 }, { "e1_a", 0 }, { "e1_d", 30 },
-                                    { "e1_s", 0 }, { "e1_r", 25 }, { "m0_src", 3 }, { "m0_dst", 16 }, { "m0_amt", 20 }, { "l3_rate", 25 } } },
-        { "Breathing Pad", { { "a_uni", 4 }, { "a_det", 25 }, { "b_lvl", 45 }, { "b_wave", 25 }, { "b_semi", 0 }, { "c_lvl", 30 }, { "c_mode", 1 }, { "c_wave", 20 },
-                             { "c_semi", 12 }, { "f_cut", 40 }, { "f_slope", 1 }, { "e1_a", 60 }, { "e1_s", 85 }, { "e1_r", 65 }, { "spread", 90 },
-                             { "m0_src", 2 }, { "m0_dst", 16 }, { "m0_amt", 35 }, { "l2_rate", 12 }, { "m1_src", 3 }, { "m1_dst", 20 }, { "m1_amt", 40 },
-                             { "l3_rate", 8 }, { "l3_shape", 90 } } },
+        // ---- 1.3: ten of the most famous synthesizers, as ARCO's SYNTH 2 can play them (in their spirit, not samples)
+        { "Minimoog Bass", { { "mono", 1 }, { "a_wave", 50 }, { "b_lvl", 70 }, { "b_wave", 50 }, { "b_semi", -12 }, { "b_fine", 4 }, { "c_lvl", 40 }, { "c_wave", 75 },
+                             { "c_semi", 0 }, { "c_fine", -5 }, { "f_slope", 1 }, { "f_cut", 28 }, { "f_res", 35 }, { "f_drive", 45 }, { "f_env", 55 }, { "f_key", 40 },
+                             { "e2_a", 0 }, { "e2_d", 35 }, { "e2_s", 25 }, { "e2_r", 20 }, { "e1_a", 0 }, { "e1_d", 40 }, { "e1_s", 85 }, { "e1_r", 15 }, { "s_glide", 15 } } },
+        { "Juno-60 Pad", { { "a_wave", 50 }, { "a_uni", 3 }, { "a_det", 18 }, { "b_lvl", 45 }, { "b_wave", 100 }, { "b_semi", 0 }, { "sub_lvl", 35 },
+                           { "f_slope", 1 }, { "f_cut", 48 }, { "f_res", 15 }, { "f_env", 15 }, { "e1_a", 45 }, { "e1_d", 60 }, { "e1_s", 85 }, { "e1_r", 60 },
+                           { "e2_a", 40 }, { "e2_d", 60 }, { "e2_s", 50 }, { "e2_r", 50 }, { "l_rate", 25 }, { "l_wave", 20 }, { "spread", 85 } } },
+        { "DX7 E-Piano", { { "a_mode", 1 }, { "a_wave", 30 }, { "a_warp", 15 }, { "b_mode", 1 }, { "b_lvl", 30 }, { "b_wave", 18 }, { "b_warp", 92 }, { "b_semi", 0 },
+                           { "e1_a", 0 }, { "e1_d", 65 }, { "e1_s", 20 }, { "e1_r", 45 }, { "e2_a", 0 }, { "e2_d", 40 }, { "e2_s", 10 }, { "f_cut", 85 }, { "f_env", 0 },
+                           { "m0_src", 4 }, { "m0_dst", 5 }, { "m0_amt", 40 }, { "m1_src", 6 }, { "m1_dst", 5 }, { "m1_amt", 30 }, { "m2_src", 4 }, { "m2_dst", 12 }, { "m2_amt", 30 },
+                           { "vel_amt", 85 }, { "spread", 60 } } },
+        { "TB-303 Acid", { { "mono", 1 }, { "a_wave", 50 }, { "f_slope", 1 }, { "f_cut", 22 }, { "f_res", 78 }, { "f_env", 65 }, { "f_drive", 35 }, { "f_key", 30 },
+                           { "e2_a", 0 }, { "e2_d", 22 }, { "e2_s", 0 }, { "e2_r", 15 }, { "e1_a", 0 }, { "e1_d", 40 }, { "e1_s", 80 }, { "e1_r", 8 }, { "s_glide", 12 },
+                           { "vel_amt", 50 }, { "m0_src", 6 }, { "m0_dst", 16 }, { "m0_amt", 25 } } },
+        { "Prophet-5 Brass", { { "a_wave", 50 }, { "b_lvl", 70 }, { "b_wave", 50 }, { "b_semi", 0 }, { "b_fine", 7 }, { "f_slope", 1 }, { "f_cut", 30 }, { "f_res", 15 },
+                               { "f_env", 55 }, { "f_key", 50 }, { "e2_a", 22 }, { "e2_d", 45 }, { "e2_s", 45 }, { "e2_r", 30 }, { "e1_a", 10 }, { "e1_d", 40 },
+                               { "e1_s", 85 }, { "e1_r", 30 }, { "spread", 60 } } },
+        { "OB-Xa Jump", { { "a_wave", 50 }, { "a_uni", 2 }, { "a_det", 15 }, { "b_lvl", 75 }, { "b_wave", 50 }, { "b_semi", 0 }, { "b_fine", 10 }, { "f_slope", 0 },
+                          { "f_cut", 62 }, { "f_res", 10 }, { "f_env", 20 }, { "e2_a", 0 }, { "e2_d", 50 }, { "e2_s", 60 }, { "e1_a", 2 }, { "e1_d", 50 }, { "e1_s", 90 },
+                          { "e1_r", 30 }, { "spread", 75 }, { "s_lvl", 65 } } },
+        { "CS-80 Blade", { { "a_wave", 50 }, { "a_uni", 2 }, { "a_det", 12 }, { "b_lvl", 60 }, { "b_wave", 100 }, { "b_semi", 0 }, { "b_fine", -9 }, { "d_lvl", 30 },
+                           { "d_wave", 25 }, { "d_semi", 12 }, { "f_cut", 40 }, { "f_res", 25 }, { "f_slope", 0 }, { "f_env", 25 }, { "e2_a", 45 }, { "e2_d", 70 },
+                           { "e2_s", 55 }, { "e1_a", 35 }, { "e1_d", 60 }, { "e1_s", 85 }, { "e1_r", 70 }, { "l_rate", 32 }, { "l_pitch", 5 },
+                           { "m0_src", 6 }, { "m0_dst", 16 }, { "m0_amt", 20 }, { "spread", 90 } } },
+        { "Jupiter-8 Strings", { { "a_wave", 50 }, { "a_uni", 4 }, { "a_det", 22 }, { "b_lvl", 55 }, { "b_wave", 50 }, { "b_semi", 0 }, { "b_fine", 6 }, { "b_uni", 3 },
+                                 { "d_lvl", 25 }, { "d_wave", 50 }, { "d_semi", 12 }, { "d_fine", -5 }, { "f_cut", 52 }, { "f_res", 8 }, { "f_slope", 1 }, { "f_env", 10 },
+                                 { "e1_a", 50 }, { "e1_d", 60 }, { "e1_s", 90 }, { "e1_r", 60 }, { "l_rate", 30 }, { "l_pitch", 4 }, { "spread", 95 } } },
+        { "MS-20 Scream", { { "mono", 1 }, { "a_wave", 50 }, { "b_lvl", 60 }, { "b_wave", 75 }, { "b_semi", 0 }, { "b_fine", 12 }, { "f_cut", 40 }, { "f_res", 85 },
+                            { "f_drive", 70 }, { "f_env", 45 }, { "e2_a", 5 }, { "e2_d", 50 }, { "e2_s", 30 }, { "e1_a", 1 }, { "e1_s", 90 }, { "e1_r", 20 },
+                            { "l_rate", 55 }, { "l_cut", 15 }, { "s_glide", 8 } } },
+        { "Odyssey Sync", { { "mono", 1 }, { "a_mode", 3 }, { "a_warp", 40 }, { "a_wave", 85 }, { "b_lvl", 35 }, { "b_wave", 75 }, { "b_semi", -12 }, { "f_cut", 70 },
+                            { "f_res", 20 }, { "f_slope", 0 }, { "e1_a", 1 }, { "e1_s", 85 }, { "e1_r", 20 }, { "s_glide", 10 },
+                            { "m0_src", 5 }, { "m0_dst", 8 }, { "m0_amt", 55 }, { "e3_a", 0 }, { "e3_d", 50 }, { "e3_s", 15 } } },
     };
     return P;
 }
@@ -373,18 +366,18 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     const char* PG[3] = { "SOUND", "MOVEMENT", "PLAY" };
     for (int i = 0; i < 3; ++i) { auto* p = add<Pill>(-1, { 24 + i * 128, 90, 120, 28 }, PG[i], [this, i] { return page == i ? Theme::sel() : Theme::card(); }, 9.5f, 7.0f); p->onClick = [this, i] { setPage(i); }; }
 
-    // ======== SOUND: three oscillators
-    for (int o = 0; o < 3; ++o) {
-        int x0 = 24 + o * 444;
+    // ======== SOUND: four oscillators
+    for (int o = 0; o < 4; ++o) {
+        int x0 = 24 + o * 332;
         std::string P = juce::String::charToString((juce::juce_wchar) ('a' + o)).toStdString() + "_";
         const char* MD[4] = { "WAVE", "FM", "FOLD", "SYNC" };
         for (int md = 0; md < 4; ++md) {
-            auto* p = add<Pill>(0, { x0 + 180 + md * 58, 136, 54, 20 }, MD[md], [&m, P, md, o] { return (int) m.get(P + "mode") == md ? cOsc(o) : Theme::btn(); }, 7.5f, 5.0f);
+            auto* p = add<Pill>(0, { x0 + 92 + md * 56, 136, 52, 20 }, MD[md], [&m, P, md, o] { return (int) m.get(P + "mode") == md ? cOsc(o) : Theme::btn(); }, 7.5f, 5.0f);
             p->onClick = [&m, P, md] { m.set(P + "mode", md); };
         }
         const char* names[7] = { "WAVE", "WARP", "SEMI", "FINE", "LEVEL", "UNISON", "DETUNE" };
         const char* keys[7] = { "wave", "warp", "semi", "fine", "lvl", "uni", "det" };
-        for (int k = 0; k < 7; ++k) knob(0, x0 + 14 + k * 59, 262, P + keys[k], names[k], [o] { return cOsc(o); });
+        for (int k = 0; k < 7; ++k) knob(0, x0 + 8 + k * 45, 266, P + keys[k], names[k], [o] { return cOsc(o); }, 34);
     }
     // sub, noise, filter, voice
     knob(0, 44, 418, "sub_lvl", "SUB", [] { return Theme::txt(); }); knob(0, 104, 418, "noise_lvl", "NOISE", [] { return Theme::sub(); });
@@ -526,20 +519,20 @@ void SynthPanel::paint(juce::Graphics& g) {
             if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y); }
         g.setColour(c); g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); };
     L("SYNTH 2", 24, 10, 200, 17.0f, Theme::txt(), 2);
-    L(U8("three oscillators, a mod matrix, an arpeggiator - drag a ⟿ dot onto any knob to move it · it plays through the LIVE strip below, so every track can record it"), 150, 16, 1080, 8.5f, Theme::sub());
+    L(U8("four oscillators, a mod matrix, an arpeggiator - drag a ⟿ dot onto any knob to move it · it plays through the LIVE strip below, so every track can record it"), 150, 16, 1080, 8.5f, Theme::sub());
     L("PLAYS INTO", 24, 55, 90, 8.5f, Theme::txt(), 2);
     L("RECORD ON TRACK", 380, 55, 140, 8.5f, Theme::txt(), 2);
     L("SOUND", 812, 55, 50, 8.5f, Theme::txt(), 2);
     if (page == 0) {
-        for (int o = 0; o < 3; ++o) {
-            int x0 = 24 + o * 444;
+        for (int o = 0; o < 4; ++o) {
+            int x0 = 24 + o * 332;
             std::string P = juce::String::charToString((juce::juce_wchar) ('a' + o)).toStdString() + "_";
-            card(x0, 126, 432, 214, juce::String("OSC ") + juce::String::charToString((juce::juce_wchar) ('A' + o)), cOsc(o));
+            card(x0, 126, 320, 214, juce::String("OSC ") + juce::String::charToString((juce::juce_wchar) ('A' + o)), cOsc(o));
             float lv = (float) m.get(P + "lvl");
-            auto r = screen(x0 + 14, 164, 404, 86);
+            auto r = screen(x0 + 12, 164, 296, 86);
             float wv = (float) m.get(P + "wave"), wp = (float) m.get(P + "warp"); int md = (int) m.get(P + "mode");
             curve(r, [wv, wp, md](float ph) { return oscWave(ph, wv, wp, md); }, cOsc(o).withAlpha(lv > 0.5f ? 1.0f : 0.3f), 0.25f + 0.75f * lv / 100.0f);
-            L(juce::String((int) m.get(P + "uni")) + (m.get(P + "uni") > 1 ? " voices" : " voice") + U8("  ·  ") + juce::String((int) m.get(P + "semi")) + " st", x0 + 260, 222, 150, 8.0f, Theme::sub(), 1, juce::Justification::centredRight);
+            L(juce::String((int) m.get(P + "uni")) + (m.get(P + "uni") > 1 ? " voices" : " voice") + U8("  ·  ") + juce::String((int) m.get(P + "semi")) + " st", x0 + 152, 222, 150, 8.0f, Theme::sub(), 1, juce::Justification::centredRight);
         }
         card(24, 354, 220, 232, U8("SUB · NOISE"), Theme::txt());
         card(256, 354, 460, 232, "FILTER", cFil());
