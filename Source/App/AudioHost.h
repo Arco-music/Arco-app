@@ -42,7 +42,9 @@ public:
     Studio studio { *this };                 // STUDIO: the song as a timeline (plays into outputs 1-2 and the headphones)
     PhoneHub phones;                         // the station side
     PhoneServer phoneLink;                   // the phone side (this device is a phone for a station)
-    std::atomic<bool> micMode { false };     // this device is a phone now: the microphone goes to the station, nothing plays here
+    std::atomic<bool> micMode { false };     // this device is a phone now: the microphone goes to the station (and, if asked, the station's sound plays here)
+    std::atomic<float> listenVol { 0.8f };   // the phone's own output: the station's sound (0-1)
+    std::atomic<int> listenWant { 0 };       // the phone asked for: 0 nothing, 1 the main mix, 2 the headphone mix
     void tickPhones();                       // ~10x a second: commands from the phones, their screens kept current
     void phoneCommand(PhoneConn& c, const juce::String& line);
     juce::String phoneOnLive(int live);      // the name of the phone playing as LIVE n (or empty)

@@ -2,7 +2,7 @@
 #include "../UI/Theme.h"
 
 #if JUCE_IOS
-void arcoPreferBestMicrophone();   // IOSAudio.mm (global, Objective-C++)
+ #include "IOSAudio.h"
 #endif
 
 namespace arco {
@@ -48,6 +48,7 @@ void AudioHost::phoneCommand(PhoneConn& c, const juce::String& line) {
     else if (w == "act" && t.size() >= 2) doAction(t[1].getIntValue());
     else if (w == "sel" && t.size() >= 2) model.select(juce::jlimit(0, NSTRIP - 1, t[1].getIntValue()));
     else if (w == "live" && t.size() >= 2) { phones.setLive(&c, juce::jlimit(0, 4, t[1].getIntValue())); saveSetup(); }
+    else if (w == "listen" && t.size() >= 2) c.listenMix.store(juce::jlimit(0, 2, t[1].getIntValue()));
     else if (w == "noteon" && t.size() >= 3) keys.noteOn(1, juce::jlimit(0, 127, t[1].getIntValue()), (float) juce::jlimit(0.01, 1.0, num(2)));
     else if (w == "noteoff" && t.size() >= 2) keys.noteOff(1, juce::jlimit(0, 127, t[1].getIntValue()), 0.0f);
     else if (w == "alloff") { synth.allOff(); synth.padOff(); }
@@ -135,7 +136,7 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
 void AudioHost::handleAsyncUpdate() {
    #if JUCE_IOS
     // the microphone raw: no voice processing (noise gate, automatic level, echo cancelling) - those spoil an instrument
-    if (auto* d = devices.getCurrentAudioDevice()) if (d != rawDone) { rawDone = d; d->setAudioPreprocessingEnabled(false); ::arcoPreferBestMicrophone(); }
+    if (auto* d = devices.getCurrentAudioDevice()) if (d != rawDone) { rawDone = d; d->setAudioPreprocessingEnabled(false); ios::applyInput(); }
    #endif
     if (engineRestarted.exchange(false)) { model.sendAll(); applySpeakers(); setSynthInto(synthInto); }
     applyRouting();
@@ -146,6 +147,13 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
     if (micMode.load()) {                        // this device is a phone for a station: only send the microphone
         if (numIn > 0 && in[0] != nullptr) phoneLink.push(in[0], n, lastRate > 0 ? lastRate : 48000.0);
         for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], n);
+        if (listenWant.load() > 0 && numOut >= 1 && out[0] != nullptr && (int) phoneBuf[0].size() >= n) {   // the station's sound in this phone's headphones
+            float* R = numOut >= 2 && out[1] != nullptr ? out[1] : phoneBuf[1].data();
+            phoneLink.listen.pull(out[0], R, n, lastRate > 0 ? lastRate : 48000.0);
+            float v = listenVol.load(); v *= v;
+            juce::FloatVectorOperations::multiply(out[0], v, n); if (R != phoneBuf[1].data()) juce::FloatVectorOperations::multiply(R, v, n);
+            else juce::FloatVectorOperations::addWithMultiply(out[0], R, v, n), juce::FloatVectorOperations::multiply(out[0], 0.5f, n);
+        }
         return;
     }
     {   // the phones playing as LIVE inputs
@@ -161,6 +169,16 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
         studio.renderBlock(out[0], out[1], n);
         int pf = engine.phonesFirst.load();
         if (pf >= 2 && pf + 1 < numOut && out[pf] && out[pf + 1]) { juce::FloatVectorOperations::copy(out[pf], out[0], n); juce::FloatVectorOperations::copy(out[pf + 1], out[1], n); }
+    }
+    {   // phones that listen: the main mix (outputs 1-2) or the headphone mix
+        const juce::ScopedTryLock sl(phones.audioLock);
+        if (sl.isLocked() && numOut >= 2 && out[0] && out[1])
+            for (auto* c : phones.conns) {
+                int m = c->listenMix.load(); if (m <= 0) continue;
+                int pf = engine.phonesFirst.load();
+                bool hp = m == 2 && pf >= 2 && pf + 1 < numOut && out[pf] && out[pf + 1];
+                c->pushListen(hp ? out[pf] : out[0], hp ? out[pf + 1] : out[1], n, lastRate > 0 ? lastRate : 48000.0);
+            }
     }
     int tt = testTone.load();
     if (tt > 0) {                                // TEST: a soft A (440 Hz) on outputs 1-2 and on the headphones
@@ -226,7 +244,7 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
     else if (m.isController() && (m.getControllerNumber() == 1 || m.getControllerNumber() == 64) && !isPedalCC(m.getControllerNumber(), ch)) {
         int c = m.getControllerNumber(), v = m.getControllerValue();
         if (c == 1) juce::MessageManager::callAsync([this, v] { model.set("l_pitch", v / 127.0 * 60.0); });   // mod wheel = vibrato
-        else juce::MessageManager::callAsync([this, v] { synth.setSustain(v >= 64); });                       // sustain pedal
+        else juce::MessageManager::callAsync([this, v] { synth.setSustain(v >= 64); model.set("pdl_down", v >= 64 ? 1 : 0); });   // sustain pedal (the synth and the PEDAL effect)
         if (learning.load() < 0) return;
         if (v < 64) return;
         type = 2; num = c;
@@ -571,7 +589,12 @@ void AudioHost::saveSetup() {
     o->setProperty("nLive", nLive);
     juce::Array<juce::var> ic; for (int i = 0; i < 4; ++i) ic.add(inputCh[i]);
     o->setProperty("inputs", ic);
-    o->setProperty("phones", phonesPair);
+    o->setProperty("phonesPair", phonesPair);
+   #if JUCE_IOS
+    o->setProperty("iosInput", ios::chosenInput());
+    o->setProperty("iosSpeaker", ios::speakerForced());
+   #endif
+    o->setProperty("listenVol", listenVol.load());
     o->setProperty("layout", speakerLayout);
     o->setProperty("palette", Theme::pal().name);
     o->setProperty("lastDark", Theme::palettes()[(size_t) Theme::lastDark()].name);
@@ -600,10 +623,15 @@ void AudioHost::loadSetup(bool openDevice) {
         model.loadSetupState(v["params"]);
         nLive = juce::jlimit(1, 4, (int) v.getProperty("nLive", 1));
         if (auto* a = v["inputs"].getArray()) for (int i = 0; i < juce::jmin(4, a->size()); ++i) inputCh[i] = (int) (*a)[i];
-        phonesPair = (int) v.getProperty("phones", 0);
+        phonesPair = v["phonesPair"].isVoid() ? 0 : juce::jlimit(0, 15, (int) v["phonesPair"]);   // (1.2 wrote it under "phones", overwritten by the phone list)
+       #if JUCE_IOS
+        ios::chooseInput(v.getProperty("iosInput", "auto").toString());
+        if ((bool) v.getProperty("iosSpeaker", false)) ios::forceSpeaker(true);
+       #endif
+        listenVol.store((float) v.getProperty("listenVol", 0.8));
         speakerLayout = (int) v.getProperty("layout", 0);
-        Theme::lastDark() = juce::jmin(1, Theme::paletteByName(v.getProperty("lastDark", "Fig").toString()));
-        Theme::lastLight() = juce::jmax(2, Theme::paletteByName(v.getProperty("lastLight", "Manuscript").toString()));
+        Theme::lastDark() = juce::jmin(1, Theme::paletteByName(v.getProperty("lastDark", "Black").toString()));
+        Theme::lastLight() = juce::jmax(2, Theme::paletteByName(v.getProperty("lastLight", "Light").toString()));
         if (v.hasProperty("palette")) Theme::setPalette(Theme::paletteByName(v["palette"].toString()));
         else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 0);
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);

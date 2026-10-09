@@ -53,6 +53,7 @@ w('    <XCODE_IPHONE targetFolder="Builds/iOS" iosDeviceFamily="1,2" bigIcon="ic
   'microphonePermissionNeeded="1" microphonePermissionsText="ARCO uses the microphone (or your audio interface) to record your instrument." '
   'iosBackgroundAudio="1" UIFileSharingEnabled="1" UISupportsDocumentBrowser="1" UIStatusBarHidden="1" '
   'customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;NSLocalNetworkUsageDescription&lt;/key&gt;&lt;string&gt;ARCO finds your phones and your station (Mac or iPad) on the Wi-Fi: microphones and remote control.&lt;/string&gt;&lt;key&gt;LSSupportsOpeningDocumentsInPlace&lt;/key&gt;&lt;true/&gt;&lt;key&gt;NSBonjourServices&lt;/key&gt;&lt;array&gt;&lt;string&gt;_arco._tcp&lt;/string&gt;&lt;/array&gt;&lt;key&gt;UIRequiresFullScreen&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;" '
+  'extraFrameworks="AVKit,CoreAudioKit" '
   'extraCompilerFlags="-Wno-unused-variable -Wno-unused-parameter" nofastmath="-fno-fast-math">')
 w('      <CONFIGURATIONS>')
 w('        <CONFIGURATION name="Debug" isDebug="0" iosDeploymentTarget="15.0" optimisation="3" fastMath="1" targetName="ARCO"/>')

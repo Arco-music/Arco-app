@@ -32,6 +32,11 @@ private:
     juce::StringArray outNames, inNames;
     juce::Array<double> rates; juce::Array<int> bufs;
     bool filling = false;
+   #if JUCE_IOS
+    std::unique_ptr<juce::UIViewComponent> routePicker;            // Bluetooth, AirPlay, cable, speaker (the system's own picker)
+    juce::StringArray iosIds;
+    juce::String lastRoute;
+   #endif
 };
 
 // LOOK & EFFECTS: the colour palette, and which effect cards are on the main window

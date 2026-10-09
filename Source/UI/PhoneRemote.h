@@ -38,7 +38,7 @@ public:
 private:
     void timerCallback() override;
     AudioHost& host;
-    int page = 0;                                     // 0 PLAY, 1 MIX, 2 EFFECTS, 3 SYNTH
+    int page = 0;                                     // 0 PLAY, 1 MIX, 2 EFFECTS, 3 SYNTH, 4 AUDIO
     float scroll = 0, scrollMax = 0;
     int fxStrip = 0;                                  // whose sends the EFFECTS page shows
     juce::String openCard;                            // the effect shown open
@@ -58,6 +58,12 @@ private:
     void drawMix(juce::Graphics& g, juce::Rectangle<float> r);
     void drawFx(juce::Graphics& g, juce::Rectangle<float> r);
     void drawSynth(juce::Graphics& g, juce::Rectangle<float> r);
+    void drawAudio(juce::Graphics& g, juce::Rectangle<float> r);   // 1.3: microphone, output, listening to the station
+    juce::Array<std::pair<juce::String, juce::String>> inputList;  // id, name (iOS)
+    double inputsAt = 0;
+   #if JUCE_IOS
+    std::unique_ptr<juce::UIViewComponent> routePicker;
+   #endif
     juce::Rectangle<float> content;
     float u = 1.0f;                                   // the size unit (phones differ)
     void button(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, juce::Colour c, std::function<void()> tap, float fs = 0, bool scrolls = true);

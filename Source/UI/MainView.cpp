@@ -178,6 +178,16 @@ public:
             p->onClick = [&m] { m.set("frz_on", m.get("frz_on") > 0.5 ? 0 : 1); };
             p->setComponentID("p:frz_on"); kids.add(p); addAndMakeVisible(p); p->setBounds(100, 6, 44, 17);
         }
+        if (key == "pdl") {                      // the pedal itself (also the MIDI sustain pedal, CC 64)
+            auto* p = new Pill("PEDAL", [&m] { return m.get("pdl_down") > 0.5 ? Theme::fx("pdl") : Theme::btn(); }, 7.5f, 6.0f);
+            p->onClick = [&m] { m.set("pdl_down", m.get("pdl_down") > 0.5 ? 0 : 1); };
+            p->setComponentID("p:pdl_down"); kids.add(p); addAndMakeVisible(p); p->setBounds(96, 6, 48, 17);
+        }
+        if (key == "fbk") {                      // let it die away now
+            auto* p = new Pill("LET GO", [&m] { return m.get("fbk_stop") > 0.5 ? Theme::fx("fbk") : Theme::btn(); }, 7.0f, 6.0f);
+            p->onClick = [&m] { m.set("fbk_stop", 1); juce::Timer::callAfterDelay(400, [&m] { m.set("fbk_stop", 0); }); };
+            p->setComponentID("p:fbk_stop"); kids.add(p); addAndMakeVisible(p); p->setBounds(96, 6, 48, 17);
+        }
         if (key == "drm") {
             auto* p = new Pill("ON", [&m] { return m.get("drm_on") > 0.5 ? Theme::green() : Theme::btn(); }, 7.5f, 6.0f);
             p->onClick = [&m] { m.set("drm_on", m.get("drm_on") > 0.5 ? 0 : 1); };
@@ -225,6 +235,15 @@ public:
         if (key == "trm") right(pick(m.get("trm_rate"), 6, TRM), { 96, 6, 48, 16 });
         if (key == "rev") right(pick(m.get("rev_time"), 6, REV), { 96, 6, 48, 16 });
         if (key == "fxb") right(pick(m.get("fxb_mode"), 6, FXB), { 84, 6, 60, 16 });
+        if (key == "fbk") {
+            static const char* FM[3] = { "CATCH", "LISTEN", "HOLD" };
+            static const char* FH[5] = { "the note", "octave", "12th", "2 octaves", "free" };
+            label(g, pick(m.get("fbk_mode"), 3, FM) + U(" · ") + pick(m.get("fbk_harm"), 5, FH), { 64, 214, 80, 14 }, 7.5f, Theme::txt(), 2, juce::Justification::centredRight);
+        }
+        if (key == "pdl" && m.get("pdl_auto") > 4) {
+            static const char* AP[4] = { "every 2 bars", "every bar", "every half bar", "every beat" };
+            label(g, U("auto · ") + AP[juce::jlimit(0, 3, (int) (m.get("pdl_auto") / 100.0 * 3.99))], { 64, 214, 80, 14 }, 7.5f, Theme::txt(), 2, juce::Justification::centredRight);
+        }
         if (key == "orb") {
             right(pick(m.get("orb_path"), 3, PTH), { 84, 6, 60, 16 });
             static const char* DIR[8] = { "FRONT", "FRONT-R", "RIGHT", "BACK-R", "BEHIND", "BACK-L", "LEFT", "FRONT-L" };
@@ -411,11 +430,8 @@ void Canvas::buildTopBar() {
     auto* studioB = add<Pill>({ 1380, 9, 48, 22 }, "STUDIO", [] { return Theme::blue(); }, 7.5f, 7.0f);
     studioB->onClick = [this] { openStudio(); };
     studioB->setComponentID("t:studio");
-    auto* st = add<Pill>({ 1326, 35, 42, 20 }, "SETUP", [] { return Theme::off(); }, 7.5f, 7.0f);
+    auto* st = add<Pill>({ 1326, 35, 72, 20 }, "SETUP", [] { return Theme::off(); }, 7.5f, 7.0f);
     st->onClick = [this] { openSetup(true); };
-    auto* lt = add<Pill>({ 1371, 35, 30, 20 }, "LIGHT", [] { return Theme::off(); }, 6.0f, 7.0f);
-    lt->dynText = [] { return Theme::lightMode() ? juce::String("DARK") : juce::String("LIGHT"); };
-    lt->onClick = [this] { Theme::toggleLight(); host.saveSetup(); themeChanged(); };
     auto* pw = add<Pill>({ 1404, 34, 24, 22 }, U("⏻"), [this] { return host.devices.getCurrentAudioDevice() != nullptr ? Theme::green() : Theme::off(); }, 10.0f, 6.0f);
     pw->onClick = [this] { if (host.devices.getCurrentAudioDevice() != nullptr) host.devices.closeAudioDevice(); else host.devices.restartLastAudioDevice(); };
 }

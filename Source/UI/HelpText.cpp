@@ -12,7 +12,7 @@ A live looping station for your instrument: record loops on the beat, build scen
 - Record more tracks on top. Every loop lands exactly on the bar.
 
 ## The window
-- Top: transport (PLAY, STOP, UNDO), the tempo, the song, the show recorder, MASTER, and the windows: SYNTH, STUDIO, SETUP, LIGHT / DARK.
+- Top: transport (PLAY, STOP, UNDO), the tempo, the song, the show recorder, MASTER, and the windows: SYNTH, STUDIO, SETUP.
 - SCENES A - D: four sets of loops. Switch on the bar line. CUE listens to a scene in your headphones before the audience hears it.
 - STRIPS: LIVE 1-4 (your inputs) and TRACK 1-8. Each has its fader, pan, mute, solo, CUE and ROOM.
 - EFFECT CARDS: choose the strip at the top (SEND), then turn its SEND on any card.

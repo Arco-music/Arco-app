@@ -37,7 +37,7 @@ struct XOnePole { float z = 0; float lp(float x, float a) { z += a * (x - z); re
 
 class ExtraFx {
 public:
-    static constexpr int NFX = 10;
+    static constexpr int NFX = 12;
     explicit ExtraFx() {
         int i = 0;
         for (auto& d : extraParams()) { idx[d.id] = i++; vals.push_back(d.def); }
@@ -54,6 +54,7 @@ public:
         for (auto& t : tp) t.init((int) (0.05 * sr));
         for (auto& r : rt) r.init((int) (0.01 * sr));
         stuBuf.assign((size_t) (4.5 * sr), 0.0f); stuW = 0;
+        initPedal(); initFeedback();
         for (auto& s : sv) s.reset();
         std::fill(std::begin(tail), std::end(tail), 0);
         std::fill(std::begin(g), std::end(g), 0.0f);
@@ -84,6 +85,8 @@ public:
                 case 7: stutter(n, L, R, bpm); break;
                 case 8: rotary(n, L, R); break;
                 case 9: crush(n, L, R); break;
+                case 10: pedal(n, L, R, bpm); break;
+                case 11: feedback(n, L, R); break;
             }
             float ret = p(e, "ret") / 100.0f; ret = ret * ret * 1.4f;
             float sp = has(e, "spc") ? p(e, "spc") / 100.0f : 0.0f;
@@ -105,7 +108,7 @@ private:
     float g[NFX * 12] {};
     int tail[NFX] {};
     float in[SUBMAX] {};
-    static constexpr const char* keys[NFX] = { "flg", "png", "wah", "oct", "tap", "flt", "rng", "stu", "vib", "crs" };
+    static constexpr const char* keys[NFX] = { "flg", "png", "wah", "oct", "tap", "flt", "rng", "stu", "vib", "crs", "pdl", "fbk" };
     int sendIdx[NFX][12] {};
     float p(int e, const char* k) const {
         auto it = idx.find(std::string(keys[e]) + "_" + k);
@@ -314,6 +317,170 @@ private:
             hcnt += 1.0; if (hcnt >= ds) { hcnt -= ds; hold = std::round(std::clamp(in[i], -1.0f, 1.0f) * q) / q; }
             float y = clp.lp(hold, 0.05f + tone * tone * 0.9f);
             L[i] = y; R[i] = y;
+        }
+    }
+
+    // ---- PEDAL: the piano's sustain pedal. Pedal down: the dampers lift and 60 strings (C1-B5) ring with what you play -
+    // your notes go on, and the other strings answer them softly. Pedal up: the dampers fall (a short, soft stop).
+    // AUTO PEDAL re-pedals by itself in tempo (lift - press), so harmonies do not smear.
+    static constexpr int NSTR = 60;
+    float panL[NSTR] {}, panR[NSTR] {};
+    float strC[NSTR] {}, strS[NSTR] {}, strRe[NSTR] {}, strIm[NSTR] {}, strR[NSTR] {}, strG[NSTR] {};
+    float pdlDamp = 0;                       // 0 dampers on the strings .. 1 lifted (smoothed)
+    double pdlClock = 0; XOnePole pdlLo, pdlHi;
+    XDelay body[4]; float bodyLp[4] {};
+    void initPedal() {
+        for (int k = 0; k < NSTR; ++k) {
+            double f = 440.0 * std::pow(2.0, (24 + k - 69) / 12.0);
+            double w = 2 * 3.14159265358979 * f / sr;
+            strC[k] = (float) std::cos(w); strS[k] = (float) std::sin(w); strRe[k] = strIm[k] = 0; strR[k] = 0.9f;
+            strG[k] = 1.0f;
+            float pan = -0.55f + 1.1f * (float) k / (NSTR - 1), a = (pan + 1.0f) * 0.785398f;
+            panL[k] = std::cos(a) * 1.41421f; panR[k] = std::sin(a) * 1.41421f;
+        }
+        static const double BL[4] = { 0.0297, 0.0371, 0.0411, 0.0437 };
+        for (int j = 0; j < 4; ++j) { body[j].init((int) (BL[j] * sr) + 4); bodyLp[j] = 0; }
+        pdlDamp = 0; pdlClock = 0;
+    }
+    void pedal(int n, float* L, float* R, const float* bpm) {
+        float ring = p(10, "ring") / 100.0f, bright = p(10, "bright") / 100.0f, bodyAmt = p(10, "body") / 100.0f, autoP = p(10, "auto") / 100.0f;
+        bool down = p(10, "down") > 0.5f;
+        // the strings' ring: 2 .. 24 s (low strings longer), dampers: 0.12 s
+        double t60 = 2.0 + ring * ring * 22.0;
+        for (int i = 0; i < n; ++i) {
+            bool lifted = down;
+            if (autoP > 0.04f) {                                      // AUTO: held down, lifted for ~90 ms at each change (2 bars / bar / half bar / beat)
+                static const double EVERY[4] = { 8.0, 4.0, 2.0, 1.0 };
+                double beats = EVERY[std::clamp((int) (autoP * 3.99f), 0, 3)];
+                double periodSec = beats * 60.0 / tempo(bpm, i);
+                pdlClock += 1.0 / (periodSec * sr); if (pdlClock >= 1.0) pdlClock -= 1.0;
+                lifted = pdlClock * periodSec > 0.09;
+            }
+            float tgt = lifted ? 1.0f : 0.0f;
+            pdlDamp += (tgt - pdlDamp) * (tgt > pdlDamp ? 0.0025f : 0.0012f);   // dampers lift in ~8 ms, fall in ~20 ms (no click)
+            if ((i & 15) == 0) {                                      // the decay of every string follows the dampers
+                for (int k = 0; k < NSTR; ++k) {
+                    double f = 32.7 * std::pow(2.0, k / 12.0);
+                    double tUp = t60 * std::pow(65.0 / f, 0.33);       // low strings ring longer
+                    double t = 0.12 + (tUp - 0.12) * pdlDamp;
+                    strR[k] = (float) std::exp(-6.907755 / (t * sr));
+                    strG[k] = (1.0f - strR[k]) * (1.0f + bright * (float) k / NSTR * 1.5f);
+                }
+            }
+            // what excites the strings: your sound, brighter or darker
+            float lo = pdlLo.lp(in[i], 0.05f), hi = in[i] - lo;
+            float x = lo + hi * (0.35f + bright * 1.2f);
+            float l = 0, r = 0;
+            for (int k = 0; k < NSTR; ++k) {
+                float re = strRe[k], im = strIm[k], rr = strR[k];
+                float nre = rr * (re * strC[k] - im * strS[k]) + strG[k] * x;
+                float nim = rr * (re * strS[k] + im * strC[k]);
+                strRe[k] = nre; strIm[k] = nim;
+                l += nre * panL[k]; r += nre * panR[k];               // as the pianist hears it: low strings left, high right
+            }
+            // the soundboard: a short warm room around the strings (longer with the pedal down)
+            float fbg = 0.55f + 0.33f * pdlDamp * (0.4f + 0.6f * ring);
+            float o[4]; for (int j = 0; j < 4; ++j) { o[j] = body[j].read(body[j].d.size() - 3); bodyLp[j] += 0.35f * (o[j] - bodyLp[j]); o[j] = bodyLp[j]; }
+            float h0 = o[0] + o[1] + o[2] + o[3];
+            for (int j = 0; j < 4; ++j) body[j].push((0.5f * h0 - o[j]) * fbg + (l + r) * 0.25f * bodyAmt);
+            l = l * 2.2f + (o[0] + o[2]) * bodyAmt * 0.9f; r = r * 2.2f + (o[1] + o[3]) * bodyAmt * 0.9f;
+            if (!std::isfinite(l) || !std::isfinite(r)) { initPedal(); l = r = 0; }
+            L[i] = std::tanh(l); R[i] = std::tanh(r);                 // never more than full scale
+        }
+    }
+
+    // ---- FEEDBACK: like a guitar held to the amp - the note you play feeds itself and grows, at the pitch you played
+    // (or its octave, its 12th ...). CATCH: each new note swells and is let go before it gets loud. LISTEN: it waits,
+    // hears whatever sounds and slowly brings it up. HOLD: it grows to LEVEL and stays there. Always under control:
+    // the loop gain is steered every sample towards LEVEL, the loop saturates softly and a limiter sits at the end.
+    XDelay fbLine; XSvf fbBp, fbTone; float fbG = 0.9f, fbEnv = 0, inEnvF = 0, inEnvS = 0, fbD = 400, fbDT = 400, dcX = 0, dcY = 0, lim = 1;
+    int fbState = 0;                         // 0 idle, 1 growing, 2 letting go
+    double fbHz = 220, sinceOnset = 0, stableFor = 0; bool waitOnset = false, prevStop = false;
+    // a small pitch follower (YIN) on the sound sent to it, at a quarter of the rate
+    std::vector<float> pbuf, dfn, cm; int pw = 0, pdec = 0, pnew = 0; float pacc = 0; double pitchHz = 0, pitchConf = 0, pendingHz = 0;
+    void initFeedback() {
+        fbLine.init((int) (0.06 * sr)); fbBp.reset(); fbTone.reset(); fbG = 0.9f; fbEnv = inEnvF = inEnvS = 0; fbState = 0;
+        fbD = fbDT = (float) (sr / 220.0); pbuf.assign(1024, 0.0f); dfn.assign(520, 0.0f); cm.assign(520, 1.0f); pw = 0; pdec = 0; pnew = 0; pacc = 0; pitchHz = 0; pitchConf = 0; lim = 1;
+    }
+    void trackPitch() {                      // YIN on the last 1024 samples (at sr / 4)
+        const int W = 512, N = 1024; const double fs = sr / 4.0;
+        int maxLag = std::min(W - 2, (int) (fs / 40.0)), minLag = std::max(2, (int) (fs / 1500.0));
+        std::fill(dfn.begin(), dfn.end(), 0.0f); std::fill(cm.begin(), cm.end(), 1.0f);
+        auto at = [&](int k) { return pbuf[(size_t) ((pw - N + k + N * 4) % N)]; };
+        float energy = 0; for (int k = 0; k < N; ++k) energy += at(k) * at(k);
+        if (energy / N < 1e-7f) { pitchConf = 0; return; }
+        for (int tau = 1; tau <= maxLag; ++tau) { float d = 0; for (int k = 0; k < W; ++k) { float e = at(k) - at(k + tau); d += e * e; } dfn[(size_t) tau] = d; }
+        float run = 0; int best = -1;
+        for (int tau = 1; tau <= maxLag; ++tau) { run += dfn[(size_t) tau]; cm[(size_t) tau] = run > 0 ? dfn[(size_t) tau] * tau / run : 1.0f; }
+        for (int tau = minLag; tau <= maxLag; ++tau) if (cm[(size_t) tau] < 0.15f) { while (tau + 1 <= maxLag && cm[(size_t) tau + 1] < cm[(size_t) tau]) ++tau; best = tau; break; }
+        if (best < 0) { pitchConf = 0; return; }
+        double t = best;
+        if (best > 1 && best < maxLag) { float a = cm[(size_t) best - 1], b = cm[(size_t) best], c = cm[(size_t) best + 1]; double den = a - 2 * b + c; if (std::abs(den) > 1e-9) t += 0.5 * (a - c) / den; }
+        pitchHz = fs / t; pitchConf = 1.0 - cm[(size_t) best];
+    }
+    void feedback(int n, float* L, float* R) {
+        float mode = p(11, "mode") / 100.0f, grow = p(11, "grow") / 100.0f, level = p(11, "level") / 100.0f, harmK = p(11, "harm") / 100.0f, tone = p(11, "tone") / 100.0f;
+        bool stop = p(11, "stop") > 0.5f;
+        int md = mode < 0.34f ? 0 : (mode < 0.67f ? 1 : 2);           // CATCH, LISTEN, HOLD
+        static const double HARM[5] = { 1.0, 2.0, 3.0, 4.0, 0.0 };
+        double harm = HARM[std::clamp((int) (harmK * 4.99f), 0, 4)];  // 0 = FREE: it finds its own pitch
+        float target = std::pow(10.0f, (-30.0f + level * 24.0f) / 20.0f);   // -30 .. -6 dBFS
+        float growDb = 4.0f + grow * grow * 56.0f;                    // 4 .. 60 dB per second
+        float toneHz = 600.0f * std::pow(2.0f, tone * 5.0f);
+        float gT = std::tan(3.14159265f * std::min(toneHz, (float) sr * 0.45f) / (float) sr);
+        if (stop && !prevStop) { fbState = 2; waitOnset = true; }
+        prevStop = stop;
+        for (int i = 0; i < n; ++i) {
+            float x = in[i];
+            // the pitch follower
+            pacc += x; if (++pdec >= 4) { pbuf[(size_t) pw] = pacc * 0.25f; pw = (pw + 1) % 1024; pacc = 0; pdec = 0; if (++pnew >= 192) { pnew = 0; trackPitch(); } }
+            // onsets: the sound sent jumps up
+            float ax = std::abs(x);
+            inEnvF += (ax > inEnvF ? 0.02f : 0.0015f) * (ax - inEnvF);
+            inEnvS += 0.00008f * (ax - inEnvS);
+            sinceOnset += 1.0 / sr;
+            bool onset = inEnvF > 0.003f && inEnvF > inEnvS * 2.5f && sinceOnset > 0.15;
+            if (onset) { sinceOnset = 0; waitOnset = false; fbState = 1; }
+            // the pitch it feeds back at: the note heard (stable for a moment), times the harmonic
+            if ((i & 31) == 0 && pitchConf > 0.8 && pitchHz > 40 && pitchHz < 1500) {
+                if (std::abs(std::log2(pitchHz / std::max(1.0, pendingHz))) < 0.03) stableFor += 32.0 / sr; else { pendingHz = pitchHz; stableFor = 0; }
+                if (stableFor > (md == 1 ? 0.25 : 0.04)) fbHz = harm > 0 ? std::min(3000.0, pendingHz * harm) : fbHz;
+            }
+            if (harm == 0 && (i & 31) == 0 && fbEnv > target * 0.3f && pitchConf > 0.85) fbHz = std::clamp(pitchHz, 60.0, 3000.0);   // FREE: it follows itself
+            double per = sr / fbHz; int mult = std::max(1, (int) std::ceil(0.0025 * sr / per));
+            fbDT = (float) std::min((double) fbLine.d.size() - 8, per * mult);
+            fbD += (fbDT - fbD) * 0.0008f;                              // glides to a new note (like real feedback)
+            // how much the loop grows or shrinks per second, towards LEVEL
+            float e = std::max(fbEnv, 1e-6f), dbps;
+            float overDb = 20.0f * std::log10(e / target);
+            if (md != 0 && fbState == 0 && !waitOnset) fbState = 1;                                  // LISTEN / HOLD: always listening
+            if (fbState == 2) { dbps = -40.0f; if (e < (md == 0 ? target * 0.01f : 1e-4f)) fbState = 0; }  // letting go
+            else if (fbState == 0) dbps = -18.0f;                                                      // resting
+            else if (md == 0) { dbps = growDb; if (e >= target) fbState = 2; }                      // CATCH: grow, then let go before it is loud
+            else if (md == 1) dbps = std::clamp(-overDb * 3.0f, -30.0f, growDb * 0.35f);            // LISTEN: slowly up to LEVEL, and stay
+            else dbps = std::clamp(-overDb * 6.0f, -40.0f, growDb);                                   // HOLD: up to LEVEL, and stay
+            if (e > target * 1.6f) dbps = std::min(dbps, -60.0f);                                     // never above LEVEL
+            float passes = (float) (sr / fbD);
+            float gWant = std::pow(10.0f, dbps / 20.0f / passes);
+            fbG += (gWant - fbG) * 0.01f;
+            // the loop: delay (the period), a band-pass at the pitch, the tone, a soft saturation
+            float d = fbLine.read(fbD);
+            float hzBp = (float) std::min(sr * 0.45, sr / fbD * mult);
+            float gb = std::tan(3.14159265f * hzBp / (float) sr);
+            float lp, bp, hp; fbBp.tick(d, gb, 0.35f, lp, bp, hp); bp *= 0.35f;      // unity gain at the pitch
+            float lp2, bp2, hp2; fbTone.tick(bp, gT, 1.414f, lp2, bp2, hp2);
+            float ins = x * (md == 1 ? 0.6f : 1.0f) * (fbState == 2 && md == 0 ? 0.1f : 1.0f);
+            float loop = std::tanh((lp2 * fbG + ins * 0.25f) * 1.2f) / 1.2f;
+            fbLine.push(loop);
+            float ae = std::abs(loop);
+            fbEnv += (ae > fbEnv ? 0.004f : 0.0004f) * (ae - fbEnv);
+            // the output: DC removed, a gentle limiter (-6 dBFS)
+            float y = loop; dcY = y - dcX + 0.9995f * dcY; dcX = y; y = dcY;
+            float peak = std::abs(y) * lim;
+            if (peak > 0.5f) lim = 0.5f / std::abs(y); else lim += (1.0f - lim) * 0.0002f;
+            y *= lim;
+            if (!std::isfinite(y)) { initFeedback(); y = 0; }
+            L[i] = y * 1.4f; R[i] = y * 1.4f;
         }
     }
 };

@@ -1,4 +1,7 @@
 #include "PhoneRemote.h"
+#if JUCE_IOS
+ #include "../App/IOSAudio.h"
+#endif
 
 namespace arco {
 
@@ -31,7 +34,7 @@ PhoneRemote::PhoneRemote(AudioHost& h) : host(h) {
         if (pal.isNotEmpty() && pal != lastPalette) { lastPalette = pal; Theme::setPalette(Theme::paletteByName(pal)); if (auto* t = getTopLevelComponent()) t->repaint(); }
         repaint();
     };
-    host.phoneLink.onConnection = [this](bool) { st.p.clear(); st.s.clear(); st.info.clear(); repaint(); };
+    host.phoneLink.onConnection = [this](bool on) { st.p.clear(); st.s.clear(); st.info.clear(); if (on) send("listen " + juce::String(host.listenWant.load())); repaint(); };
     setWantsKeyboardFocus(false);
     startTimerHz(20);
 }
@@ -72,6 +75,7 @@ void PhoneRemote::rename() {
 void PhoneRemote::timerCallback() { if (isShowing()) repaint(); }
 
 void PhoneRemote::setPar(const std::string& id, double v) {
+    if (id == "listenvol") { host.listenVol.store((float) juce::jlimit(0.0, 1.0, v)); return; }
     auto* d = RemoteState::defOf(id); if (d == nullptr) return;
     v = juce::jlimit(d->lo, d->hi, v); if (d->kind != 0) v = std::round(v);
     st.p[id] = v; st.localUntil[id] = juce::Time::getMillisecondCounterHiRes() + 600;
@@ -149,10 +153,20 @@ void PhoneRemote::paint(juce::Graphics& g) {
     }
     // ---- the tabs
     auto tabs = area.removeFromBottom(52 * u);
-    const char* T[4] = { "PLAY", "MIX", "EFFECTS", "SYNTH" };
-    for (int i = 0; i < 4; ++i) button(g, tabs.removeFromLeft(tabs.getWidth() / (4 - i)).reduced(3 * u, 6 * u), T[i], page == i ? Theme::sel() : Theme::card(), [this, i] { setPage(i); }, 9.5f, false);
+    const char* T[5] = { "PLAY", "MIX", "EFFECTS", "SYNTH", "AUDIO" };
+    for (int i = 0; i < 5; ++i) button(g, tabs.removeFromLeft(tabs.getWidth() / (5 - i)).reduced(2 * u, 6 * u), T[i], page == i ? Theme::sel() : Theme::card(), [this, i] { setPage(i); }, 8.5f, false);
+   #if JUCE_IOS
+    if (routePicker != nullptr && page != 4) routePicker->setVisible(false);
+   #endif
     area.removeFromBottom(4 * u);
     content = area;
+    if (page == 4) {                              // the phone's own sound: works with or without a station
+        g.saveState(); g.reduceClipRegion(content.toNearestInt());
+        drawAudio(g, content.withHeight(5000).translated(0, -scroll));
+        g.restoreState();
+        ctls.erase(std::remove_if(ctls.begin(), ctls.end(), [this](const Ctl& c) { return c.scrolls && !content.intersects(c.r); }), ctls.end());
+        return;
+    }
     if (!conn) {
         auto r = area.reduced(10 * u, 30 * u);
         text(g, U8("Open ARCO on your Mac or iPad."), r.removeFromTop(30 * u), 12.0f, Theme::txt(), 2, juce::Justification::centred);
@@ -318,6 +332,89 @@ void PhoneRemote::drawFx(juce::Graphics& g, juce::Rectangle<float> r) {
 }
 
 // ---------------------------------------------------------------- SYNTH: slide pad, keys, chords (they play the station's SYNTH)
+// ---------------------------------------------------------------- AUDIO: which microphone, which output, listening to the station
+void PhoneRemote::drawAudio(juce::Graphics& g, juce::Rectangle<float> r) {
+    float y0 = r.getY();
+    double now = juce::Time::getMillisecondCounterHiRes();
+   #if JUCE_IOS
+    if (now - inputsAt > 1000) { inputsAt = now; inputList.clear(); for (auto& p : ios::inputs()) inputList.add({ p.id, p.name }); }
+    juce::String chosen = ios::chosenInput(), curIn = ios::currentInputName(), curOut = ios::currentOutputName();
+    bool bt = ios::outputIsBluetooth();
+   #else
+    if (inputList.isEmpty()) inputList.add({ "auto", "AUTOMATIC" });
+    juce::String chosen = "auto", curIn = "built-in mic", curOut = "speaker"; bool bt = false; juce::ignoreUnused(now);
+   #endif
+    text(g, U8("MICROPHONE"), r.removeFromTop(26 * u), 11.0f, Theme::txt(), 2);
+    text(g, U8("now: ") + curIn, r.removeFromTop(20 * u), 8.5f, Theme::sub(), 1);
+    for (auto& in : inputList) {
+        auto row = r.removeFromTop(42 * u).reduced(0, 3 * u);
+        bool sel = chosen == in.first;
+        juce::String id = in.first;
+        button(g, row, in.second, sel ? Theme::green() : Theme::btn(), [this, id] {
+           #if JUCE_IOS
+            ios::chooseInput(id); inputsAt = 0; host.saveSetup();
+           #else
+            juce::ignoreUnused(id);
+           #endif
+            repaint(); }, 9.0f);
+    }
+    text(g, U8("Plug a cable or USB microphone / interface in and it appears here. A Bluetooth headset's microphone is phone-call quality - for your instrument use the built-in or a cable one."),
+         r.removeFromTop(48 * u), 7.5f, Theme::sub());
+    r.removeFromTop(10 * u);
+    text(g, U8("OUTPUT"), r.removeFromTop(26 * u), 11.0f, Theme::txt(), 2);
+    auto orow = r.removeFromTop(48 * u);
+    auto pick = orow.removeFromRight(48 * u);
+    text(g, U8("now: ") + curOut, orow, 9.0f, Theme::txt(), 1);
+   #if JUCE_IOS
+    if (routePicker == nullptr) { routePicker = std::make_unique<juce::UIViewComponent>(); addAndMakeVisible(*routePicker); routePicker->setView(ios::makeRoutePicker()); }
+    auto pb = pick.reduced(4 * u).toNearestInt();
+    bool inside = content.contains(pick);
+    if (routePicker->getBounds() != pb) routePicker->setBounds(pb);
+    if (routePicker->isVisible() != inside) routePicker->setVisible(inside);
+    g.setColour(Theme::card2()); g.fillRoundedRectangle(pick.reduced(2 * u), 10 * u);
+   #endif
+    auto srow = r.removeFromTop(44 * u).reduced(0, 3 * u);
+   #if JUCE_IOS
+    bool spk = ios::speakerForced();
+   #else
+    bool spk = false;
+   #endif
+    button(g, srow, spk ? U8("● THE PHONE'S SPEAKER (forced)") : U8("THE PHONE'S SPEAKER"), spk ? Theme::amber() : Theme::btn(), [this] {
+       #if JUCE_IOS
+        ios::forceSpeaker(! ios::speakerForced()); host.saveSetup();
+       #endif
+        repaint(); }, 9.0f);
+    text(g, U8("The round button chooses where the sound goes: Bluetooth headphones or speakers, AirPlay, a cable. ")
+         + (bt ? U8("Bluetooth delays the sound (about 0.2 s): good for listening, not for playing in time.") : juce::String()),
+         r.removeFromTop(46 * u), 7.5f, bt ? Theme::amber() : Theme::sub());
+    r.removeFromTop(10 * u);
+    // ---- listening to the station
+    text(g, U8("LISTEN TO THE STATION HERE"), r.removeFromTop(26 * u), 11.0f, Theme::txt(), 2);
+    auto lrow = r.removeFromTop(48 * u);
+    const char* LN[3] = { "OFF", "MAIN MIX", "HEADPHONE MIX" };
+    float lw = lrow.getWidth() / 3.0f;
+    for (int i = 0; i < 3; ++i) {
+        bool sel = host.listenWant.load() == i;
+        button(g, lrow.removeFromLeft(lw).reduced(3 * u, 4 * u), LN[i], sel ? (i == 0 ? Theme::sel() : Theme::green()) : Theme::btn(), [this, i] {
+            host.listenWant.store(i); host.phoneLink.listen.reset(); send("listen " + juce::String(i)); host.saveSetup(); repaint(); }, 8.5f);
+    }
+    {   // the volume (this phone only)
+        auto vr = r.removeFromTop(44 * u).reduced(0, 6 * u);
+        float v = host.listenVol.load();
+        g.setColour(Theme::card2()); g.fillRoundedRectangle(vr, vr.getHeight() * 0.3f);
+        g.setColour(Theme::arc(Theme::green()).withAlpha(0.9f)); g.fillRoundedRectangle(vr.withWidth(juce::jmax(vr.getHeight() * 0.3f, vr.getWidth() * v)), vr.getHeight() * 0.3f);
+        text(g, U8("VOLUME"), vr.reduced(12 * u, 0), 9.5f, Theme::txt(), 2);
+        text(g, juce::String(juce::roundToInt(v * 100)), vr.reduced(12 * u, 0), 9.5f, Theme::txt(), 1, juce::Justification::centredRight);
+        ctls.push_back({ vr, 1, "listenvol", 0, 1, nullptr, true });
+        auto lv = r.removeFromTop(14 * u).withSizeKeepingCentre(vr.getWidth(), 6 * u);
+        g.setColour(Theme::card2()); g.fillRoundedRectangle(lv, 3 * u);
+        g.setColour(Theme::green()); g.fillRoundedRectangle(lv.withWidth(lv.getWidth() * juce::jmin(1.0f, host.phoneLink.listen.level.load())), 3 * u);
+    }
+    text(g, host.phoneLink.connected() ? U8("The station's sound comes to this phone over Wi-Fi or the cable (about ") + juce::String(juce::roundToInt(host.phoneLink.listen.delayMs.load() + 15)) + U8(" ms late): to hear the mix around the room, or your own headphone mix (CUE, click).")
+                                       : U8("Connect to a station first (PLAY page)."), r.removeFromTop(52 * u), 7.5f, Theme::sub());
+    scrollMax = juce::jmax(0.0f, r.getY() - y0 - content.getHeight() + 20 * u);
+}
+
 void PhoneRemote::drawSynth(juce::Graphics& g, juce::Rectangle<float> r) {
     scrollMax = 0;
     auto top = r.removeFromTop(44 * u);
@@ -381,7 +478,7 @@ void PhoneRemote::mouseDown(const juce::MouseEvent& e) {
     for (int i = (int) ctls.size(); --i >= 0;) if (ctls[(size_t) i].r.contains(p)) { active = i; break; }
     if (active >= 0) {
         auto& c = ctls[(size_t) active];
-        if (c.kind == 1) valueAtDown = st.par(c.id);
+        if (c.kind == 1) valueAtDown = c.id == "listenvol" ? (double) host.listenVol.load() : st.par(c.id);
         if (c.kind >= 2) { padTouch(e, true, false); return; }
     }
     repaint();

@@ -392,7 +392,40 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
             if (std::getenv("ARCO_DEBUG")) std::printf("    %s peak %.3f\n", d.key, pk);
             if (!good) { ok = false; bad << d.key << "(" << juce::String(pk, 3) << ") "; }
         }
-        check(ok, ("NEW EFFECTS: all 10 sound, clean, not too loud " + bad).toRawUTF8());
+        check(ok, ("NEW EFFECTS: all sound, clean, not too loud " + bad).toRawUTF8());
+        // PEDAL: pedal down - the strings go on ringing after the note; pedal up - they stop softly
+        m.set("pdl0", 85); m.set("pdl_auto", 0); m.set("pdl_down", 1);
+        run(0.6, 0.3f); run(1.5, 0);
+        float held = ringPeak("pdl");
+        m.set("pdl_down", 0); run(0.8, 0);
+        float damped = ringPeak("pdl");
+        if (std::getenv("ARCO_DEBUG")) std::printf("    pedal held %.4f damped %.5f\n", held, damped);
+        check(held > 0.02f && damped < held * 0.05f, "PEDAL: strings ring on with the pedal down, stop when it is lifted", held);
+        m.set("pdl0", 0); run(1.0, 0);
+        // FEEDBACK: HOLD grows to LEVEL and stays; CATCH swells and lets go; never too loud, even pushed hard
+        m.set("fbk0", 85); m.set("fbk_mode", 90); m.set("fbk_level", 50); m.set("fbk_grow", 60); m.set("fbk_harm", 0); m.set("fbk_ret", 70);
+        run(0.4, 0.3f); run(3.0, 0);
+        float h1 = ringPeak("fbk"); run(3.0, 0); float h2 = ringPeak("fbk");
+        double fbHz = 0; { auto& r = e.ring("xr_fbk"); int w = r.w.load(), zc = 0; float prev = 0; int first = -1, last = -1;
+            for (int k = 0; k < Ring::N; ++k) { float v = r.d[(size_t) ((w + k) % Ring::N)]; if (prev < 0 && v >= 0) { if (first < 0) first = k; last = k; ++zc; } prev = v; }
+            if (zc > 2) fbHz = (zc - 1) * (e.sr / 4.0) / (last - first); }
+        if (std::getenv("ARCO_DEBUG")) std::printf("    feedback pitch %.1f Hz\n", fbHz);
+        check(std::abs(fbHz - 220.0) < 6.0, "FEEDBACK feeds back at the note played (220 Hz)", (float) fbHz);
+        if (std::getenv("ARCO_DEBUG")) std::printf("    feedback hold %.4f -> %.4f\n", h1, h2);
+        check(h1 > 0.03f && h2 > 0.03f && std::abs(std::log(h2 / h1)) < 0.35f && h2 < 0.8f, "FEEDBACK HOLD: grows to its level and stays there", h2);
+        m.set("fbk_stop", 1); run(0.3, 0); m.set("fbk_stop", 0); run(2.5, 0);
+        float let = ringPeak("fbk");
+        check(let < 0.003f, "FEEDBACK: LET GO - it dies away and waits", let);
+        m.set("fbk_mode", 0); run(0.5, 0);
+        float peakC = 0; run(0.3, 0.3f); for (int k = 0; k < 20; ++k) { run(0.1, 0); peakC = std::max(peakC, ringPeak("fbk")); }
+        run(3.0, 0); float afterC = ringPeak("fbk");
+        if (std::getenv("ARCO_DEBUG")) std::printf("    feedback catch peak %.4f after %.5f\n", peakC, afterC);
+        check(peakC > 0.03f && afterC < peakC * 0.05f, "FEEDBACK CATCH: the note swells and is let go before it is loud", peakC);
+        m.set("fbk_mode", 90); m.set("fbk_level", 100); m.set("fbk_grow", 100); m.set("fbk_ret", 100);
+        nan = false; float hard = 0; for (int k = 0; k < 6; ++k) { run(0.5, 1.0f); hard = std::max(hard, ringPeak("fbk")); }
+        check(!nan && hard < 1.0f, "FEEDBACK pushed to the maximum with a loud input: under full scale", hard);
+        for (auto k : { "fbk0" }) m.set(k, 0);
+        m.set("fbk_level", 50); m.set("fbk_grow", 45); m.set("fbk_ret", 70); m.set("fbk_mode", 50); run(1.0, 0);
     }
     // odd buffer sizes (Bluetooth, some interfaces): same sound and same timing as with 512, only 64 samples later
     {
@@ -451,6 +484,24 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         check(std::abs(m.get("vol5") - 33) < 1e-6 && rcv != nullptr && rcv->live.load() == 2, "  the phone moves a fader and chooses LIVE 2");
         bool hasVol = false, hasSong = false; for (auto& l : got) { if (l.startsWith("p vol5 33")) hasVol = true; if (l.startsWith("i song")) hasSong = true; }
         check(hasVol && hasSong, "  the phone's screen gets the station's state", got.size());
+        // 1.3: the phone asks to listen - the station's sound (48 kHz) plays on the phone (44.1 kHz)
+        if (rcv != nullptr) {
+            snd.send("listen 1");
+            for (int i = 0; i < 20; ++i) { juce::Thread::sleep(20); h.tickPhones(); }
+            std::vector<float> l(on), r(on), pl(bn), pr(bn), heard;
+            double phL = 0, c1 = 0, c2 = 0; auto t1 = juce::Time::getMillisecondCounterHiRes();
+            while (juce::Time::getMillisecondCounterHiRes() - t1 < 2500) {
+                double now = (juce::Time::getMillisecondCounterHiRes() - t1) / 1000.0;
+                while (c1 < now) { for (int i = 0; i < on; ++i) { l[(size_t) i] = 0.4f * (float) std::sin(phL); r[(size_t) i] = l[(size_t) i]; phL += 2 * M_PI * 330.0 / outSr; } rcv->pushListen(l.data(), r.data(), on, outSr); c1 += on / outSr; }
+                while (c2 < now) { snd.listen.pull(pl.data(), pr.data(), bn, sr); if (c2 > 1.2) heard.insert(heard.end(), pl.begin(), pl.end()); c2 += bn / sr; }
+                juce::Thread::sleep(1);
+            }
+            int z2 = 0; for (size_t i = 1; i < heard.size(); ++i) if ((heard[i - 1] < 0) != (heard[i] < 0)) ++z2;
+            double hz2 = heard.empty() ? 0 : z2 / 2.0 / (heard.size() / sr);
+            float pk2 = 0; for (auto v : heard) pk2 = std::max(pk2, std::abs(v));
+            check(rcv->listenMix.load() == 1 && std::abs(hz2 - 330.0) < 4.0 && pk2 > 0.3f, "  LISTEN: the station's sound plays on the phone (Hz)", hz2);
+            snd.send("listen 0");
+        }
         // through the engine: the phone plays as LIVE 2
         if (rcv != nullptr) { std::vector<float> b2(512); rcv->pull(b2.data(), 512, outSr); }
         h.phones.setLive(rcv, 0); m.set("vol5", 71);

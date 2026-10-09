@@ -195,12 +195,18 @@ void PhoneServer::run() {
                 have += (size_t) r;
                 juce::StringArray got;
                 takeFrames(rbuf, have, [&](int type, const char* p, size_t len) {
-                    if (type == FrState && len > 0) got.addLines(juce::String::fromUTF8(p, (int) len)); });
+                    if (type == FrState && len > 0) got.addLines(juce::String::fromUTF8(p, (int) len));
+                    else if (type == FrListen && len > 4) {
+                        uint32_t r; std::memcpy(&r, p, 4);
+                        std::vector<int16_t> pcm((len - 4) / 2); std::memcpy(pcm.data(), p + 4, pcm.size() * 2);
+                        listen.write(pcm.data(), (int) pcm.size() / 2, (double) r);
+                    } });
                 if (!got.isEmpty()) { { const juce::ScopedLock sl(lock); inLines.addArray(got); } triggerAsyncUpdate(); }
             }
         }
         clientFd.store(-1);
         closeFd(c);
+        listen.reset();
         setConn(false);
     }
     closeFd(serverFd);
@@ -209,6 +215,7 @@ void PhoneServer::run() {
 // ================================================================== one phone, seen from the station
 PhoneConn::PhoneConn(Mode m, const juce::String& h, int p, int id) : juce::Thread("ARCO phone"), mode(m), host(h), port(p), usbId(id) {
     data.resize((size_t) fifo.getTotalSize());
+    ldata.resize((size_t) lfifo.getTotalSize() * 2);
     setStatus(m == Usb ? "on the cable, connecting ..." : "connecting to " + h + " ...");
 }
 PhoneConn::~PhoneConn() { signalThreadShouldExit(); stopThread(4000); }
@@ -333,7 +340,20 @@ void PhoneConn::run() {
             // send the state (the phone's screen)
             juce::String out; { const juce::ScopedLock sl(lock); out.swapWith(outText); }
             if (out.isNotEmpty() && !isLegacy.load()) { auto t = out.toStdString(); if (!sendFrame(fd, FrState, t.data(), t.size())) break; }
-            if (waitFd(fd, true, 20) <= 0) {
+            // the sound this phone listens to
+            if (listenMix.load() > 0 && !isLegacy.load()) {
+                int ready = lfifo.getNumReady();
+                if (ready >= 128) {
+                    int s1, n1, s2, n2; lfifo.prepareToRead(juce::jmin(ready, 2048), s1, n1, s2, n2);
+                    std::vector<char> pl(4 + (size_t) (n1 + n2) * 4);
+                    uint32_t r = (uint32_t) std::lround(listenRate.load()); std::memcpy(pl.data(), &r, 4);
+                    if (n1) std::memcpy(pl.data() + 4, ldata.data() + (size_t) s1 * 2, (size_t) n1 * 4);
+                    if (n2) std::memcpy(pl.data() + 4 + (size_t) n1 * 4, ldata.data() + (size_t) s2 * 2, (size_t) n2 * 4);
+                    lfifo.finishedRead(n1 + n2);
+                    if (!sendFrame(fd, FrListen, pl.data(), pl.size())) break;
+                }
+            } else lfifo.finishedRead(lfifo.getNumReady());
+            if (waitFd(fd, true, listenMix.load() > 0 ? 4 : 20) <= 0) {
                 if (juce::Time::getMillisecondCounterHiRes() - lastIn > 2500) break;     // the phone went quiet
                 continue;
             }
@@ -403,6 +423,66 @@ void PhoneConn::pull(float* out, int n, double outRate) {
         hpX2 = hpX1; hpX1 = xi; hpY2 = hpY1; hpY1 = yv;
         float y = (float) yv;
         out[i] = y; pk = juce::jmax(pk, std::abs(y));
+        pos += step;
+    }
+    fifo.finishedRead(k);
+    level.store(juce::jmax(pk, level.load() * 0.9f));
+    delayMs.store((float) (fifo.getNumReady() * 1000.0 / ir));
+}
+
+void PhoneConn::pushListen(const float* l, const float* r, int n, double rate) {
+    if (listenMix.load() <= 0 || !isConnected.load()) return;
+    listenRate.store(rate);
+    if (lfifo.getFreeSpace() < n) return;                          // the network is behind: skip (the phone catches up)
+    int s1, n1, s2, n2; lfifo.prepareToWrite(n, s1, n1, s2, n2);
+    auto put = [&](int start, int count, int from) {
+        for (int i = 0; i < count; ++i) {
+            ldata[(size_t) (start + i) * 2] = (int16_t) std::lround(juce::jlimit(-1.0f, 1.0f, l[from + i]) * 32767.0f);
+            ldata[(size_t) (start + i) * 2 + 1] = (int16_t) std::lround(juce::jlimit(-1.0f, 1.0f, r[from + i]) * 32767.0f);
+        } };
+    put(s1, n1, 0); put(s2, n2, n1);
+    lfifo.finishedWrite(n1 + n2);
+}
+
+// ================================================================== a stereo stream from the network
+void StreamPlayer::write(const int16_t* lr, int frames, double rate) {
+    if (rate >= 8000 && rate <= 192000 && rate != inRate.load()) { inRate.store(rate); resetReq.store(true); }
+    int n = juce::jmin(frames, fifo.getFreeSpace());
+    int s1, n1, s2, n2; fifo.prepareToWrite(n, s1, n1, s2, n2);
+    for (int i = 0; i < n1; ++i) { data[(size_t) (s1 + i) * 2] = lr[i * 2] / 32768.0f; data[(size_t) (s1 + i) * 2 + 1] = lr[i * 2 + 1] / 32768.0f; }
+    for (int i = 0; i < n2; ++i) { data[(size_t) (s2 + i) * 2] = lr[(n1 + i) * 2] / 32768.0f; data[(size_t) (s2 + i) * 2 + 1] = lr[(n1 + i) * 2 + 1] / 32768.0f; }
+    fifo.finishedWrite(n1 + n2);
+}
+
+void StreamPlayer::pull(float* L, float* R, int n, double outRate) {
+    auto silence = [&] { std::fill(L, L + n, 0.0f); std::fill(R, R + n, 0.0f); level.store(level.load() * 0.9f); };
+    if (resetReq.exchange(false)) { primed = false; pos = 0; adj = 0; for (int i = 0; i < 4; ++i) hl[i] = hr[i] = 0; fifo.finishedRead(fifo.getNumReady()); }
+    const double ir = inRate.load();
+    // Wi-Fi is bumpy: keep 40-120 ms in hand (more after every hiccup)
+    double targetMs = juce::jlimit(40.0, 120.0, 40.0 + 10.0 * underruns);
+    int target = (int) (ir * targetMs / 1000.0) + (int) (n * ir / outRate);
+    int fill = fifo.getNumReady();
+    if (!primed) { if (fill < target) { silence(); return; } primed = true; }
+    if (fill > target * 3 + 4096) { fifo.finishedRead(fill - target); fill = target; }
+    double err = (double) (fill - target) / (double) juce::jmax(1, target);
+    adj = juce::jlimit(-0.004, 0.004, adj * 0.995 + 0.00002 * err);
+    double step = ir / outRate * (1.0 + adj + 0.002 * juce::jlimit(-1.0, 1.0, err));
+    int need = (int) std::ceil(n * step) + 2;
+    int s1, n1, s2, n2; fifo.prepareToRead(juce::jmin(need, fill), s1, n1, s2, n2);
+    int got = n1 + n2, k = 0;
+    float pk = 0;
+    for (int i = 0; i < n; ++i) {
+        while (pos >= 1.0) {
+            if (k >= got) { std::fill(L + i, L + n, 0.0f); std::fill(R + i, R + n, 0.0f); primed = false; ++underruns; fifo.finishedRead(k); return; }
+            int at = k < n1 ? s1 + k : s2 + k - n1; ++k;
+            for (int j = 0; j < 3; ++j) { hl[j] = hl[j + 1]; hr[j] = hr[j + 1]; }
+            hl[3] = data[(size_t) at * 2]; hr[3] = data[(size_t) at * 2 + 1]; pos -= 1.0;
+        }
+        float t = (float) pos;
+        auto cub = [t](const float* h) { float c1 = 0.5f * (h[2] - h[0]), c2 = h[0] - 2.5f * h[1] + 2.0f * h[2] - 0.5f * h[3], c3 = 0.5f * (h[3] - h[0]) + 1.5f * (h[1] - h[2]);
+                                         return ((c3 * t + c2) * t + c1) * t + h[1]; };
+        L[i] = cub(hl); R[i] = cub(hr);
+        pk = juce::jmax(pk, std::abs(L[i]), std::abs(R[i]));
         pos += step;
     }
     fifo.finishedRead(k);

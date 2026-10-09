@@ -6,7 +6,8 @@
 //   station (PhoneHub):  finds the phones (Bonjour on Wi-Fi, usbmuxd on the cable), connects to every one, plays each
 //                        phone's microphone on the LIVE input chosen for it (up to 4 phones), and keeps their screens current.
 // Frames: 1 byte type + 3 bytes length (little-endian) + payload.  1 = audio (float32 mono), 2 = commands (text lines),
-// 3 = state (text lines), 4 = busy (the phone is already connected to a station another way).
+// 3 = state (text lines), 4 = busy (the phone is already connected to a station another way),
+// 5 = listen (1.3: the station's sound for the phone's headphones: uint32 rate + int16 stereo interleaved).
 #include <JuceHeader.h>
 #include <atomic>
 #include <deque>
@@ -17,7 +18,23 @@
 namespace arco {
 
 constexpr int kPhonePort = 47123;
-enum FrameType { FrAudio = 1, FrCommand = 2, FrState = 3, FrBusy = 4 };
+enum FrameType { FrAudio = 1, FrCommand = 2, FrState = 3, FrBusy = 4, FrListen = 5 };
+
+// a stereo stream arriving over the network, played at another clock: a small buffer, gently resampled to stay in time
+class StreamPlayer {
+public:
+    StreamPlayer() { data.resize((size_t) fifo.getTotalSize() * 2); }
+    void write(const int16_t* lr, int frames, double rate);       // network thread
+    void pull(float* L, float* R, int n, double outRate);           // audio thread (adds nothing: overwrites)
+    void reset() { resetReq.store(true); }
+    std::atomic<float> level { 0.0f }, delayMs { 0.0f };
+private:
+    juce::AbstractFifo fifo { 1 << 15 };
+    std::vector<float> data;                                        // interleaved
+    std::atomic<double> inRate { 48000.0 };
+    std::atomic<bool> resetReq { true };
+    bool primed = false; double pos = 0, adj = 0; float hl[4] {}, hr[4] {}; int underruns = 0;
+};
 
 // ------------------------------------------------------------------ the phone
 class PhoneServer : private juce::Thread, private juce::AsyncUpdater {
@@ -38,6 +55,7 @@ public:
     std::function<void(const juce::StringArray& lines)> onState;  // state lines from the station (message thread)
     std::function<void(bool)> onConnection;                       // connected / disconnected (message thread)
     static juce::StringArray localAddresses();                    // the Wi-Fi addresses (to type on the station if needed)
+    StreamPlayer listen;                                          // the station's sound (when this phone asked for it)
     void deliverNow() { cancelPendingUpdate(); handleAsyncUpdate(); }   // (tests: no message loop)
 private:
     void run() override;
@@ -70,6 +88,8 @@ public:
     juce::String statusText() const { const juce::ScopedLock sl(lock); return status; }
     std::atomic<int> live { 0 };                                    // 0 none, 1-4: plays as that LIVE input
     std::atomic<bool> busyElsewhere { false };
+    std::atomic<int> listenMix { 0 };                               // 1.3: this phone listens: 0 no, 1 the main mix, 2 the headphone mix
+    void pushListen(const float* l, const float* r, int n, double rate);   // audio thread
     // audio thread
     void pull(float* out, int n, double outRate);
     std::atomic<float> level { 0.0f }, delayMs { 0.0f };
@@ -86,6 +106,9 @@ private:
     int openWiFi(juce::String& why);
     juce::AbstractFifo fifo { 1 << 16 };
     std::vector<float> data;
+    juce::AbstractFifo lfifo { 1 << 15 };
+    std::vector<int16_t> ldata;
+    std::atomic<double> listenRate { 48000.0 };
     std::atomic<bool> isConnected { false }, isLegacy { false };
     std::atomic<double> inRate { 48000.0 };
     mutable juce::CriticalSection lock;

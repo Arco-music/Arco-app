@@ -1,5 +1,8 @@
 #include "Panels.h"
 #include "MainView.h"
+#if JUCE_IOS
+ #include "../App/IOSAudio.h"
+#endif
 
 namespace arco {
 
@@ -21,6 +24,18 @@ AudioBox::AudioBox(Canvas& c, juce::LookAndFeel* laf) : cv(c) {
     rs->setBounds(0, 196, 100, 22);
     rs->onClick = [this] { if (auto* t = cv.host.devices.getCurrentDeviceTypeObject()) t->scanForDevices(); cv.host.scanMidi(); refresh(); };
     cv.host.devices.addChangeListener(this);
+   #if JUCE_IOS
+    // iPad: iOS has one sound device; the choice is the microphone (built-in, cable, USB, Bluetooth) and where the sound goes
+    out.setVisible(false);
+    routePicker = std::make_unique<juce::UIViewComponent>();
+    addAndMakeVisible(*routePicker);
+    routePicker->setView(ios::makeRoutePicker());
+    routePicker->setBounds(110, 0, 30, 26);
+    auto* spk = new Pill(U("SPEAKER"), [] { return ios::speakerForced() ? Theme::amber() : Theme::btn(); }, 7.5f, 6.0f); kids.add(spk); addAndMakeVisible(spk);
+    spk->setBounds(146, 0, 70, 26);
+    spk->onClick = [this] { ios::forceSpeaker(! ios::speakerForced()); cv.host.saveSetup(); repaint(); };
+    in.onChange = [this] { if (filling) return; int i = in.getSelectedItemIndex(); if (i >= 0 && i < iosIds.size()) { ios::chooseInput(iosIds[i]); cv.host.saveSetup(); } };
+   #endif
     refresh();
     startTimerHz(10);
 }
@@ -40,6 +55,12 @@ void AudioBox::refresh() {
     out.setSelectedItemIndex(outNames.indexOf(setup.outputDeviceName), juce::dontSendNotification);
     if (out.getSelectedItemIndex() < 0) out.setText("choose an output", juce::dontSendNotification);
     in.setSelectedItemIndex(setup.inputDeviceName.isEmpty() ? 0 : inNames.indexOf(setup.inputDeviceName) + 1, juce::dontSendNotification);
+   #if JUCE_IOS
+    in.clear(juce::dontSendNotification); iosIds.clear();
+    for (auto& p : ios::inputs()) { iosIds.add(p.id); in.addItem(p.name, iosIds.size()); }
+    in.setSelectedItemIndex(juce::jmax(0, iosIds.indexOf(ios::chosenInput())), juce::dontSendNotification);
+    lastRoute = ios::currentInputName() + ios::currentOutputName();
+   #endif
     rate.clear(juce::dontSendNotification); buf.clear(juce::dontSendNotification); rates.clear(); bufs.clear();
     if (auto* d = dm.getCurrentAudioDevice()) {
         for (auto r : d->getAvailableSampleRates()) { rates.add(r); rate.addItem(juce::String((int) r) + " Hz", rates.size()); }
@@ -68,6 +89,10 @@ void AudioBox::paint(juce::Graphics& g) {
     auto L = [&](const juce::String& t, int x, int y, int w, int h, float fs, juce::Colour c, int wt = 0) {
         g.setColour(c); g.setFont(Theme::font(fs, wt)); g.drawFittedText(t, { x, y, w, h }, juce::Justification::centredLeft, 4, 0.9f); };
     L("OUTPUT", 0, 0, 100, 26, 8.5f, Theme::txt(), 2);
+   #if JUCE_IOS
+    if (lastRoute != ios::currentInputName() + ios::currentOutputName()) juce::MessageManager::callAsync([sp = juce::Component::SafePointer<AudioBox>(this)] { if (sp) sp->refresh(); });
+    L(U("now: ") + ios::currentOutputName() + U("   ·   the round button: Bluetooth, AirPlay, cable"), 224, 0, 300, 26, 7.5f, ios::outputIsBluetooth() ? Theme::amber() : Theme::sub(), 1);
+   #endif
     L("INPUT", 0, 40, 100, 26, 8.5f, Theme::txt(), 2);
     L("SAMPLE RATE", 0, 80, 100, 26, 8.5f, Theme::txt(), 2);
     L("BUFFER", 260, 80, 70, 26, 8.5f, Theme::txt(), 2);
@@ -88,6 +113,11 @@ void AudioBox::paint(juce::Graphics& g) {
     if (cv.host.audioMessage.isNotEmpty()) L(cv.host.audioMessage, 0, 154, 520, 38, 8.0f, Theme::amber(), 1);
     juce::StringArray midi; for (auto& m : juce::MidiInput::getAvailableDevices()) midi.add(m.name);
     L("MIDI: " + (midi.isEmpty() ? juce::String("nothing plugged in") : midi.joinIntoString(", ")), 110, 196, 410, 22, 7.5f, Theme::sub());
+   #if JUCE_IOS
+    L(U("iPad: INPUT chooses the microphone (built-in, a cable or USB interface, a Bluetooth headset). The round button sends the sound to Bluetooth / AirPlay / a cable; SPEAKER forces the iPad's own. "
+        "Bluetooth has a big delay - fine for listening, not for playing along."), 0, 226, 520, 40, 7.5f, Theme::sub());
+    return;
+   #endif
     L(U("Headphones on a Mac: choose them (or your sound card) as OUTPUT here. TEST plays a soft A on outputs 1-2 and in the headphones. "
         "Bluetooth headphones have a big delay - fine for listening, not for playing along."), 0, 226, 520, 40, 7.5f, Theme::sub());
 }
@@ -134,7 +164,7 @@ void LookPanel::paint(juce::Graphics& g) {
     auto L = [&](const juce::String& t, int x, int y, int w, float fs, juce::Colour c, int wt = 0) { lab(g, t, { X + x, Y + y, w, (int) (fs * 2.4f) }, fs, c, wt); };
     L("SETUP", 24, 14, 140, 17.0f, Theme::txt(), 2);
     L("COLOURS", 24, 62, 300, 11.0f, Theme::txt(), 2);
-    L(U("calm palettes, every colour checked for contrast - also the top bar's LIGHT / DARK button switches between your last light and dark one"), 24, 80, 1000, 8.0f, Theme::sub());
+    L(U("four palettes, every colour checked for contrast: BLACK and STORM (dark), LIGHT and CHAMBRAY (light)"), 24, 80, 1000, 8.0f, Theme::sub());
     auto& P = Theme::palettes();
     for (int i = 0; i < (int) P.size(); ++i) {
         auto r = paletteTile(i).toFloat(); auto& p = P[(size_t) i];
