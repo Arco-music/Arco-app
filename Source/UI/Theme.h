@@ -30,11 +30,22 @@ struct Theme {
         // accent slots: 0 rec/red  1 on/green  2 amber  3 blue  4 mauve  5 teal  6 warm  7 olive
         auto onDark = [] { return std::array<juce::Colour, 8> { hex(0xc58fae), hex(0x9fb6c2), hex(0xc6a689), hex(0x8fa4b0), hex(0xa77d9c), hex(0x86a0ad), hex(0xb9a58f), hex(0xd9cfb2) }; };
         auto onLight = [] { return std::array<juce::Colour, 8> { hex(0x7b4d6f), hex(0x4f6c7c), hex(0x8a6c51), hex(0x445662), hex(0x5a4155), hex(0x5d7887), hex(0x9d836c), hex(0x7a7055) }; };
+        auto mDark = [] { return std::array<juce::Colour, 8> { hex(0xa87a9c), hex(0x8fa4b0), hex(0xefead9), hex(0x7f96a4), hex(0x8c6a85), hex(0xb9c7cf), hex(0xd8d8dc), hex(0x8a8a90) }; };
+        auto mMono = [] { return std::array<juce::Colour, 8> { hex(0xa87a9c), hex(0xffffff), hex(0xd0d0d0), hex(0x8fa4b0), hex(0xa87a9c), hex(0xbfbfbf), hex(0xe0e0e0), hex(0x8a8a8a) }; };
+        auto mLight = [] { return std::array<juce::Colour, 8> { hex(0x5a4155), hex(0x445662), hex(0x7d5f78), hex(0x445662), hex(0x5a4155), hex(0x5f7a88), hex(0x3a3a3a), hex(0x6e6e72) }; };
         static const std::vector<Palette> P = {
             { "Fig", false, hex(0x241a22), hex(0x30232e), hex(0x3e2d3b), hex(0x1c1419), hex(0x5a4155), hex(0xefead9), hex(0xbdb4a5), hex(0x4a3846), hex(0x4a3846), hex(0x8fa4b0), onDark() },
             { "Storm", false, hex(0x1d282f), hex(0x26333c), hex(0x324250), hex(0x172026), hex(0x445662), hex(0xefead9), hex(0xabb9c1), hex(0x3a4a56), hex(0x3a4b58), hex(0x9d836c), onDark() },
             { "Manuscript", true, hex(0xe0d9c6), hex(0xefead9), hex(0xe5dfcb), hex(0xe9e3d1), hex(0xc8bea5), hex(0x2e2330), hex(0x4a5761), hex(0xcdc4ad), hex(0x8fa4b0), hex(0x5a4155), onLight() },
             { "Chambray", true, hex(0xc8d2d7), hex(0xdbe2e5), hex(0xcbd5da), hex(0xd2dbdf), hex(0xa6b5bd), hex(0x22303a), hex(0x445662), hex(0xb2bfc6), hex(0x9d836c), hex(0x5a4155), onLight() },
+            // ---- matte proposals (no brown: Fig, Chambray, Storm + black and white)
+            { "Ink", false, hex(0x0e0e10), hex(0x18181b), hex(0x222226), hex(0x0a0a0b), hex(0x2e2e33), hex(0xffffff), hex(0xa3a3aa), hex(0x222226), hex(0x26262b), hex(0x8fa4b0), mDark() },
+            { "Storm Night", false, hex(0x172027), hex(0x1f2a32), hex(0x28353f), hex(0x121a20), hex(0x34434e), hex(0xf6f4ee), hex(0xa9b6be), hex(0x28353f), hex(0x2c3a45), hex(0x8fa4b0), mDark() },
+            { "Fig Night", false, hex(0x1a1418), hex(0x241c22), hex(0x2e242c), hex(0x141014), hex(0x3a2e37), hex(0xffffff), hex(0xb8adb4), hex(0x2e242c), hex(0x33282f), hex(0x8fa4b0), mDark() },
+            { "Mono", false, hex(0x000000), hex(0x111111), hex(0x1c1c1c), hex(0x000000), hex(0x333333), hex(0xffffff), hex(0x9a9a9a), hex(0x1c1c1c), hex(0x222222), hex(0xffffff), mMono() },
+            { "Paper", true, hex(0xf2f2f0), hex(0xffffff), hex(0xebebe8), hex(0xf7f7f5), hex(0xdadad6), hex(0x111111), hex(0x5c5f63), hex(0xe6e6e3), hex(0xe6e6e3), hex(0x445662), mLight() },
+            { "Manuscript Clean", true, hex(0xefead9), hex(0xfbf9f3), hex(0xe6e0cd), hex(0xf5f1e6), hex(0xd3ccb6), hex(0x141414), hex(0x545a5e), hex(0xe3ddc9), hex(0xe3ddc9), hex(0x5a4155), mLight() },
+            { "Chambray Day", true, hex(0xdde4e8), hex(0xf4f7f8), hex(0xcfd8dd), hex(0xeaeff1), hex(0xbac6cc), hex(0x101418), hex(0x445662), hex(0xcbd5da), hex(0xcbd5da), hex(0x445662), mLight() },
         };
         return P;
     }
