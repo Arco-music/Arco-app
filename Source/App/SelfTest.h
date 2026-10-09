@@ -7,6 +7,8 @@
 #include "../UI/LearnOverlay.h"
 #include "Render.h"
 #include "AutoMix.h"
+#include "Sampler.h"
+#include "../Engine/Modular.h"
 #include <cstdio>
 #include <cmath>
 
@@ -725,6 +727,46 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         check(d != nullptr && d->getCurrentSampleRate() == 44100 && d->getCurrentBufferSizeSamples() == 480, "  sample rate and buffer change");
         h.devices.closeAudioDevice();
         h.nLive = 1; h.inputCh[0] = 1; h.inputCh[1] = 2;
+    }
+    // ---- 1.3: MODULAR and the SFZ sample player
+    {
+        Modular mod; mod.prepare(48000);
+        std::vector<float> L(48000), R(48000);
+        auto run = [&](int blocks, bool own) { float pk = 0; double beat = 0; for (int b = 0; b < blocks; ++b) { std::fill(L.begin(), L.begin() + 480, 0.0f); std::fill(R.begin(), R.begin() + 480, 0.0f);
+            mod.process(L.data(), R.data(), 480, 120, own ? -1.0 : beat); beat += 480 * 2.0 / 48000; for (int i = 0; i < 480; ++i) { if (!std::isfinite(L[(size_t) i])) return 99.0f; pk = std::max(pk, std::abs(L[(size_t) i])); } } return pk; };
+        float silent = run(20, true);
+        mod.noteOn(57, 0.9f); float on = run(40, true); mod.noteOff(57); run(100, true); float off = run(20, true);
+        check(silent < 0.001f && on > 0.05f && on <= 1.0f && off < 0.01f, "MODULAR: a key plays the basic patch, releases to silence", on);
+        bool allOk = true; float lo = 1;
+        for (int p = 1; p < 4; ++p) { mod.setPatch(Modular::defaultPatch(p)); mod.noteOn(60, 0.8f); float pk = run(200, false); mod.noteOff(60); lo = std::min(lo, pk); allOk = allOk && pk > 0.02f && pk <= 1.0f; }
+        check(allOk, "  the generative, FM and drum patches all sound and stay in range", lo);
+        auto pt = Modular::defaultPatch(1); auto back = Modular::fromVar(juce::JSON::parse(juce::JSON::toString(Modular::toVar(pt))));
+        check(back.mods.size() == pt.mods.size() && back.cables.size() == pt.cables.size() && back.mods[2].p[0] == pt.mods[2].p[0], "  a patch saves and opens");
+        // a wild patch: every VCO into a FOLDER at full, feedback through the DELAY: never blows up
+        ModPatch w; w.nextId = 1; mod.setPatch(w);
+        int v = mod.addModule(MVco), f = mod.addModule(MFold), d = mod.addModule(MDelay), o = mod.addModule(MOut);
+        mod.setParam(f, 0, 100); mod.setParam(d, 1, 95); mod.setParam(o, 0, 100);
+        mod.connect(v, 2, f, 0); mod.connect(f, 0, d, 0); mod.connect(d, 0, v, 1); mod.connect(d, 0, o, 0);
+        float wild = run(300, true);
+        check(wild <= 1.0f && wild > 0.1f, "  a wild feedback patch stays under 0 dB", wild);
+    }
+    if (auto sfzPath = juce::SystemStats::getEnvironmentVariable("ARCO_SFZ", ""); sfzPath.isNotEmpty()) {
+        auto inst = std::make_shared<SfzInstrument>(); juce::String err;
+        double t0 = juce::Time::getMillisecondCounterHiRes();
+        bool ok = inst->load(juce::File(sfzPath), err);
+        std::printf("    SFZ: %s regions %d samples %d MB %.1f in %.0f ms %s\n", inst->name.toRawUTF8(), (int) inst->regions.size(), (int) inst->samples.size(), inst->memoryBytes() / 1e6, juce::Time::getMillisecondCounterHiRes() - t0, err.toRawUTF8());
+        check(ok && inst->regions.size() > 10, "SAMPLER: the SFZ instrument opens", (double) inst->regions.size());
+        SfzPlayer pl; pl.prepare(48000); pl.setInstrument(inst);
+        std::vector<float> L(480), R(480); float pk = 0, tail = 0;
+        pl.noteOn(60, 0.8f);
+        for (int b = 0; b < 100; ++b) { std::fill(L.begin(), L.end(), 0.0f); std::fill(R.begin(), R.end(), 0.0f); pl.process(L.data(), R.data(), 480); for (float x : L) pk = std::max(pk, std::abs(x)); }
+        pl.noteOff(60);
+        for (int b = 0; b < 200; ++b) { std::fill(L.begin(), L.end(), 0.0f); std::fill(R.begin(), R.end(), 0.0f); pl.process(L.data(), R.data(), 480); if (b > 150) for (float x : L) tail = std::max(tail, std::abs(x)); }
+        check(pk > 0.02f && pk < 1.2f && tail < pk * 0.05f, "  a note plays and stops when let go", pk);
+        pl.sustain(true); pl.noteOn(64, 0.7f); for (int b = 0; b < 20; ++b) pl.process(L.data(), R.data(), 480); pl.noteOff(64);
+        float held = 0; for (int b = 0; b < 60; ++b) { std::fill(L.begin(), L.end(), 0.0f); pl.process(L.data(), R.data(), 480); if (b > 50) for (float x : L) held = std::max(held, std::abs(x)); }
+        check(held > 0.002f, "  the sustain pedal holds it", held);
+        pl.sustain(false);
     }
     h.model.loadSetupState(savedSetup); h.speakerLayout = savedLayout; h.setSynthInto(savedSynth); h.applySpeakers();
     std::printf("%d checks, %d failed\n", n, fails);

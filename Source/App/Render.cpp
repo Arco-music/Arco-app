@@ -38,6 +38,7 @@ bool Renderer::renderMix(const RenderSnapshot& snp, const ExportOptions& o, juce
     m2.loadSongState(snp.song);
     m2.loadSetupState(snp.setup);
     m2.set("countin", 0); m2.set("clickall", 0); m2.set("clk_room", 0);
+    m2.set("amb_on", 0);                      // an export is stereo: the sounds placed in the space come back into the stereo mix
     for (int j = 0; j < 4; ++j) e2->inputChannel[j].store(-1);
     e2->synthInto.store(0);
     for (const char* L : { "A", "B", "C", "D" }) {

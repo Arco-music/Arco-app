@@ -35,6 +35,7 @@ juce_add_binary_data(ARCOData SOURCES
 target_sources(ARCO PRIVATE
     Source/Main.cpp
     Source/Engine/Engine.cpp
+    Source/Engine/Modular.cpp
     Source/Model/Model.cpp
     Source/App/AudioHost.cpp
     Source/App/PhoneLink.cpp
@@ -42,6 +43,7 @@ target_sources(ARCO PRIVATE
     Source/App/Analysis.cpp
     Source/App/AutoMix.cpp
     Source/App/Studio.cpp
+    Source/App/Sampler.cpp
     $<$<PLATFORM_ID:iOS>:Source/App/IOSAudio.mm>
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp
