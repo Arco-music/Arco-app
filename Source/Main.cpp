@@ -108,14 +108,17 @@ public:
             const char* nm[4] = { "TRACK 1", "TRACK 2", "TRACK 3", "TRACK 4" };
             for (int t = 0; t < 4; ++t) {
                 arco::StudioLane L; L.name = nm[t]; L.colour = 4 + t; L.vol = -3.0f * t; L.pan = t == 2 ? -0.4f : 0.0f; S.lanes.push_back(L);
-                arco::StudioSource src; src.name = juce::String("scene A - track ") + juce::String(t + 1); src.l.resize((size_t) (48000 * 10));
-                for (size_t i = 0; i < src.l.size(); ++i) { double tt = i / 48000.0; double env = std::exp(-std::fmod(tt, 0.625 * (t + 1)) * 3.0); src.l[i] = (float) (0.6 * env * std::sin(2 * M_PI * (110.0 * (t + 1)) * tt)); }
-                S.sources.push_back(src);
+                std::vector<float> l((size_t) (48000 * 10));
+                for (size_t i = 0; i < l.size(); ++i) { double tt = i / 48000.0; double env = std::exp(-std::fmod(tt, 0.625 * (t + 1)) * 3.0); l[i] = (float) (0.6 * env * std::sin(2 * M_PI * (110.0 * (t + 1)) * tt)); }
+                S.sources.push_back(host->studio.makeSource(juce::String("scene A - track ") + juce::String(t + 1), std::move(l)));
                 arco::StudioClip c; c.lane = t; c.source = t; c.start = (long) (t == 3 ? 48000 * 10 : 0); c.length = 48000 * (t == 3 ? 20 : 40); c.fadeIn = 2000; c.fadeOut = t == 0 ? 96000 : 200; S.clips.push_back(c);
             }
             host->studio.laneStrip = { 4, 5, 6, 7 }; host->studio.laneScene = { 1, 1, 1, 1 };
+            { auto eq = arco::StudioDevice::make(arco::DevEQ); eq.p[0] = 80; eq.p[3] = -3; eq.p[6] = 2; S.lanes[0].devices.push_back(eq); S.lanes[0].devices.push_back(arco::StudioDevice::make(arco::DevComp));
+              S.lanes[0].sendA = 0.25f; S.lanes[1].autos.push_back({ "vol", { { 0, -12.0f }, { 48000 * 6.0, 0.0f }, { 48000 * 14.0, -6.0f } } }); S.lanes[1].showAuto = 0; }
             auto* sv = new arco::StudioView(mc->canvas); sv->setSize(1360, 820); host->studio.pos = 48000 * 12;
             sv->open();
+            if (cmd.contains("studiomix")) sv->keyPressed(juce::KeyPress(juce::KeyPress::tabKey));
             juce::Timer::callAfterDelay(1200, [this, sv, out] { auto img = sv->createComponentSnapshot(sv->getLocalBounds(), true, 1.5f);
                 juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os); delete sv; quit(); });
             return;

@@ -126,6 +126,7 @@ juce::File AudioHost::setupFile() const {
 
 void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     double r = d->getCurrentSampleRate();
+    studio.recordLatency = d->getInputLatencyInSamples() + d->getOutputLatencyInSamples();
     for (auto& b : phoneBuf) b.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f);
     if (r != lastRate) {                     // a new sample rate: the engine starts again (loops are kept only at the same rate)
         lastRate = r;
@@ -167,10 +168,15 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
         }
     }
     engine.process(in, numIn, out, numOut, n);
-    if (studio.playing.load() && numOut >= 2 && out[0] != nullptr && out[1] != nullptr) {     // STUDIO plays on top
-        studio.renderBlock(out[0], out[1], n);
+    {   // STUDIO: what it can record (the station's inputs, the sound card's inputs, the station's mix), then it plays on top
+        const float* live[4] = {};
+        for (int j = 0; j < 4; ++j) { int ch = inputCh[j] - 1; live[j] = engine.phoneData[j] != nullptr ? engine.phoneData[j] : (ch >= 0 && ch < numIn ? in[ch] : nullptr); }
+        studio.input(in, numIn, live, numOut > 0 ? out[0] : nullptr, numOut > 1 ? out[1] : nullptr, n);
+    }
+    if (numOut >= 2 && out[0] != nullptr && out[1] != nullptr) {     // STUDIO plays on top
+        bool rendered = studio.renderBlock(out[0], out[1], n);
         int pf = engine.phonesFirst.load();
-        if (pf >= 2 && pf + 1 < numOut && out[pf] && out[pf + 1]) { juce::FloatVectorOperations::copy(out[pf], out[0], n); juce::FloatVectorOperations::copy(out[pf + 1], out[1], n); }
+        if (rendered && pf >= 2 && pf + 1 < numOut && out[pf] && out[pf + 1]) { juce::FloatVectorOperations::copy(out[pf], out[0], n); juce::FloatVectorOperations::copy(out[pf + 1], out[1], n); }
     }
     {   // phones that listen: the main mix (outputs 1-2) or the headphone mix
         const juce::ScopedTryLock sl(phones.audioLock);

@@ -321,8 +321,46 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         check(sv && ld && (int) h.studio.song.clips.size() == nClips, "  saved with the song and opened again");
         h.studio.buildFromStation(1, why);
         bool pr = h.studio.printEffects(0, nullptr);
-        check(pr && !h.studio.song.sources[0].r.empty(), "  PRINT FX: a lane through the station's effects (stereo)");
-        { const juce::ScopedLock sl(h.studio.lock); h.studio.song = StudioSong(); }
+        check(pr && h.studio.song.sources[0] && !h.studio.song.sources[0]->r.empty(), "  PRINT FX: a lane through the station's effects (stereo)");
+        // 1.3: an instrument lane plays its MIDI clip with its own SYNTH
+        {
+            auto& St = h.studio;
+            { const juce::ScopedLock sl(St.lock); St.song = StudioSong(); St.song.sr = e.sr; St.song.bpm = 120; St.laneStrip.clear(); St.laneScene.clear(); St.ensureReturns();
+              int li = St.addLane(LaneInstrument, "SYNTH");
+              StudioClip c; c.lane = li; c.source = -1; c.start = 0; c.midiLen = (long) St.song.barLen(); c.length = c.midiLen * 2; c.loop = true;
+              for (int k = 0; k < 4; ++k) c.notes.push_back({ k * St.song.beatLen(), St.song.beatLen() * 0.8, 60 + k * 4, 0.9f });
+              St.song.clips.push_back(c); }
+            juce::AudioBuffer<float> mix2; bool ok = St.renderAll(mix2, nullptr);
+            float pkM = mix2.getNumSamples() > 0 ? mix2.getMagnitude(0, mix2.getNumSamples()) : 0;
+            check(ok && pkM > 0.02f && pkM < 2.0f, "STUDIO 1.3: an instrument lane plays its MIDI notes (peak)", pkM);
+            // automation: the volume goes down to -60 dB in the second bar
+            { const juce::ScopedLock sl(St.lock); auto& L = St.song.lanes[0]; L.autos.push_back({ "vol", { { St.song.barLen() * 0.9, 0.0f }, { St.song.barLen() * 1.0, -60.0f } } }); }
+            juce::AudioBuffer<float> mix3; St.renderAll(mix3, nullptr);
+            int b1 = (int) St.song.barLen();
+            float first = mix3.getMagnitude(0, 0, b1 / 2), second = mix3.getMagnitude(0, b1 + b1 / 4, b1 / 2);
+            check(first > 0.02f && second < first * 0.01f, "  automation: the volume follows its points", second);
+            // a reverb on the lane: the sound rings on after the clip
+            { const juce::ScopedLock sl(St.lock); St.song.lanes[0].autos.clear(); St.song.lanes[0].devices.push_back(StudioDevice::make(DevReverb)); St.song.lanes[0].devices.back().p[5] = 50; }
+            juce::AudioBuffer<float> mix4; St.renderAll(mix4, nullptr);
+            int end = (int) (St.song.length()); float tail = mix4.getMagnitude(0, end + (int) (0.2 * e.sr), (int) (0.3 * e.sr));
+            check(tail > 0.001f, "  devices: a reverb rings on after the clip", tail);
+            // recording: the station's input into an armed lane
+            { const juce::ScopedLock sl(St.lock); int la = St.addLane(LaneAudio, "REC"); St.song.lanes[(size_t) la].arm = true; St.song.lanes[(size_t) la].input = 0; St.song.countIn = false; St.song.lanes[0].arm = false; }
+            St.pos = 0; St.startRecording();
+            std::vector<float> in1v(512), outL(512), outR(512); double ph3 = 0;
+            for (int b = 0; b < 200; ++b) {
+                for (auto& v : in1v) { v = 0.4f * (float) std::sin(ph3); ph3 += 2 * M_PI * 330.0 / e.sr; }
+                const float* lv[4] = { in1v.data(), nullptr, nullptr, nullptr }; const float* ins2[1] = { in1v.data() };
+                St.input(ins2, 1, lv, nullptr, nullptr, 512);
+                std::fill(outL.begin(), outL.end(), 0.0f); std::fill(outR.begin(), outR.end(), 0.0f);
+                St.renderBlock(outL.data(), outR.data(), 512);
+                if (b % 8 == 0) St.collectRecordings();
+            }
+            St.stopRecording(); St.playing = false;
+            bool got = false; for (auto& c : St.song.clips) if (c.name.startsWith("take") && c.length > (long) (1.5 * e.sr)) got = true;
+            check(got, "  recording: an armed lane records its input into a new clip");
+            { const juce::ScopedLock sl(St.lock); St.song = StudioSong(); }
+        }
     }
     // EXPORT: render the scene offline, normalise, limit, write, read back
     {

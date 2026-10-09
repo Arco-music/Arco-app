@@ -59,8 +59,9 @@ public:
     juce::MidiKeyboardState keys;
     SynthPlayer synth { engine };
     void recordSynthOn(int track);            // REC on that track, listening to the synth
-    void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override { synth.noteOn(note, vel); }
-    void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override { synth.noteOff(note); }
+    std::atomic<bool> studioKeys { false };    // STUDIO is open with an instrument lane: the keys play it (and record into it)
+    void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override { if (studioKeys.load()) studio.midiNote(note, vel, true); else synth.noteOn(note, vel); }
+    void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override { if (studioKeys.load()) studio.midiNote(note, 0, false); else synth.noteOff(note); }
 
     // pedals / keys: REC, PLAY/STOP, UNDO, NEXT SCENE
     enum Action { ActRec = 0, ActPlay, ActUndo, ActScene, NumActions };
