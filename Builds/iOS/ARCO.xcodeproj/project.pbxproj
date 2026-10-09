@@ -17,6 +17,7 @@
 		27D5FB212F30A0B171828E20 /* Panels.cpp */ = {isa = PBXBuildFile; fileRef = 19D2FD283C450B79FEEE686D; };
 		2B0471E1DDB1AF54823409E1 /* BinaryData.cpp */ = {isa = PBXBuildFile; fileRef = CD30C206DEA55E7E475F87B1; };
 		2C2CECEB96A3BBA51BAB795B /* QuartzCore.framework */ = {isa = PBXBuildFile; fileRef = 23554A714DFE9B5D129B0FB8; };
+		2D27AB7E30E16891502278B8 /* AVKit.framework */ = {isa = PBXBuildFile; fileRef = 01E33D6A8CA0C3EBDA6B3E58; };
 		2E8D49AF18DFC148C8271D98 /* WebKit.framework */ = {isa = PBXBuildFile; fileRef = 1FC4874931114FD6928064A2; };
 		3FC19A753DF67BA6FD4A98F5 /* Icon.icns */ = {isa = PBXBuildFile; fileRef = B146AA490A61C70E766A04EC; };
 		46ADD1906792285642DBE9B6 /* LaunchScreen.storyboard */ = {isa = PBXBuildFile; fileRef = F6AD2FFDFE6394A23FDC207A; };
@@ -67,6 +68,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		01E33D6A8CA0C3EBDA6B3E58 /* AVKit.framework */ /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		023ACAF5E9A78899165B754A /* AppConfig.h */ /* AppConfig.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AppConfig.h; path = ../../JuceLibraryCode/AppConfig.h; sourceTree = SOURCE_ROOT; };
 		025EA9334272B6347C49ECBD /* include_juce_gui_basics.mm */ /* include_juce_gui_basics.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_gui_basics.mm; path = ../../JuceLibraryCode/include_juce_gui_basics.mm; sourceTree = SOURCE_ROOT; };
 		02CD58287E25789CDEFC889D /* signalsmith-stretch.h */ /* signalsmith-stretch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "signalsmith-stretch.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-stretch.h"; sourceTree = SOURCE_ROOT; };
@@ -185,6 +187,7 @@
 		F6AD2FFDFE6394A23FDC207A /* LaunchScreen.storyboard */ /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		F7691CBDE00239E6AC53337C /* linear.h */ /* linear.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = linear.h; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/linear.h"; sourceTree = SOURCE_ROOT; };
 		F832DA3868FF91AD6D30E1AA /* Panels.h */ /* Panels.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Panels.h; path = ../../Source/UI/Panels.h; sourceTree = SOURCE_ROOT; };
+		FA67ACDB6FE6C064CE993CA6 /* IOSAudio.h */ /* IOSAudio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IOSAudio.h; path = ../../Source/App/IOSAudio.h; sourceTree = SOURCE_ROOT; };
 		FAC55ED0B5F4F086BA35A0DA /* juce_core */ /* juce_core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_core; path = ../../JUCE/modules/juce_core; sourceTree = SOURCE_ROOT; };
 		FDEAED6D26D2E5D000C0D3EA /* include_juce_events.mm */ /* include_juce_events.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_events.mm; path = ../../JuceLibraryCode/include_juce_events.mm; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -197,6 +200,7 @@
 				F3A7494CA08EE07D37D20CBD,
 				F90F6F95A2B5C07CCEE8FC63,
 				475FE2D0FEC7ACDC26393CFC,
+				2D27AB7E30E16891502278B8,
 				9FBE349D8E670118A766C8AC,
 				1E8E107C4A8AB9F5A3B62FE1,
 				C57F136EE13AD7D983A83661,
@@ -307,6 +311,7 @@
 				3352BD5EB34DD0B170E40A07,
 				DDDB0B528839B799B6842121,
 				DAA37294B8631F2EE7D600C2,
+				01E33D6A8CA0C3EBDA6B3E58,
 				507357C39C551EC8D2DF33F5,
 				B55927F71662BD80F4B78933,
 				3FA79B2761B1C6C44DFDC683,
@@ -343,6 +348,7 @@
 				4573E313598CE595FC6A3E39,
 				51835B52E316C7DE615691D1,
 				26B1BCE8043C4A5E02A22E3F,
+				FA67ACDB6FE6C064CE993CA6,
 				6E8628AA49086BE63E4C1F0A,
 				D301D99BA4063E6971F833C6,
 				8BCFC088560CE1B518818804,
