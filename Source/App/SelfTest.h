@@ -282,7 +282,7 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         AutoMixOptions ao; auto job = automix::prepare(h, ao); auto res = automix::run(job, nullptr);
         juce::String roles; for (auto& l : res.report) if (l.who.startsWith("TRACK")) roles << l.role << " | ";
         for (auto& l : res.report) std::printf("        %s (%s): %s\n", l.who.toRawUTF8(), l.role.toRawUTF8(), l.what.toRawUTF8());
-        bool rolesOk = res.report.size() >= 4 && res.report[0].role.startsWith("drums") && res.report[1].role == "bass" && res.report[2].role.startsWith("pad") && res.report[3].role.startsWith("lead");
+        bool rolesOk = res.report.size() >= 4 && res.report[0].role.startsWith("drums") && res.report[1].role == "bass" && res.report[2].role.startsWith("chords") && res.report[3].role == "melody";
         check(all4 && rolesOk, ("AUTO MIX hears: " + roles).toRawUTF8());
         automix::apply(h, res, true);
         check(std::abs(m.get("pan5")) < 1 && std::abs(m.get("pan7")) < 1 && std::abs(m.get("pan6")) > 10 && m.get("spc5") < 6, "  bass and melody in the centre, chords to the side, no SPACE on the bass");

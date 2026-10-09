@@ -35,16 +35,17 @@ struct MixSettings {
     float lsg = 0, lsf = 120;      // low shelf dB, Hz
     float pkg = 0, pkf = 400, pkq = 1.0f;   // bell dB, Hz, Q
     float hsg = 0, hsf = 8000;     // high shelf dB, Hz
+    float p2g = 0, p2f = 2500, p2q = 1.0f;  // a second bell (1.3)
     float cth = 0, crt = 1, cat = 10, crl = 120, cmk = 0;   // compressor: threshold dB (0 = off), ratio, attack ms, release ms, make-up dB
     float trim = 0;                // dB
 };
 inline const std::vector<std::string>& mixFields() {
-    static const std::vector<std::string> f = { "hp", "lsg", "lsf", "pkg", "pkf", "pkq", "hsg", "hsf", "cth", "crt", "cat", "crl", "cmk", "trim" };
+    static const std::vector<std::string> f = { "hp", "lsg", "lsf", "pkg", "pkf", "pkq", "hsg", "hsf", "cth", "crt", "cat", "crl", "cmk", "trim", "p2g", "p2f", "p2q" };
     return f;
 }
 inline float& mixField(MixSettings& m, int i) {
-    float* p[14] = { &m.hp, &m.lsg, &m.lsf, &m.pkg, &m.pkf, &m.pkq, &m.hsg, &m.hsf, &m.cth, &m.crt, &m.cat, &m.crl, &m.cmk, &m.trim };
-    return *p[std::clamp(i, 0, 13)];
+    float* p[17] = { &m.hp, &m.lsg, &m.lsf, &m.pkg, &m.pkf, &m.pkq, &m.hsg, &m.hsf, &m.cth, &m.crt, &m.cat, &m.crl, &m.cmk, &m.trim, &m.p2g, &m.p2f, &m.p2q };
+    return *p[std::clamp(i, 0, 16)];
 }
 
 class StripMix {
@@ -80,6 +81,7 @@ public:
                 if (S.useHp) v = S.hp2.tick(S.hp1.tick(v));
                 if (S.useLs) v = S.ls.tick(v);
                 if (S.usePk) v = S.pk.tick(v);
+                if (S.useP2) v = S.p2.tick(v);
                 if (S.useHs) v = S.hs.tick(v);
                 float g = S.trimG;
                 if (S.useComp) {
@@ -103,8 +105,8 @@ public:
     }
 private:
     struct Strip {
-        MixSettings m; bool dirty = true, active = false, useHp = false, useLs = false, usePk = false, useHs = false, useComp = false;
-        Biquad hp1, hp2, ls, pk, hs; float env = 0, att = 0, rel = 0, trimG = 1, gSm = 1;
+        MixSettings m; bool dirty = true, active = false, useHp = false, useLs = false, usePk = false, useP2 = false, useHs = false, useComp = false;
+        Biquad hp1, hp2, ls, pk, p2, hs; float env = 0, att = 0, rel = 0, trimG = 1, gSm = 1;
     };
     std::array<Strip, NS> st;
     double sr = 48000;
@@ -114,12 +116,13 @@ private:
         S.useHp = m.hp >= 15.0f; if (S.useHp) { S.hp1.highpass(sr, m.hp, 0.5412); S.hp2.highpass(sr, m.hp, 1.3066); }   // 24 dB / oct Butterworth
         S.useLs = std::abs(m.lsg) > 0.05f; if (S.useLs) S.ls.lowShelf(sr, std::max(20.0f, m.lsf), m.lsg);
         S.usePk = std::abs(m.pkg) > 0.05f; if (S.usePk) S.pk.peak(sr, std::max(20.0f, m.pkf), std::clamp(m.pkq, 0.2f, 8.0f), m.pkg);
+        S.useP2 = std::abs(m.p2g) > 0.05f; if (S.useP2) S.p2.peak(sr, std::max(20.0f, m.p2f), std::clamp(m.p2q, 0.2f, 8.0f), m.p2g);
         S.useHs = std::abs(m.hsg) > 0.05f; if (S.useHs) S.hs.highShelf(sr, std::max(500.0f, m.hsf), m.hsg);
         S.useComp = m.cth < -0.5f && m.crt > 1.01f;
         S.att = 1.0f - std::exp(-1.0f / (float) (std::max(0.1f, m.cat) * 0.001 * sr));
         S.rel = 1.0f - std::exp(-1.0f / (float) (std::max(5.0f, m.crl) * 0.001 * sr));
         S.trimG = std::pow(10.0f, m.trim / 20.0f);
-        S.active = S.useHp || S.useLs || S.usePk || S.useHs || S.useComp || std::abs(m.trim) > 0.01f;
+        S.active = S.useHp || S.useLs || S.usePk || S.useP2 || S.useHs || S.useComp || std::abs(m.trim) > 0.01f;
         if (!S.useComp) S.gSm = 1;
     }
 };

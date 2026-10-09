@@ -76,7 +76,7 @@ inline const std::vector<ParamDef>& mixParams() {
         struct F { const char* k; double def, lo, hi; };
         const F fs[] = { { "hp", 0, 0, 400 }, { "lsg", 0, -15, 15 }, { "lsf", 120, 30, 500 }, { "pkg", 0, -15, 15 }, { "pkf", 400, 60, 12000 }, { "pkq", 1, 0.2, 8 },
                          { "hsg", 0, -15, 15 }, { "hsf", 8000, 1500, 16000 }, { "cth", 0, -48, 0 }, { "crt", 1, 1, 20 }, { "cat", 10, 0.1, 100 }, { "crl", 120, 10, 1000 },
-                         { "cmk", 0, 0, 24 }, { "trim", 0, -24, 12 } };
+                         { "cmk", 0, 0, 24 }, { "trim", 0, -24, 12 }, { "p2g", 0, -15, 15 }, { "p2f", 2500, 60, 12000 }, { "p2q", 1, 0.2, 8 } };
         for (int s = 0; s < 12; ++s)
             for (auto& f : fs) { names.push_back(std::string("mx_") + f.k + std::to_string(s)); v.push_back({ names.back().c_str(), { "st_mix" }, f.def, f.lo, f.hi, 0, 0 }); }
         v.push_back({ "ms_lsg", { "st_mst" }, 0, -6, 6, 1, 0 });
