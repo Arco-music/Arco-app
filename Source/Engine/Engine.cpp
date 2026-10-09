@@ -123,6 +123,9 @@ void Engine::prepare(double sampleRate) {
     }
     addNode<Room>(this, mods, busToMod, graph, b, "st_room", { "mainL", "mainR", "orb_mono", "orb_pos", "orb_dm", "click", "pvw", "cueL", "cueR" },
                   cat({ names("spk", 1, NSPK), { "phL", "phR", "mvx", "mvy" } }));
+    {   // AMBISONICS (it plays at the speaker outputs, see runSub)
+        auto* am = new AmbiMod(); mods.emplace_back(am); busToMod["st_amb"] = (int) mods.size() - 1; am->amb.prepare(sr); ambi = &am->amb;
+    }
     addNode<Scope>(this, mods, busToMod, graph, b, "", cat({ CH, { "lphase", "lscene" } }), { "-" });
     // the selected strip, for the insert cards' screens
     graph.push_back([this]() {
@@ -137,7 +140,7 @@ void Engine::prepare(double sampleRate) {
         if (auto* x = dynamic_cast<Mod<Listen>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Tune>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Looper>*>(mp.get())) x->m.init(sr);
-        else if (auto* x = dynamic_cast<Mod<Channels>*>(mp.get())) x->m.init(sr);
+        else if (auto* x = dynamic_cast<Mod<Channels>*>(mp.get())) { x->m.init(sr); ambGate = x->m.ambGate; }
         else if (auto* x = dynamic_cast<Mod<Halo>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Chorus>*>(mp.get())) x->m.init(sr);
         else if (auto* x = dynamic_cast<Mod<Delay>*>(mp.get())) x->m.init(sr);
@@ -247,6 +250,7 @@ void Engine::runSub(const float* const* in, int numIn, float* const* out, int nu
             if (n < SUB) std::memset(d + n, 0, sizeof(float) * (size_t) (SUB - n)); }
         else std::memset(d, 0, sizeof(float) * SUB);
     }
+    if (ambi != nullptr && ambGate != nullptr) for (int s2 = 0; s2 < 12; ++s2) ambGate[s2] = ambi->sourceOn(s2) ? 1.0 : 0.0;
     for (auto& g : graph) g();
     // speakers: ROOM + the routing grid's direct outs
     static const char* srcs[14] = { "ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7", "ch8", "ch9", "ch10", "ch11", "drm", "halo" };
@@ -264,6 +268,11 @@ void Engine::runSub(const float* const* in, int numIn, float* const* out, int nu
             const float* x = s == 12 ? drm : (s == 13 ? hal : B(srcs[s]));
             for (int i = 0; i < n; ++i) o[i] += x[i] * g;
         }
+    }
+    if (ambi != nullptr && ambi->active()) {
+        const float* chs[12]; for (int s2 = 0; s2 < 12; ++s2) chs[s2] = B(srcs[s2]);
+        float* outs[NSPK] = {}; for (int k = 0; k < NSPK && k < numOut; ++k) outs[k] = out[k] != nullptr ? out[k] + off : nullptr;
+        ambi->process(chs, outs, std::min(numOut, NSPK), B("phL"), B("phR"), n, B("ebpm")[0]);
     }
     int pf = phonesFirst.load();
     if (pf >= 0 && pf + 1 < numOut) {

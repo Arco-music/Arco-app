@@ -34,7 +34,8 @@ public:
     void openAllChannels();
     juce::String audioMessage;
     std::atomic<int> testTone { 0 };          // samples of test tone left
-    double testPhase = 0;
+    std::atomic<int> testSpeaker { -1 }, testSpkLeft { 0 };   // SPEAKERS & SPACE: a soft noise on one speaker
+    double testPhase = 0; juce::Random rnd; float pinkS = 0;
     void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
     int synthInto = 0;
 

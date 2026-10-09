@@ -570,6 +570,7 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         m.addItem(item(cmdLook, juce::String::fromUTF8("Choose Effects…")));
         m.addSeparator();
         m.addItem(item(cmdSynth, "SYNTH", "K"));
+        m.addItem(item(cmdSpatial, juce::String::fromUTF8("Speakers & Space (Ambisonics)…")));
         m.addItem(item(cmdMicView, juce::String::fromUTF8("Use This Device as a Phone (mic + remote)")));
         m.addItem(item(cmdSetup, juce::String::fromUTF8("Settings…"), CMDKEY + ","));
        #if ! JUCE_IOS

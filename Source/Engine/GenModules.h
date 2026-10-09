@@ -3050,6 +3050,7 @@ struct Looper {
 };
 // ---------------------------------------------------------------- Channels
 struct Channels {
+  double ambGate[12] = {};   // ARCO 1.3: set by the engine (strips placed by AMBISONICS)
   double SR = 44100.0;
   double P_vol0 = 71.0;
   double P_pan0 = 0.0;
@@ -4832,10 +4833,15 @@ struct Channels {
         v_x = (v_x * v_vg);
         g_poke(D_xo,LEN_xo,CH_xo,v_x,v_s,0);
         v_rm = g_peek(D_sm,LEN_sm,CH_sm,(4.0),v_s);
+        // ARCO 1.3: a strip placed by AMBISONICS leaves the stereo mix (it plays on the speakers by itself) but keeps its effect sends
+        bool v_amb = ambGate[(int) v_s] > 0.5;
+        double v_xpre = v_x;
         v_x = (v_x * v_rm);
+        if (!v_amb) {
         v_dl = (v_dl + (v_x * cos(((v_pn * M_PI) * (0.5)))));
         v_dr = (v_dr + (v_x * sin(((v_pn * M_PI) * (0.5)))));
-        if (((double)((v_rm) > ((0.0001)))) != 0.0) {
+        } else v_x = v_xpre;
+        if (((double)((v_rm) > ((0.0001)))) != 0.0 || v_amb) {
           v_s_cho = (v_s_cho + ((v_x * g_peek(D_sm,LEN_sm,CH_sm,(10.0),v_s)) / (100.0)));
           v_s_dly = (v_s_dly + ((v_x * g_peek(D_sm,LEN_sm,CH_sm,(11.0),v_s)) / (100.0)));
           v_s_rev = (v_s_rev + ((v_x * g_peek(D_sm,LEN_sm,CH_sm,(12.0),v_s)) / (100.0)));

@@ -50,7 +50,8 @@ target_sources(ARCO PRIVATE
     Source/UI/HelpText.cpp
     Source/UI/Commands.cpp
     Source/UI/PhoneRemote.cpp
-    Source/UI/StudioView.cpp)
+    Source/UI/StudioView.cpp
+    Source/UI/SpatialPanel.cpp)
 
 target_compile_definitions(ARCO PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"

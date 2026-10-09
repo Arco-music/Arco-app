@@ -12,6 +12,7 @@
 #include "ExtraFx.h"
 #include "StripMix.h"
 #include "Synth2.h"
+#include "Ambisonics.h"
 
 namespace arco {
 
@@ -55,6 +56,14 @@ struct MasterMixMod : IModule {
     MasterMix mx;
     int paramIndex(const std::string& n) override { return mx.paramIndex(n); }
     void setp(int i, double v) override { mx.setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
+};
+
+struct AmbiMod : IModule {
+    Ambisonics amb;
+    int paramIndex(const std::string& n) override { return amb.paramIndex(n); }
+    void setp(int i, double v) override { amb.setp(i, v); }
     void bind(const std::string&, SharedBuffer&) override {}
     double* data(const std::string&) override { return nullptr; }
 };
@@ -116,6 +125,8 @@ public:
     std::atomic<int> selStrip { 0 };
     StripMix* stripMix = nullptr;             // for the meters (gain reduction)
     MasterMix* masterMix = nullptr;
+    Ambisonics* ambi = nullptr;               // 1.3: strips placed around the audience
+    double* ambGate = nullptr;                // (the channel strips: which ones leave the stereo mix)
     double sr = 48000.0;
     // show recording: called with the main mix (L, R) of every sub-block (audio thread)
     std::function<void(const float*, const float*, int)> recorder;

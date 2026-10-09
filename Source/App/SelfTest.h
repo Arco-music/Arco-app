@@ -547,6 +547,49 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         { juce::OwnedArray<PhoneConn> old; { const juce::ScopedLock sl(h.phones.audioLock); old.swapWith(h.phones.conns); } }
         h.phones.manual.clear(); h.phones.remembered.clear();
     }
+    // AMBISONICS: the decoder on several layouts - the sound comes from where it is placed, at an even level
+    {
+        auto layout = [](Ambisonics& A, std::vector<std::pair<float, float>> spk) {
+            A.prepare(48000); A.setp(A.paramIndex("spk_n"), (double) spk.size());
+            for (size_t k = 0; k < spk.size(); ++k) { A.setp(A.paramIndex("spk_az" + std::to_string(k)), spk[k].first); A.setp(A.paramIndex("spk_el" + std::to_string(k)), spk[k].second); }
+            A.designNow(); };
+        auto loudest = [](Ambisonics& A, float az, float el) { int best = 0; float bg = -1e9f; for (int k = 0; k < A.speakers(); ++k) { float g = A.decoderGain(k, az, el); if (g > bg) { bg = g; best = k; } } return best; };
+        auto spread = [](Ambisonics& A, float el) { float lo = 1e9f, hi = 0; for (int a = -180; a < 180; a += 5) { float e = 0; for (int k = 0; k < A.speakers(); ++k) { float g = A.decoderGain(k, (float) a, el); e += g * g; } lo = std::min(lo, e); hi = std::max(hi, e); } return 10.0f * std::log10(hi / std::max(1e-9f, lo)); };
+        Ambisonics st; layout(st, { { -30, 0 }, { 30, 0 } });
+        check(loudest(st, -30, 0) == 0 && loudest(st, 30, 0) == 1 && st.decoderGain(0, -30, 0) > 4 * std::abs(st.decoderGain(1, -30, 0)), "AMBISONICS stereo: left is left, right is right");
+        Ambisonics q; layout(q, { { -45, 0 }, { 45, 0 }, { 135, 0 }, { -135, 0 } });
+        bool qok = loudest(q, -45, 0) == 0 && loudest(q, 45, 0) == 1 && loudest(q, 135, 0) == 2 && loudest(q, -135, 0) == 3;
+        check(qok && spread(q, 0) < 3.0f, "  quad: every direction on its speaker, the level even around (dB)", spread(q, 0));
+        Ambisonics f; layout(f, { { -30, 0 }, { 30, 0 }, { 0, 0 }, { 110, 0 }, { -110, 0 } });
+        check(loudest(f, 110, 0) == 3 && loudest(f, -110, 0) == 4 && loudest(f, 0, 0) == 2 && spread(f, 0) < 6.0f, "  5.0 (uneven): right on each speaker, even level (dB)", spread(f, 0));
+        Ambisonics oc; std::vector<std::pair<float, float>> ring; for (int k = 0; k < 8; ++k) ring.push_back({ -180.0f + 22.5f + k * 45.0f, 0.0f }); layout(oc, ring);
+        check(spread(oc, 0) < 1.5f && loudest(oc, 22.5f, 0) == 4, "  8-speaker ring: smooth all around (dB)", spread(oc, 0));
+        Ambisonics d; auto dome = ring; for (int k = 0; k < 4; ++k) dome.push_back({ -135.0f + k * 90.0f, 45.0f }); layout(d, dome);
+        int up = loudest(d, 45, 50);
+        check(up >= 8 && spread(d, 0) < 3.0f && spread(d, 40) < 4.0f, "  dome (8 + 4 above): a high sound comes from above (dB around)", spread(d, 40));
+        // through the engine: TRACK 1 placed to the right on a quad
+        m.set("spk_n", 4);
+        for (int k = 0; k < 4; ++k) { m.set("spk_az" + std::to_string(k), k == 0 ? -45 : k == 1 ? 45 : k == 2 ? 135 : -135); m.set("spk_el" + std::to_string(k), 0); m.set("spk_dist" + std::to_string(k), 2); }
+        {   // a fresh engine: LIVE 1 on a quad, placed to the right, then circling
+            Engine e2; e2.prepare(48000); e2.inputChannel[0].store(0); e2.phonesFirst.store(6);       // headphones after the 4 speakers
+            e2.set("st_room", "spk_n", 4); e2.set("st_amb", "spk_n", 4);
+            const float AZ[4] = { -45, 45, 135, -135 };
+            for (int k = 0; k < 4; ++k) { e2.set("st_amb", "spk_az" + std::to_string(k), AZ[k]); e2.set("st_amb", "spk_el" + std::to_string(k), 0); e2.set("st_amb", "spk_dist" + std::to_string(k), 2); }
+            e2.set("st_amb", "amb_on", 1); e2.set("st_amb", "amb0", 1); e2.set("st_amb", "amb_az0", 90); e2.set("st_amb", "amb_dist0", 1);
+            std::vector<float> a1(512), oo[8]; for (auto& v : oo) v.assign(512, 0.0f);
+            const float* i2[4] = { a1.data(), nullptr, nullptr, nullptr }; float* o2[8]; for (int k = 0; k < 8; ++k) o2[k] = oo[k].data();
+            double ph2 = 0; float pkSpk[4] = {};
+            auto block = [&] { for (auto& v : a1) { v = 0.3f * (float) std::sin(ph2); ph2 += 2 * M_PI * 330.0 / 48000.0; } for (auto& v : oo) std::fill(v.begin(), v.end(), 0.0f); e2.process(i2, 1, o2, 8, 512); };
+            for (int b3 = 0; b3 < 60; ++b3) { block(); if (b3 > 20) for (int k = 0; k < 4; ++k) for (int i = 0; i < 512; ++i) pkSpk[k] = std::max(pkSpk[k], std::abs(oo[k][(size_t) i])); }
+            if (std::getenv("ARCO_DEBUG")) std::printf("    ambi speakers %.3f %.3f %.3f %.3f\n", pkSpk[0], pkSpk[1], pkSpk[2], pkSpk[3]);
+            check(pkSpk[1] + pkSpk[2] > 3.0f * (pkSpk[0] + pkSpk[3]) && pkSpk[1] > 0.01f, "  in the station: LIVE 1 placed to the right plays on the right speakers");
+            e2.set("st_amb", "amb_mot0", 1); e2.set("st_amb", "amb_spd0", 100);
+            float seen[4] = {};
+            for (int b3 = 0; b3 < 400; ++b3) { block(); int best = 0; float bv = 0; for (int k = 0; k < 4; ++k) { float pk = 0; for (int i = 0; i < 512; ++i) pk = std::max(pk, std::abs(oo[k][(size_t) i])); if (pk > bv) { bv = pk; best = k; } } seen[best] += 1; }
+            check(seen[0] > 0 && seen[1] > 0 && seen[2] > 0 && seen[3] > 0, "  CIRCLE: the sound goes round every speaker");
+        }
+        m.set("spk_n", 2);
+    }
     // ring numbering
     {
         for (auto k : { "halo0", "shd0", "dly0", "spc0", "rev0", "cho0", "grn0", "res0", "frz0", "fxb0", "orb0" }) m.set(k, 0);

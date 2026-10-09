@@ -155,7 +155,7 @@ private:
 enum Command {
     cmdNewSong = 1, cmdOpen, cmdSave, cmdSaveAs, cmdExport, cmdRecordShow, cmdStudio, cmdImport1, // cmdImport1..+7
     cmdUndo = 20, cmdResetAll, cmdMidiLearn, cmdMidiClear, cmdAutoMix, cmdAB,
-    cmdToggleLight = 40, cmdLook, cmdSynth, cmdSetup, cmdFullScreen, cmdMinimise, cmdMicView,
+    cmdToggleLight = 40, cmdLook, cmdSynth, cmdSetup, cmdFullScreen, cmdMinimise, cmdMicView, cmdSpatial, cmdKeyboard, cmdModular,
     cmdHelp = 60, cmdShortcuts, cmdWhatsNew, cmdUpdates, cmdAbout,
     cmdPalette = 100,   // + index
     cmdRecent = 200     // + index

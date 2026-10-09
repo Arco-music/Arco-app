@@ -188,6 +188,13 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
                 c->pushListen(hp ? out[pf] : out[0], hp ? out[pf + 1] : out[1], n, lastRate > 0 ? lastRate : 48000.0);
             }
     }
+    {   // one speaker's test: pink-ish noise bursts
+        int ts = testSpeaker.load(), left = testSpkLeft.load();
+        if (ts >= 0 && left > 0 && ts < numOut && out[ts] != nullptr) {
+            for (int i = 0; i < n; ++i) { float w = rnd.nextFloat() * 2 - 1; pinkS += 0.05f * (w - pinkS); float env = ((left - i) / 6000) % 2 == 0 ? 1.0f : 0.0f; out[ts][i] += 0.12f * pinkS * 4.0f * env; }
+            testSpkLeft.store(juce::jmax(0, left - n));
+        }
+    }
     int tt = testTone.load();
     if (tt > 0) {                                // TEST: a soft A (440 Hz) on outputs 1-2 and on the headphones
         int pf = engine.phonesFirst.load();
@@ -363,7 +370,10 @@ void AudioHost::applySpeakers() {
             if (n <= 2) a = i == 0 ? -30.0 : 30.0;
             else { a = -180.0 / n + i * 360.0 / n; if (a > 180.0) a -= 360.0; }
         }
-        else a = -60.0 + i * 120.0 / juce::jmax(1, n - 1);
+        else if (speakerLayout == 1) a = -60.0 + i * 120.0 / juce::jmax(1, n - 1);
+        else a = model.get("spk_az" + std::to_string(i));                 // 1.3: the layout drawn in SPEAKERS & SPACE
+        // the same speakers for AMBISONICS (ring / arc: on the floor, all at the same distance)
+        if (speakerLayout != 2 && i < n && std::abs(model.get("spk_az" + std::to_string(i)) - a) > 0.01) { model.set("spk_az" + std::to_string(i), a); model.set("spk_el" + std::to_string(i), 0); }
         engine.set("st_room", "spk_a" + std::to_string(i), a);
         engine.set("st_room", "spk_d" + std::to_string(i), 100);
     }

@@ -408,7 +408,7 @@ inline const std::vector<ParamDef>& paramTableBase() { static const std::vector<
   {"main_w", {"st_room"}, 0.0, 0.0, 100.0, 2, 0},
   {"mv_blur", {"st_room"}, 30.0, 0.0, 100.0, 2, 0},
   {"room_vol", {"st_room"}, 100.0, 0.0, 100.0, 2, 0},
-  {"spk_n", {"st_room"}, 2.0, 2.0, 32.0, 2, 2},
+  {"spk_n", {"st_room", "st_amb"}, 2.0, 2.0, 32.0, 2, 2},
   {"a_wave", {"st_syn"}, 50.0, 0.0, 100.0, 1, 0},
   {"a_warp", {"st_syn"}, 0.0, 0.0, 100.0, 1, 0},
   {"a_semi", {"st_syn"}, 0.0, -24.0, 24.0, 1, 2},

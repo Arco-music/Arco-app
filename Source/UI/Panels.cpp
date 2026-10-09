@@ -293,6 +293,8 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
         auto* p = add<Pill>({ 760 + i * 92, 290, 86, 24 }, LAY[i], [&h, i] { return h.speakerLayout == i ? Theme::sel() : Theme::btn(); }, 8.0f, 6.0f);
         p->onClick = [&h, i] { h.speakerLayout = i; h.applySpeakers(); };
     }
+    auto* sp3 = add<Pill>({ 944, 290, 150, 24 }, U("SPEAKERS & SPACE ▸"), [&h] { return h.speakerLayout == 2 ? Theme::sel() : Theme::violet(); }, 8.0f, 6.0f);
+    sp3->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); cv.openSpatial(true); };
     add<Knob>({ 600, 330, 36, 36 }, [&m] { return m.get("main_w"); }, [&m](double v) { m.set("main_w", v); }, 0, 100, 0, [] { return Theme::txt(); });
     add<Knob>({ 674, 330, 36, 36 }, [&m] { return m.get("mv_blur"); }, [&m](double v) { m.set("mv_blur", v); }, 0, 100, 30, [] { return Theme::fx("orb"); });
     add<Knob>({ 748, 330, 36, 36 }, [&m] { return m.get("room_vol"); }, [&m](double v) { m.set("room_vol", v); }, 0, 100, 100, [] { return Theme::txt(); });

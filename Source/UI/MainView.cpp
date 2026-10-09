@@ -3,6 +3,7 @@
 #include "SynthPanel.h"
 #include "Sheets.h"
 #include "LearnOverlay.h"
+#include "SpatialPanel.h"
 #include "../App/FxPresets.h"
 
 namespace arco {
@@ -328,6 +329,8 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     addChildComponent(setup.get()); setup->setBounds(0, 0, 1440, 880);
     look = std::make_unique<LookPanel>(*this);
     addChildComponent(look.get()); look->setBounds(0, 0, 1440, 880);
+    spatial = std::make_unique<SpatialPanel>(*this);
+    addChildComponent(spatial.get()); spatial->setBounds(0, 0, 1440, 880);
     exportSheet = std::make_unique<ExportSheet>(*this); addChildComponent(exportSheet.get()); exportSheet->setBounds(0, 0, 1440, 880);
     helpSheet = std::make_unique<HelpSheet>(*this); addChildComponent(helpSheet.get()); helpSheet->setBounds(0, 0, 1440, 880);
     aboutSheet = std::make_unique<AboutSheet>(*this); addChildComponent(aboutSheet.get()); aboutSheet->setBounds(0, 0, 1440, 880);
@@ -368,7 +371,7 @@ void Canvas::setLayout(bool tall, int w, int h) {
         c->setBounds(0, 0, 1440, portrait ? (int) std::ceil(H / s) : 880);              // the whole screen is dimmed behind it
         c->setTransform(portrait ? juce::AffineTransform::scale(s).translated(0.0f, 60.0f) : juce::AffineTransform()); };
     for (juce::Component* c : { (juce::Component*) setup.get(), (juce::Component*) look.get(), (juce::Component*) exportSheet.get(), (juce::Component*) helpSheet.get(),
-                                (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get() }) fit(c);
+                                (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get(), (juce::Component*) spatial.get() }) fit(c);
     if (learnLayer) learnLayer->setBounds(0, 0, W, H);
    #if JUCE_IOS
     if (studioView != nullptr) studioView->setBounds(0, 0, W, H);          // STUDIO uses the whole screen either way
@@ -576,6 +579,7 @@ void Canvas::themeChanged() {
 void Canvas::openSetup(bool show) { setup->setVisible(show); if (show) setup->toFront(true); }
 void Canvas::openMic(bool show) { if (auto* mc = findParentComponentOfClass<MainComponent>()) mc->showMic(show); }
 void Canvas::openLook(bool show) { look->setVisible(show); if (show) look->toFront(true); }
+void Canvas::openSpatial(bool show) { spatial->setVisible(show); if (show) spatial->toFront(true); }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
