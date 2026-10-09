@@ -44,7 +44,7 @@ void Canvas::openStudio() {
    #if JUCE_IOS
     if (!studioWindow) {
         auto* v = new StudioView(*this); studioView = v; studioWindow.reset(v);
-        addChildComponent(v); v->setBounds(0, 0, 1440, 880);
+        addChildComponent(v); v->setBounds(0, 0, W, H);
         v->onClose = [this] { studioWindow->setVisible(false); };
     }
     studioWindow->setVisible(true); studioWindow->toFront(true);

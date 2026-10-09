@@ -1,9 +1,13 @@
 name: Build ARCO
+# Builds only for a release (a push to main) or by hand - Mac / iPad minutes are precious on a private project.
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
     paths-ignore: ["Score/**", ".github/workflows/build-score.yml"]
   workflow_dispatch:
+concurrency:
+  group: arco-build
+  cancel-in-progress: true
 
 permissions:
   contents: write

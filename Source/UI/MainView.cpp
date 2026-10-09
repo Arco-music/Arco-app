@@ -3,6 +3,7 @@
 #include "SynthPanel.h"
 #include "Sheets.h"
 #include "LearnOverlay.h"
+#include "../App/FxPresets.h"
 
 namespace arco {
 
@@ -205,6 +206,41 @@ public:
     }
     ~CardView() override { kids.clear(true); }
     void update() { repaint(); for (auto* k : kids) k->repaint(); }
+    // the card's name: its presets, and "my settings for new songs"
+    void mouseDown(const juce::MouseEvent& e) override {
+        if (e.y > 24 || e.x > 95) return;
+        auto& m = c.model(); juce::String key = def.key;
+        juce::PopupMenu menu, del;
+        auto names = fxpresets::names(key);
+        menu.addSectionHeader(U(def.name) + " - presets");
+        for (int i = 0; i < names.size(); ++i) { menu.addItem(100 + i, names[i]); del.addItem(300 + i, names[i]); }
+        if (names.isEmpty()) menu.addItem(-1, "(none yet)", false);
+        menu.addSeparator();
+        menu.addItem(1, U("Save these settings as a preset …"));
+        if (!names.isEmpty()) menu.addSubMenu("Delete a preset", del);
+        menu.addSeparator();
+        menu.addItem(2, "Use these settings for every new song", true, fxpresets::hasDefault(key));
+        if (fxpresets::hasDefault(key)) menu.addItem(3, "New songs: back to the factory settings");
+        menu.addItem(4, "Factory settings now");
+        juce::Component::SafePointer<CardView> sp(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [sp, key, names, &m](int r) {
+            if (sp == nullptr || r == 0) return;
+            if (r >= 100 && r < 300) fxpresets::load(m, key, names[r - 100]);
+            else if (r >= 300) fxpresets::remove(key, names[r - 300]);
+            else if (r == 2) fxpresets::setDefault(m, key);
+            else if (r == 3) fxpresets::clearDefault(key);
+            else if (r == 4) fxpresets::factory(m, key.toStdString());
+            else if (r == 1) {
+                auto* w = new juce::AlertWindow("Save a preset", "A name for these " + juce::String(sp->def.name) + " settings:", juce::MessageBoxIconType::NoIcon);
+                w->addTextEditor("name", juce::String(sp->def.name).toLowerCase() + " " + juce::String(names.size() + 1));
+                w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey)); w->addButton("Cancel", 0);
+                w->enterModalState(true, juce::ModalCallbackFunction::create([w, key, &m](int ok) {
+                    auto n = w->getTextEditorContents("name").trim().substring(0, 40);
+                    if (ok == 1 && n.isNotEmpty()) fxpresets::save(m, key, n); }), true);
+            }
+            if (sp != nullptr) sp->update();
+        });
+    }
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat();
         std::string key = def.key;
@@ -217,7 +253,7 @@ public:
         if (key == "tun") used = c.model().get("tn_amt") > 0;
         if (key == "drm") used = c.model().get("drm_on") > 0.5;
         g.setColour(used ? Theme::fx(key) : Theme::card2()); g.fillEllipse(10, 11, 8, 8);
-        label(g, U(def.name), { 22, 5, 100, 18 }, 10.5f, Theme::txt(), 2);
+        label(g, U(def.name) + U(" ▾"), { 22, 5, 100, 18 }, 10.5f, Theme::txt(), 2);
         label(g, U(def.desc), { 10, 214, 131, 14 }, 7.0f, Theme::sub());
         for (auto& l : labels) label(g, l.text, l.r, 7.0f, l.send ? Theme::fx(key) : Theme::sub(), l.send ? 2 : 0, juce::Justification::centred);
         auto& m = c.model();
@@ -309,9 +345,37 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     setWantsKeyboardFocus(true);
     host.onAction = [this](int a) { const char* W[4] = { "REC", U("PLAY / STOP").toRawUTF8(), "UNDO", "NEXT SCENE" };
         flash = a == 1 ? U("PLAY / STOP") : juce::String(W[a]); flashUntil = juce::Time::getMillisecondCounterHiRes() + 900; };
+    for (auto* k : owned) if (k->getY() < 100) headerKids.push_back({ k, k->getBounds() });
     layoutStrips();
     layoutCards();
     startTimerHz(30);
+}
+
+juce::Rectangle<int> Canvas::place(juce::Rectangle<int> r) const {
+    if (!portrait) return r;
+    if (r.getY() < 62) return r.getX() >= 770 ? r.translated(16 - 770, 62) : r;           // the top bar: its right half becomes a second row
+    if (r.getY() < 100) return r.getX() >= 880 ? r.translated(-440, 62) : r.translated(0, 62);   // the scene row, its right end pulled in
+    return r;
+}
+
+void Canvas::setLayout(bool tall, int w, int h) {
+    if (tall == portrait && w == W && h == H) return;
+    portrait = tall; W = w; H = h;
+    for (auto& hk : headerKids) hk.first->setBounds(place(hk.second));
+    // the full-screen windows (SETUP, SYNTH, the sheets ...) keep their design, scaled to the width
+    float s = (float) W / 1440.0f;
+    auto fit = [&](juce::Component* c) { if (c == nullptr) return;
+        c->setBounds(0, 0, 1440, portrait ? (int) std::ceil(H / s) : 880);              // the whole screen is dimmed behind it
+        c->setTransform(portrait ? juce::AffineTransform::scale(s).translated(0.0f, 60.0f) : juce::AffineTransform()); };
+    for (juce::Component* c : { (juce::Component*) setup.get(), (juce::Component*) look.get(), (juce::Component*) exportSheet.get(), (juce::Component*) helpSheet.get(),
+                                (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get() }) fit(c);
+    if (learnLayer) learnLayer->setBounds(0, 0, W, H);
+   #if JUCE_IOS
+    if (studioView != nullptr) studioView->setBounds(0, 0, W, H);          // STUDIO uses the whole screen either way
+   #endif
+    layoutStrips();
+    layoutCards();
+    repaint();
 }
 Canvas::~Canvas() { stopTimer(); studioWindow = nullptr; host.onAction = nullptr; host.onMidiControl = nullptr; host.onLearned = nullptr; }
 
@@ -471,8 +535,13 @@ void Canvas::layoutStrips() {
     for (int s = 0; s < NSTRIP; ++s) {
         bool vis = s < 4 ? (s < host.nLive || (host.synthInto > 0 && s == host.synthInto)) : (s - 4) < ntn;
         strips[s]->setVisible(vis);
-        if (vis) { strips[s]->setBounds(16 + idx * 118, 100, 112, 298); ++idx; }
+        if (vis) {
+            if (portrait) { int perRow = 8; strips[s]->setBounds(16 + (idx % perRow) * 118, 166 + (idx / perRow) * 304, 112, 298); }
+            else strips[s]->setBounds(16 + idx * 118, 100, 112, 298);
+            ++idx;
+        }
     }
+    stripRows = portrait ? (idx + 7) / 8 : 1;
 }
 
 // the effect cards chosen in SETUP > EFFECTS: two rows of up to 9, centred; more than 18 = pages
@@ -480,17 +549,21 @@ void Canvas::layoutCards() {
     auto& ct = cardTable();
     juce::Array<int> vis;
     for (int i = 0; i < (int) ct.size(); ++i) if (host.visibleCards.contains(ct[(size_t) i].key)) vis.add(i);
-    int pages = juce::jmax(1, (vis.size() + 17) / 18);
+    // landscape: 9 x 2 per page; portrait: 6 across, as many rows as fit under the strips
+    int top = portrait ? 166 + stripRows * 304 + 4 : 406;
+    int maxCols = portrait ? 6 : 9, maxRows = portrait ? juce::jmax(1, (H - top - 8) / 238) : 2;
+    int perPage = maxCols * maxRows;
+    int pages = juce::jmax(1, (vis.size() + perPage - 1) / perPage);
     cardPage = juce::jlimit(0, pages - 1, cardPage);
     numCardPages = pages;
     for (auto* c : cards) c->setVisible(false);
     for (auto* p : pagePills) p->setVisible(pages > 1);
-    int first = cardPage * 18, n = juce::jmin(18, vis.size() - first);
-    int rows = n > 9 ? 2 : 1, cols = juce::jmax(1, (n + rows - 1) / rows);
-    int w = cols * 157 - 6, x0 = 16 + (1408 - w) / 2;
+    int first = cardPage * perPage, n = juce::jmin(perPage, vis.size() - first);
+    int rows = juce::jmax(1, juce::jmin(maxRows, (n + maxCols - 1) / maxCols)), cols = juce::jmax(1, (n + rows - 1) / rows);
+    int w = cols * 157 - 6, x0 = 16 + (W - 32 - w) / 2;
     for (int k = 0; k < n; ++k) {
         auto* c = cards[vis[first + k]];
-        c->setBounds(x0 + (k % cols) * 157, 406 + (k / cols) * 238, 151, 232);
+        c->setBounds(x0 + (k % cols) * 157, top + (k / cols) * 238, 151, 232);
         c->setVisible(true);
     }
     repaint();
@@ -571,6 +644,14 @@ void Canvas::resized() {}
 
 void Canvas::paint(juce::Graphics& g) {
     g.fillAll(Theme::bg());
+    if (!portrait) { paintTop(g); paintScenes(g); return; }
+    // portrait: the top bar in two rows, the scene row under them (the same drawing, moved)
+    { juce::Graphics::ScopedSaveState ss(g); g.reduceClipRegion(0, 0, 770, 62); paintTop(g); }
+    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(16 - 770, 62); g.reduceClipRegion(770, 0, 680, 62); paintTop(g); }
+    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(0, 62); g.reduceClipRegion(0, 62, 880, 40); paintScenes(g); }
+    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(-440, 62); g.reduceClipRegion(880, 62, 560, 46); paintScenes(g); }
+}
+void Canvas::paintTop(juce::Graphics& g) {
     auto card = [&](int x, int y, int w, int h) { g.setColour(Theme::card()); g.fillRoundedRectangle((float) x, (float) y, (float) w, (float) h, 12.0f); };
     label(g, "ARCO", { 16, 6, 176, 26 }, 18.0f, Theme::txt(), 2);
     label(g, U("▾"), { 84, 8, 20, 22 }, 9.0f, Theme::sub(), 0);
@@ -591,6 +672,8 @@ void Canvas::paint(juce::Graphics& g) {
     double sec = host.recordSeconds();
     label(g, juce::String::formatted("%02d:%02d", (int) sec / 60, (int) sec % 60), { 1052, 42, 58, 14 }, 7.5f, Theme::sub(), 0, juce::Justification::centred);
     label(g, "CPU " + juce::String((int) std::round(engine().cpu.load() * 100)) + "%", { 1250, 47, 64, 12 }, 6.5f, Theme::sub());
+}
+void Canvas::paintScenes(juce::Graphics& g) {
     // scenes row
     label(g, "SCENE", { 16, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
     if (juce::Time::getMillisecondCounterHiRes() < flashUntil) {

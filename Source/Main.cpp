@@ -91,6 +91,7 @@ public:
         if (cmd.contains("palette=")) arco::Theme::setPalette(cmd.fromFirstOccurrenceOf("palette=", false, false).getIntValue());
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);
+        if (cmd.contains("portrait")) mc->setSize(820, 1180);               // an iPad held upright
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
         if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue()); }
         if (cmd.contains("look")) mc->canvas.openLook(true);

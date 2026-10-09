@@ -1,5 +1,6 @@
 #include "AudioHost.h"
 #include "../UI/Theme.h"
+#include "FxPresets.h"
 
 #if JUCE_IOS
  #include "IOSAudio.h"
@@ -16,6 +17,7 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     engine.prepare(48000.0);
     model.sendAll();
     loadSetup(openDevice);
+    if (openDevice) fxpresets::applyDefaults(model);
     engine.recorder = [this](const float* l, const float* r, int n) {
         const juce::ScopedTryLock sl(recLock);
         if (sl.isLocked() && threaded != nullptr) { const float* ch[2] = { l, r }; threaded->write(ch, n); recSamples += n; }
@@ -379,6 +381,7 @@ void AudioHost::newSong() {
     studio.playing = false; { const juce::ScopedLock sl(studio.lock); studio.song = StudioSong(); }
     model.press("st_looper", "rstall");
     model.resetSong();
+    fxpresets::applyDefaults(model);          // the effects as you like them for new songs
     songFolder = juce::File();
     sigSettle = 20;
     status = "new song";
