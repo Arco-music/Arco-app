@@ -53,16 +53,15 @@ KeyboardPanel::KeyboardPanel(Canvas& c) : cv(c) {
             scanText = juce::String(r.instrumentPlugins().size()) + " instrument plug-ins found";
             cv.host.saveSetup(); repaint(); }); });
     // the keyboard
-    pill({ 24, 588, 30, 26 }, U8("−"), [] { return Theme::btn(); }, [this] { octave = juce::jmax(0, octave - 1); kb->setLowestVisibleKey(octave * 12 + 12); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
-    pill({ 58, 588, 30, 26 }, "+", [] { return Theme::btn(); }, [this] { octave = juce::jmin(5, octave + 1); kb->setLowestVisibleKey(octave * 12 + 12); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
+    pill({ 24, 588, 30, 26 }, U8("−"), [] { return Theme::btn(); }, [this] { octave = juce::jmax(0, octave - 1); kb->setAvailableRange(octave * 12 + 12, 127); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
+    pill({ 58, 588, 30, 26 }, "+", [] { return Theme::btn(); }, [this] { octave = juce::jmin(5, octave + 1); kb->setAvailableRange(octave * 12 + 12, 127); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
     auto* sus = pill({ 100, 588, 110, 26 }, "SUSTAIN", [this] { return cv.model().get("pdl_down") > 0.5 ? Theme::green() : Theme::btn(); }, [this, &h] {
         bool on = cv.model().get("pdl_down") < 0.5; cv.model().set("pdl_down", on ? 1 : 0); h.setSustain(on); });
     sus->setTooltip("the sustain pedal (a MIDI pedal works too)");
     kb = std::make_unique<juce::MidiKeyboardComponent>(h.keys, juce::MidiKeyboardComponent::horizontalKeyboard);
-    kb->setAvailableRange(12, 120);
+    kb->setAvailableRange(octave * 12 + 12, 127);   // (no scroll buttons: the range starts where the keys start)
     kb->setBounds(box.getX() + 24, box.getY() + 624, 1312, 182);
     kb->setKeyWidth(1312.0f / 36.0f);
-    kb->setLowestVisibleKey(octave * 12 + 12);
     kb->setVelocity(0.85f, true);
     kb->setScrollButtonsVisible(false);
     kb->setOctaveForMiddleC(4);
@@ -76,7 +75,7 @@ KeyboardPanel::~KeyboardPanel() = default;
 
 void KeyboardPanel::visibilityChanged() {
     if (!isVisible()) return;
-    toFront(true); kb->setLowestVisibleKey(octave * 12 + 12); kb->grabKeyboardFocus();
+    toFront(true); kb->grabKeyboardFocus();
 }
 bool KeyboardPanel::keyPressed(const juce::KeyPress& k) { if (k == juce::KeyPress::escapeKey) { setVisible(false); return true; } return false; }
 void KeyboardPanel::timerCallback() { if (isShowing()) repaint(); }
@@ -123,6 +122,16 @@ std::vector<KeyboardPanel::Row> KeyboardPanel::pluginRows() const {
 }
 
 void KeyboardPanel::addSfz() {
+   #if JUCE_IOS
+    // an SFZ needs its sample folder next to it: on iPad they live in ARCO's folder (Files app → On My iPad → ARCO)
+    auto& r = cv.host.rack; int n = 0;
+    for (auto& f : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).findChildFiles(juce::File::findFiles, true, "*.sfz"))
+        if (!r.userSfz.contains(f.getFullPathName())) { r.userSfz.add(f.getFullPathName()); ++n; }
+    cv.host.saveSetup();
+    cv.showMessage(n > 0 ? juce::String(n) + " SFZ instruments added" : juce::String(U8("copy an SFZ instrument's folder into Files → On My iPad → ARCO, then press ADD SFZ again")));
+    repaint();
+    return;
+   #endif
     chooser = std::make_unique<juce::FileChooser>("An SFZ instrument", juce::File::getSpecialLocation(juce::File::userMusicDirectory), "*.sfz");
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
         auto f = fc.getResult(); if (!f.existsAsFile()) return;

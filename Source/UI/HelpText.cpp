@@ -12,7 +12,7 @@ A live looping station for your instrument: record loops on the beat, build scen
 - Record more tracks on top. Every loop lands exactly on the bar.
 
 ## The window
-- Top: transport (PLAY, STOP, UNDO), the tempo, the song, the show recorder, MASTER, and the windows: SYNTH, STUDIO, SETUP.
+- Top: transport (PLAY, STOP, UNDO), the tempo, the song, the show recorder, MASTER, and the windows: SYNTH, STUDIO, KEYS, SETUP.
 - SCENES A - D: four sets of loops. Switch on the bar line. CUE listens to a scene in your headphones before the audience hears it.
 - STRIPS: LIVE 1-4 (your inputs) and TRACK 1-8. Each has its fader, pan, mute, solo, CUE and ROOM.
 - EFFECT CARDS: choose the strip at the top (SEND), then turn its SEND on any card.
@@ -44,45 +44,62 @@ A live looping station for your instrument: record loops on the beat, build scen
 - Choose a strip (click its name), then turn SEND on a card: that strip goes into the effect.
 - Inserts (EQ, DRIVE, TREMOLO, PHASER, SWELL) change the strip itself; the AMOUNT knob is per strip.
 - Times follow the tempo: DELAY, REVERSE, TREMOLO, PING-PONG, FILTER, STUTTER and the in-tempo half of FLANGER.
-- HALO turns notes into chords, SHADOW sings intervals, RESONANCE adds strings, GRAIN a cloud, FREEZE holds the sound, SPACE is the big reverb, ORBIT moves sound over your speakers.)" },
+- HALO turns notes into chords, SHADOW sings intervals, RESONANCE adds strings, GRAIN a cloud, FREEZE holds the sound, SPACE is the big reverb, ORBIT moves sound over your speakers.
+
+## New in 1.3
+- PEDAL: like holding a piano's sustain pedal - 60 strings ring with what you play. Press PEDAL on the card (or a MIDI sustain pedal); AUTO lifts and presses it by itself.
+- FEEDBACK: one note feeds itself and grows, never louder than safe. CATCH: it blooms and is cut before it gets loud. LISTEN: it waits, picks up a note and brings it up. HOLD: it grows and stays. LET GO releases it.
+- Your own settings: the ▾ next to a card's name saves the knobs as a preset, opens them again, or makes them the start of every new song.)" },
         { "AUTO MIX", R"(# AUTO MIX
-ARCO listens to every recorded track, understands what it is (drums, bass, chords, melody, texture) and mixes the piece.
+ARCO listens to every recorded track, understands what it is and mixes the piece the way a mixing engineer would.
+
+## Listening
+- It follows the pitch of each part and finds its role: BASS, DRUMS, RHYTHM (chords played in time), LEAD (the melody), COUNTER-MELODY, PAD or TEXTURE.
+- It hears where the parts crowd each other (the same frequencies at the same time) and how much reverb a part already has.
 
 ## What it does
-- LEVELS: a balance by role - the melody leads, drums and bass carry, pads sit behind.
-- EQ: a high-pass below each part, less mud where parts crowd each other, less harshness, a ringing note tamed, a little air on the lead.
-- COMPRESSION: gentle and different for each role.
-- PANNING: bass, drums and the main melody in the centre; the rest spread so both sides weigh the same.
-- EFFECTS IN TEMPO: no reverb on the bass; a shared SPACE glues the parts; effect speeds that are nearly in tempo are snapped to it; the SPACE decay follows the bar.
-- TIMING: notes are pulled towards the beat - GENTLE, HALF WAY or TIGHT. The groove and swing stay.
-- MASTER: streaming level (-14 LUFS), peaks never above -1 dB.
+- LEVELS: by role and by measured loudness - the melody leads, bass and drums carry, pads sit behind.
+- EQ: a high-pass under each part's lowest note; cuts only where two parts mask each other (the less important one gives way); presence for the lead, air on top.
+- COMPRESSION: set for each role to a target amount, not a guess.
+- PANNING: bass, kick and lead in the centre; the others placed where they mask least, both sides equal.
+- ONE ROOM: every part goes into the same SPACE, closer or further by role - a part that is already wet gets less, so all of them sound like one room.
+- DELAY IN TIME: the echo follows the rhythm of the melody (1/4, dotted 1/8, 1/8 ...). The SPACE decay follows the tempo.
+- TIMING: notes are pulled towards the beat - GENTLE, HALF WAY or TIGHT. The groove stays.
+- MASTER: a tonal balance like finished records, then streaming level (-14 LUFS, measured twice), peaks never above -1 dB.
 
 ## Compare and undo
 - BEFORE / AFTER switches between the two at any time (also Edit → Compare). UNDO goes back completely.
 - CHARACTER: NATURAL, BALANCED or PUNCHY.)" },
         { "STUDIO", R"(# STUDIO
-Your loops as a song, to edit and mix like in a DAW - in its own window.
+A complete studio for the song - arrange, record, play instruments, automate, mix and export.
 
-## The timeline
-- STUDIO lays out every scene with loops, one after the other (4 times each). REBUILD does it again from the station.
-- Click a clip to choose it. Drag it to move it (it snaps to the beat; Shift = finer, Alt = free). Drag it to another lane.
-- Drag a clip's left or right edge to trim it. Drag its top corners for fade in / fade out.
-- S splits the chosen clip at the playhead. ⌘D duplicates it. Delete removes it. Double-click: loop on / off.
-- Click the ruler to move the playhead. Space plays / stops. ⌘Z / ⇧⌘Z undo / redo. Scroll to move, ⌘ + scroll to zoom.
-- Drop audio files on a lane to add them.
+## Getting the station in
+- The BROWSER (left): drag a scene or a single loop of the station onto the timeline. LAY OUT ALL SCENES puts the whole performance in a row.
+- RECORD THE STATION records what the station plays, straight into a new lane.
+- IMPORT or drop audio files on a lane.
 
-## The mixer
-- Each lane: M, S, volume (drag the bar), and below: PAN, HIGH-PASS, LOW, MID, MID FREQ, HIGH, COMPRESS.
-- The clip: GAIN, FADE IN, FADE OUT.
-- MASTER and GLUE.
-- PRINT FX: the chosen lane plays through the station's effects (reverbs and echoes included, in stereo). UNDO brings back the dry sound.
+## Lanes
+- AUDIO lanes hold recordings. INSTRUMENT lanes hold MIDI clips that play their own SYNTH. RETURN A (reverb) and RETURN B (delay) are shared by all lanes (SEND A / B).
+- Every lane has devices: EQ, COMPRESSOR, SATURATION, DELAY, REVERB, CHORUS, GATE, UTILITY, LIMITER, FILTER - add them in the details below, drag their knobs.
+- ● arms a lane: press the big RECORD to record into it - audio from the chosen input, or notes from the keys / a MIDI keyboard. MONITOR lets you hear the input.
 
-## Export and save
-- EXPORT: WAV or FLAC, streaming level or as it is, up to 96 kHz / 32-bit float. The true peak stays below -1 dB.
-- SAVE keeps the arrangement with the song (also when you save the song on the station).)" },
+## Clips
+- Drag to move (snaps to the beat; Shift finer, Alt free), drag the edges to trim, the top corners for fades. S splits, ⌘D duplicates, Delete removes.
+- Double-click a MIDI clip: the piano roll - draw notes, drag them, change their length and velocity.
+- Right-click (or ⋯ on iPad): reverse, mute, rename, colour, transpose and more.
+
+## Automation
+- A on a lane chooses what to automate: volume, pan, sends or any device knob. Click to add a point, drag it, Alt-click removes it.
+
+## Playing and mixing
+- LOOP: drag on the ruler. CLICK (M) and COUNT-IN for recording. Double-click the ruler for a marker.
+- Tab switches between the arrangement and the MIXER. MASTER has a glue compressor and a limiter.
+- EXPORT: the mix or every lane as stems - WAV or FLAC, up to 96 kHz / 32-bit float, streaming level or as it is.
+- SAVE keeps the arrangement with the song.)" },
         { "SYNTH 2", R"(# SYNTH 2
 ## Sound
-- Three oscillators, each WAVE (sine → saw → square → pulse, WARP bends it), FM, FOLD or SYNC. UNISON and DETUNE make it wide.
+- Four oscillators, each WAVE (sine → saw → square → pulse, WARP bends it), FM, FOLD or SYNC. UNISON and DETUNE make it wide.
+- The sounds (◀ ▶) start from ten famous synthesizers: Minimoog, Juno-60, DX7, TB-303, Prophet-5, OB-Xa, CS-80, Jupiter-8, MS-20, Odyssey.
 - SUB and NOISE, a FILTER (low / band / high, 12 or 24 dB), VOICE: GLIDE, WIDTH, MONO, FOLLOW (a voice sings what your cello plays).
 
 ## Movement
@@ -139,6 +156,52 @@ Your loops as a song, to edit and mix like in a DAW - in its own window.
 
 ## STUDIO
 - Space play / stop, S split, ⌘D duplicate, Delete remove, ⌘Z / ⇧⌘Z undo / redo, + / - zoom, Return to the start)" },
+        { "KEYBOARD & instruments", R"(# KEYBOARD
+A big keyboard and the instrument it plays - KEYS (top right) or View → KEYBOARD.
+
+## The instrument
+- SYNTH 2: ARCO's synthesizer. MODULAR: ARCO's modular synthesizer (patch it yourself).
+- SAMPLED: real instruments recorded note by note. The list has free ones of very good quality - Splendid Grand Piano, Salamander Grand Piano, a Rhodes, double basses, an acoustic drum kit. DOWNLOAD once (it is kept on this device), then PLAY.
+- ADD SFZ FILE: any instrument in the SFZ format (thousands are free on the internet).
+- PLUG-IN: FIND PLUG-INS finds the instrument plug-ins on this device (Audio Units and VST3 on the Mac, AUv3 on the iPad). PLAY loads one; SHOW PLUG-IN WINDOW opens its own controls.
+
+## Playing
+- Click the keys, use the computer keys (A W S E D ...), or plug in a MIDI keyboard - it plays at once. A sustain pedal works; SUSTAIN on the screen too.
+- PLAYS INTO: the instrument sounds through LIVE 2-4, so loops, effects, RECORD ON TRACK and STUDIO all work with it.
+- The instrument and its settings (the MODULAR patch, the plug-in's sound) are saved with the song.)" },
+        { "MODULAR", R"(# MODULAR
+A modular synthesizer: modules with knobs, connected by cables - in the spirit of a Eurorack system or VCV Rack.
+
+## Patching
+- Drag from an output (bottom row, coloured) to an input (top row). An input takes one cable; drag its plug away to unplug it.
+- + MODULE adds one; ✕ removes it. PATCH opens a starting point: Basic subtractive, Generative sequence, FM bell, Noise drums, or an empty rack.
+- Knobs: drag up / down (Shift = finer), double-click = back to start.
+
+## The modules
+- KEYS (the keyboard), VCO, LFO, ENV, VCF (ladder low-pass + band / high-pass), VCA, MIXER, NOISE, S&H, SEQ (8 steps), CLOCK (the loops' tempo), DELAY, ATTENUATE, QUANTIZER, SLEW, FOLDER, OUT.
+- Pitch is 1 V per octave, gates are 10 V, sound is +/-5 V. OUT never lets the sound go above 0 dB.
+- PLAY MODULAR makes the keys play it; PLAYS INTO sends it into a LIVE strip like the SYNTH.)" },
+        { "Speakers & Space", R"(# SPEAKERS & SPACE (ambisonics)
+Place every sound around the audience, still or moving - View → Speakers & Space, or SETUP → SPEAKERS & SPACE.
+
+## Your speakers
+- Choose a layout (STEREO, QUAD, 5.0, 7.0, RINGS, DOME, CUBE, 5.0.4) or drag the speakers where they really are. Each one: direction, height, distance (ARCO evens out distance with delay and level).
+- TEST plays a soft noise on one speaker.
+
+## The sounds
+- Choose a LIVE strip or a track, PLACE IT, and drag it in the circle: direction and distance. WIDTH spreads it.
+- Motion: STILL, CIRCLE, SWING, WANDER, FLY OVER - SPEED and RANGE, or IN TEMPO with the loops.
+- Up to 32 speakers (3rd-order ambisonics, AllRAD). With headphones you hear a stereo version. Exports are always stereo.)" },
+        { "What's new in 1.3", R"(# What's new in ARCO 1.3
+- Colours: the original black, with Storm, Light and Chambray in the same calm contrast.
+- STUDIO: a full studio - instrument lanes with MIDI and a piano roll, devices on every lane, automation, return reverb and delay, recording (inputs, the station, MIDI), loop, click, count-in, markers, mixer, stems.
+- KEYBOARD: a big keyboard with free sampled instruments to download (pianos, Rhodes, basses, drums), SFZ files, your AU / VST3 / AUv3 plug-ins and MIDI keyboards.
+- MODULAR: ARCO's own modular synthesizer.
+- SYNTH 2: a fourth oscillator; ten classic synthesizers as starting sounds.
+- AUTO MIX, rebuilt: it understands bass, drums, rhythm, melody and pads, mixes by masking, puts everything in one room and times the delay to the melody.
+- New effects: PEDAL (a piano's sustain pedal) and FEEDBACK (a note that feeds itself, safely). Effect presets and new-song defaults.
+- SPEAKERS & SPACE: ambisonics for any speaker layout, with moving sounds.
+- iPhone: choose the microphone and the output, and listen to the station on the phone. iPad: choose inputs and outputs (cable, USB, Bluetooth); the window turns with the iPad.)" },
         { "What's new in 1.2", R"(# What's new in ARCO 1.2
 - New colours: Fig, Storm (dark), Manuscript, Chambray (light) - View → Colours. A calmer light mode with clear contrast.
 - Choose which effects are on the main window; 10 new effects.

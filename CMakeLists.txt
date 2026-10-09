@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ARCO VERSION 1.2.0)
+project(ARCO VERSION 1.3.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(APPLE)
@@ -18,12 +18,12 @@ juce_add_gui_app(ARCO
     PRODUCT_NAME "ARCO"
     COMPANY_NAME "ARCO"
     BUNDLE_ID "com.arco.station"
-    VERSION 1.2.0
+    VERSION 1.3.0
     ICON_BIG ${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "ARCO records your instrument from your sound card."
     HARDENED_RUNTIME_ENABLED TRUE
-    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation com.apple.security.cs.allow-jit
+    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation com.apple.security.cs.allow-unsigned-executable-memory
     PLUGINHOST_AU TRUE)
 
 juce_generate_juce_header(ARCO)

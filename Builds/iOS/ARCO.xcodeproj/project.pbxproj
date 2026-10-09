@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0417E5A389D67D6C2088E814 /* Sampler.cpp */ = {isa = PBXBuildFile; fileRef = 54D21883B20495BF5AC5844C; };
 		09DCADFDE0D40375C41E2EC3 /* CoreImage.framework */ = {isa = PBXBuildFile; fileRef = 23BC58A7D8F710ECF6C656CB; };
 		0B0065246E9636C09748CFBB /* PhoneLink.cpp */ = {isa = PBXBuildFile; fileRef = D301D99BA4063E6971F833C6; };
 		10A141544BA156108321539A /* include_juce_events.mm */ = {isa = PBXBuildFile; fileRef = FDEAED6D26D2E5D000C0D3EA; };
@@ -19,6 +20,7 @@
 		2C2CECEB96A3BBA51BAB795B /* QuartzCore.framework */ = {isa = PBXBuildFile; fileRef = 23554A714DFE9B5D129B0FB8; };
 		2D27AB7E30E16891502278B8 /* AVKit.framework */ = {isa = PBXBuildFile; fileRef = 01E33D6A8CA0C3EBDA6B3E58; };
 		2E8D49AF18DFC148C8271D98 /* WebKit.framework */ = {isa = PBXBuildFile; fileRef = 1FC4874931114FD6928064A2; };
+		2F336A803A2E1E74779FC412 /* SpatialPanel.cpp */ = {isa = PBXBuildFile; fileRef = 617186D7BB802C15DFE33582; };
 		3FC19A753DF67BA6FD4A98F5 /* Icon.icns */ = {isa = PBXBuildFile; fileRef = B146AA490A61C70E766A04EC; };
 		46ADD1906792285642DBE9B6 /* LaunchScreen.storyboard */ = {isa = PBXBuildFile; fileRef = F6AD2FFDFE6394A23FDC207A; };
 		475FE2D0FEC7ACDC26393CFC /* AVFoundation.framework */ = {isa = PBXBuildFile; fileRef = DAA37294B8631F2EE7D600C2; };
@@ -44,6 +46,7 @@
 		BCF6312B4ADD51D1ED672093 /* App */ = {isa = PBXBuildFile; fileRef = D2DDB6E999DD94B1D12C4ABB; };
 		BDD90F49E0E4B4CBA45189D1 /* include_juce_audio_utils.mm */ = {isa = PBXBuildFile; fileRef = 80A65B5D73A68DF5DBEDC125; };
 		C14DC5EA112567D89729DAE7 /* include_juce_core_CompilationTime.cpp */ = {isa = PBXBuildFile; fileRef = 6CBA38A8AF8B2059745A10F1; };
+		C210988BCAF1A6AC94444B15 /* Instruments.cpp */ = {isa = PBXBuildFile; fileRef = DCAC1D1993A94AD7C610C5B4; };
 		C57F136EE13AD7D983A83661 /* CoreGraphics.framework */ = {isa = PBXBuildFile; fileRef = 3FA79B2761B1C6C44DFDC683; };
 		C76896BA427692815D0C7725 /* include_juce_audio_processors_lv2_libs.cpp */ = {isa = PBXBuildFile; fileRef = 0525592E93D31E7B92CC68D8; };
 		C83795CD409778AE3C747355 /* Commands.cpp */ = {isa = PBXBuildFile; fileRef = E37D670194335B56E7C7D32B; };
@@ -54,7 +57,9 @@
 		DC66AA2F59B735B894E30185 /* include_juce_graphics.mm */ = {isa = PBXBuildFile; fileRef = 0C52CEFFCA4084F8E9D98E51; };
 		DD79956BA8F36B25B2E1CDC0 /* Images.xcassets */ = {isa = PBXBuildFile; fileRef = DCA05E9DFA762E21F93029B3; };
 		DF48FE4AA107BD3656DC5194 /* include_juce_data_structures.mm */ = {isa = PBXBuildFile; fileRef = 93E24D783B2E251C27D00194; };
+		E5634303D91D0D5F308F029E /* Modular.cpp */ = {isa = PBXBuildFile; fileRef = 8DEE2495DF105812571BE7AF; };
 		E682629CF896425A6CC69F80 /* AudioHost.cpp */ = {isa = PBXBuildFile; fileRef = D0DD7AEB816E3FCDECEBDEC6; };
+		E72505285CDB275ADB8C5ED3 /* InstrumentPanels.cpp */ = {isa = PBXBuildFile; fileRef = 684FABB22AC9C071E2BEF936; };
 		E9F3231616181825D08F86C0 /* Foundation.framework */ = {isa = PBXBuildFile; fileRef = 45950BF5E68878F4C2CF51C7; };
 		EBB7BE310F8395F0C95F6277 /* Render.cpp */ = {isa = PBXBuildFile; fileRef = 80658C0BC8678014264ADA46; };
 		EEC48968481304E87FEA847B /* Metal.framework */ = {isa = PBXBuildFile; fileRef = 54374692948C458A4C268337; settings = { ATTRIBUTES = (Weak, ); }; };
@@ -79,6 +84,8 @@
 		0C2C9095D293664DB7314548 /* linear-cmsisdsp.h */ /* linear-cmsisdsp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "linear-cmsisdsp.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/platform/linear-cmsisdsp.h"; sourceTree = SOURCE_ROOT; };
 		0C52CEFFCA4084F8E9D98E51 /* include_juce_graphics.mm */ /* include_juce_graphics.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_graphics.mm; path = ../../JuceLibraryCode/include_juce_graphics.mm; sourceTree = SOURCE_ROOT; };
 		0EB56DFED2FF97734F0876FC /* CoreServices.framework */ /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
+		100B5638D870F20AC30A8D18 /* Sampler.h */ /* Sampler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Sampler.h; path = ../../Source/App/Sampler.h; sourceTree = SOURCE_ROOT; };
+		11AD832B6DD37BC2667A8B4A /* SpatialPanel.h */ /* SpatialPanel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SpatialPanel.h; path = ../../Source/UI/SpatialPanel.h; sourceTree = SOURCE_ROOT; };
 		11DBCA16BF1651DC6BAFBD96 /* ParamTable.h */ /* ParamTable.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ParamTable.h; path = ../../Source/Model/ParamTable.h; sourceTree = SOURCE_ROOT; };
 		149100DF0BF16A8CB4CECE32 /* fft-cmsisdsp.h */ /* fft-cmsisdsp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "fft-cmsisdsp.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/platform/fft-cmsisdsp.h"; sourceTree = SOURCE_ROOT; };
 		1505B8ED5D1F1C4F61B8394C /* Analysis.h */ /* Analysis.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Analysis.h; path = ../../Source/App/Analysis.h; sourceTree = SOURCE_ROOT; };
@@ -106,6 +113,7 @@
 		3FA79B2761B1C6C44DFDC683 /* CoreGraphics.framework */ /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		4088AC50CA886E7AC786A751 /* Main.cpp */ /* Main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Main.cpp; path = ../../Source/Main.cpp; sourceTree = SOURCE_ROOT; };
 		4378C4C61D205B72DDCB62BF /* Studio.cpp */ /* Studio.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Studio.cpp; path = ../../Source/App/Studio.cpp; sourceTree = SOURCE_ROOT; };
+		43E1AF3B283FDBF49BB3D39B /* Ambisonics.h */ /* Ambisonics.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Ambisonics.h; path = ../../Source/Engine/Ambisonics.h; sourceTree = SOURCE_ROOT; };
 		451131E198075070F57EF215 /* Theme.h */ /* Theme.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Theme.h; path = ../../Source/UI/Theme.h; sourceTree = SOURCE_ROOT; };
 		4573E313598CE595FC6A3E39 /* AudioHost.h */ /* AudioHost.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AudioHost.h; path = ../../Source/App/AudioHost.h; sourceTree = SOURCE_ROOT; };
 		45950BF5E68878F4C2CF51C7 /* Foundation.framework */ /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -116,16 +124,22 @@
 		4CE60EB0534D84384F18B3EB /* include_juce_graphics_Harfbuzz.cpp */ /* include_juce_graphics_Harfbuzz.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_graphics_Harfbuzz.cpp; path = ../../JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp; sourceTree = SOURCE_ROOT; };
 		507357C39C551EC8D2DF33F5 /* CoreAudio.framework */ /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
 		51835B52E316C7DE615691D1 /* AutoMix.cpp */ /* AutoMix.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = AutoMix.cpp; path = ../../Source/App/AutoMix.cpp; sourceTree = SOURCE_ROOT; };
+		52D9F60381BD0D45F738219C /* InstrumentPanels.h */ /* InstrumentPanels.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = InstrumentPanels.h; path = ../../Source/UI/InstrumentPanels.h; sourceTree = SOURCE_ROOT; };
 		54374692948C458A4C268337 /* Metal.framework */ /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		54A26776F163ACCE1F37B8B5 /* App.entitlements */ /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = App.entitlements; path = App.entitlements; sourceTree = SOURCE_ROOT; };
+		54D21883B20495BF5AC5844C /* Sampler.cpp */ /* Sampler.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Sampler.cpp; path = ../../Source/App/Sampler.cpp; sourceTree = SOURCE_ROOT; };
 		558AE09E14D58E98D80575EB /* GenModules.h */ /* GenModules.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GenModules.h; path = ../../Source/Engine/GenModules.h; sourceTree = SOURCE_ROOT; };
 		58703C4EC8A5520BC0E3A33D /* StripMix.h */ /* StripMix.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StripMix.h; path = ../../Source/Engine/StripMix.h; sourceTree = SOURCE_ROOT; };
 		5C41656670C9D35A1FCC07B2 /* MainView.cpp */ /* MainView.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MainView.cpp; path = ../../Source/UI/MainView.cpp; sourceTree = SOURCE_ROOT; };
+		617186D7BB802C15DFE33582 /* SpatialPanel.cpp */ /* SpatialPanel.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SpatialPanel.cpp; path = ../../Source/UI/SpatialPanel.cpp; sourceTree = SOURCE_ROOT; };
 		665332A289A5A89F0105751D /* include_juce_audio_devices.mm */ /* include_juce_audio_devices.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_audio_devices.mm; path = ../../JuceLibraryCode/include_juce_audio_devices.mm; sourceTree = SOURCE_ROOT; };
 		66BEF046006153CF11FE298A /* Synth2.h */ /* Synth2.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Synth2.h; path = ../../Source/Engine/Synth2.h; sourceTree = SOURCE_ROOT; };
+		684FABB22AC9C071E2BEF936 /* InstrumentPanels.cpp */ /* InstrumentPanels.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = InstrumentPanels.cpp; path = ../../Source/UI/InstrumentPanels.cpp; sourceTree = SOURCE_ROOT; };
 		68A2D0FF4FFF58AAA3948AEF /* fft-ipp.h */ /* fft-ipp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "fft-ipp.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/platform/fft-ipp.h"; sourceTree = SOURCE_ROOT; };
 		6B9BB11C10B20992825D5316 /* include_juce_core.mm */ /* include_juce_core.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_core.mm; path = ../../JuceLibraryCode/include_juce_core.mm; sourceTree = SOURCE_ROOT; };
 		6CBA38A8AF8B2059745A10F1 /* include_juce_core_CompilationTime.cpp */ /* include_juce_core_CompilationTime.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_core_CompilationTime.cpp; path = ../../JuceLibraryCode/include_juce_core_CompilationTime.cpp; sourceTree = SOURCE_ROOT; };
 		6E8628AA49086BE63E4C1F0A /* IOSAudio.mm */ /* IOSAudio.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = IOSAudio.mm; path = ../../Source/App/IOSAudio.mm; sourceTree = SOURCE_ROOT; };
+		70A940F2A875EEAB32166627 /* FxPresets.h */ /* FxPresets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FxPresets.h; path = ../../Source/App/FxPresets.h; sourceTree = SOURCE_ROOT; };
 		7361B7E925D1C15B873F4A59 /* juce_audio_processors */ /* juce_audio_processors */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_audio_processors; path = ../../JUCE/modules/juce_audio_processors; sourceTree = SOURCE_ROOT; };
 		7370017F34A4248FCAE040A8 /* UIKit.framework */ /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		768004FC0F9ACB46F42102A5 /* SynthPanel.cpp */ /* SynthPanel.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SynthPanel.cpp; path = ../../Source/UI/SynthPanel.cpp; sourceTree = SOURCE_ROOT; };
@@ -143,15 +157,18 @@
 		882687E9674CCFEFAA6B5595 /* fft.h */ /* fft.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = fft.h; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/fft.h"; sourceTree = SOURCE_ROOT; };
 		8BCFC088560CE1B518818804 /* PhoneLink.h */ /* PhoneLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PhoneLink.h; path = ../../Source/App/PhoneLink.h; sourceTree = SOURCE_ROOT; };
 		8CFE505A2696F1FF1478526D /* MainView.h */ /* MainView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MainView.h; path = ../../Source/UI/MainView.h; sourceTree = SOURCE_ROOT; };
+		8DEE2495DF105812571BE7AF /* Modular.cpp */ /* Modular.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Modular.cpp; path = ../../Source/Engine/Modular.cpp; sourceTree = SOURCE_ROOT; };
 		93E24D783B2E251C27D00194 /* include_juce_data_structures.mm */ /* include_juce_data_structures.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_data_structures.mm; path = ../../JuceLibraryCode/include_juce_data_structures.mm; sourceTree = SOURCE_ROOT; };
 		9425E793DFD249BF974548C2 /* MetalKit.framework */ /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		9614424509E8D04FFC98147D /* fft-accelerate.h */ /* fft-accelerate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "fft-accelerate.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/platform/fft-accelerate.h"; sourceTree = SOURCE_ROOT; };
 		9A21FEFD87D83E5514AB02F9 /* juce_gui_extra */ /* juce_gui_extra */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_gui_extra; path = ../../JUCE/modules/juce_gui_extra; sourceTree = SOURCE_ROOT; };
 		9C815A9CEC5E3400C6998CB7 /* stft.h */ /* stft.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = stft.h; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/stft.h"; sourceTree = SOURCE_ROOT; };
+		9CD715C9722B4E68957B9E70 /* Modular.h */ /* Modular.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Modular.h; path = ../../Source/Engine/Modular.h; sourceTree = SOURCE_ROOT; };
 		9DCBDCFAE71AA2EF13DDEEE1 /* SynthPlayer.h */ /* SynthPlayer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SynthPlayer.h; path = ../../Source/App/SynthPlayer.h; sourceTree = SOURCE_ROOT; };
 		9E8E24F2A39E97573F5F00F6 /* linear-xsimd.h */ /* linear-xsimd.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "linear-xsimd.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/platform/linear-xsimd.h"; sourceTree = SOURCE_ROOT; };
 		A1FB5EA14CDAD03949F5D888 /* ExtraFx.h */ /* ExtraFx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ExtraFx.h; path = ../../Source/Engine/ExtraFx.h; sourceTree = SOURCE_ROOT; };
 		AA80A28C57E5473A1E0473AD /* Inter-Regular.otf */ /* Inter-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file.otf; name = "Inter-Regular.otf"; path = "../../Resources/Inter-Regular.otf"; sourceTree = SOURCE_ROOT; };
+		AAF2E44BA99CFFEAA1C1DDFE /* Instruments.h */ /* Instruments.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Instruments.h; path = ../../Source/App/Instruments.h; sourceTree = SOURCE_ROOT; };
 		ACA7C9364A25EE8725E4F971 /* Updater.h */ /* Updater.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Updater.h; path = ../../Source/App/Updater.h; sourceTree = SOURCE_ROOT; };
 		AF2A1184ADCBD4E161F15F5A /* StudioView.h */ /* StudioView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StudioView.h; path = ../../Source/UI/StudioView.h; sourceTree = SOURCE_ROOT; };
 		B146AA490A61C70E766A04EC /* Icon.icns */ /* Icon.icns */ = {isa = PBXFileReference; lastKnownFileType = file.icns; name = Icon.icns; path = Icon.icns; sourceTree = SOURCE_ROOT; };
@@ -172,6 +189,7 @@
 		D507C37C0631A5A588132AC9 /* ExtraParams.h */ /* ExtraParams.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ExtraParams.h; path = ../../Source/Model/ExtraParams.h; sourceTree = SOURCE_ROOT; };
 		DAA37294B8631F2EE7D600C2 /* AVFoundation.framework */ /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		DCA05E9DFA762E21F93029B3 /* Images.xcassets */ /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = ARCO/Images.xcassets; sourceTree = SOURCE_ROOT; };
+		DCAC1D1993A94AD7C610C5B4 /* Instruments.cpp */ /* Instruments.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Instruments.cpp; path = ../../Source/App/Instruments.cpp; sourceTree = SOURCE_ROOT; };
 		DDDB0B528839B799B6842121 /* AudioToolbox.framework */ /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		DF79EC73767D0F424504D748 /* include_juce_audio_processors_ara.cpp */ /* include_juce_audio_processors_ara.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_audio_processors_ara.cpp; path = ../../JuceLibraryCode/include_juce_audio_processors_ara.cpp; sourceTree = SOURCE_ROOT; };
 		E083A270B3D6C3431D42B028 /* icon.png */ /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = icon.png; path = ../../Resources/icon.png; sourceTree = SOURCE_ROOT; };
@@ -183,6 +201,7 @@
 		ED34335F05E9F0D051846ABE /* fft-linear.h */ /* fft-linear.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "fft-linear.h"; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/platform/fft-linear.h"; sourceTree = SOURCE_ROOT; };
 		EFC10DA8010AE84293786862 /* include_juce_audio_formats.mm */ /* include_juce_audio_formats.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_audio_formats.mm; path = ../../JuceLibraryCode/include_juce_audio_formats.mm; sourceTree = SOURCE_ROOT; };
 		F3F7E1353621F1C5E8094AEC /* Sheets.h */ /* Sheets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Sheets.h; path = ../../Source/UI/Sheets.h; sourceTree = SOURCE_ROOT; };
+		F626C9EB9C5995EBA1D18053 /* StudioFx.h */ /* StudioFx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StudioFx.h; path = ../../Source/App/StudioFx.h; sourceTree = SOURCE_ROOT; };
 		F698890160D67B658AB67BF7 /* CoreMIDI.framework */ /* CoreMIDI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMIDI.framework; path = System/Library/Frameworks/CoreMIDI.framework; sourceTree = SDKROOT; };
 		F6AD2FFDFE6394A23FDC207A /* LaunchScreen.storyboard */ /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		F7691CBDE00239E6AC53337C /* linear.h */ /* linear.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = linear.h; path = "../../Source/ThirdParty/signalsmith/signalsmith-linear/linear.h"; sourceTree = SOURCE_ROOT; };
@@ -236,10 +255,13 @@
 		284C88030FC8A5E17916D473 /* Source/Engine */ = {
 			isa = PBXGroup;
 			children = (
+				43E1AF3B283FDBF49BB3D39B,
 				E79D7647EF2F15E6619C7264,
 				0520F301029FC9C3B7218448,
 				A1FB5EA14CDAD03949F5D888,
 				558AE09E14D58E98D80575EB,
+				8DEE2495DF105812571BE7AF,
+				9CD715C9722B4E68957B9E70,
 				58703C4EC8A5520BC0E3A33D,
 				66BEF046006153CF11FE298A,
 			);
@@ -252,6 +274,8 @@
 				E37D670194335B56E7C7D32B,
 				48C6AED0303BB585F97179A9,
 				7FCA5BB019A11D1333D966DC,
+				684FABB22AC9C071E2BEF936,
+				52D9F60381BD0D45F738219C,
 				167E4A1EEE4DB7F7461452DB,
 				5C41656670C9D35A1FCC07B2,
 				8CFE505A2696F1FF1478526D,
@@ -261,6 +285,8 @@
 				C811F75BB50BB30D94F310DA,
 				4BEA913D184F7D1C92524BD8,
 				F3F7E1353621F1C5E8094AEC,
+				617186D7BB802C15DFE33582,
+				11AD832B6DD37BC2667A8B4A,
 				1F71B1A52C51F76428EDC1DB,
 				AF2A1184ADCBD4E161F15F5A,
 				768004FC0F9ACB46F42102A5,
@@ -348,15 +374,21 @@
 				4573E313598CE595FC6A3E39,
 				51835B52E316C7DE615691D1,
 				26B1BCE8043C4A5E02A22E3F,
+				70A940F2A875EEAB32166627,
 				FA67ACDB6FE6C064CE993CA6,
 				6E8628AA49086BE63E4C1F0A,
+				DCAC1D1993A94AD7C610C5B4,
+				AAF2E44BA99CFFEAA1C1DDFE,
 				D301D99BA4063E6971F833C6,
 				8BCFC088560CE1B518818804,
 				80658C0BC8678014264ADA46,
 				04E21C054003F03CE6EFB16A,
+				54D21883B20495BF5AC5844C,
+				100B5638D870F20AC30A8D18,
 				C050805D606134FABF048926,
 				4378C4C61D205B72DDCB62BF,
 				E7A35032730A7464B9937D7C,
+				F626C9EB9C5995EBA1D18053,
 				9DCBDCFAE71AA2EF13DDEEE1,
 				ACA7C9364A25EE8725E4F971,
 			);
@@ -513,7 +545,7 @@
 								enabled = 0;
 							};
 							com.apple.InterAppAudio = {
-								enabled = 0;
+								enabled = 1;
 							};
 							com.apple.Push = {
 								enabled = 0;
@@ -564,17 +596,22 @@
 				E682629CF896425A6CC69F80,
 				F5192652D6E44762481D197E,
 				F26E8D623F66BEAE67B356DA,
+				C210988BCAF1A6AC94444B15,
 				0B0065246E9636C09748CFBB,
 				EBB7BE310F8395F0C95F6277,
+				0417E5A389D67D6C2088E814,
 				11CF2B571B8A5B758772D974,
 				A1D6CACB274DDD909B85A5BA,
+				E5634303D91D0D5F308F029E,
 				80E9282D500CE47EEAA384E6,
 				C83795CD409778AE3C747355,
 				DBF8BB6DCA75D32AC8A0C4B3,
+				E72505285CDB275ADB8C5ED3,
 				95C5DF7C23F686A441886760,
 				27D5FB212F30A0B171828E20,
 				68B415FC867206D80A3357B7,
 				5B8F7B18D2B74A1F8890FC4D,
+				2F336A803A2E1E74779FC412,
 				A1B73022AE127863F92D4DEC,
 				6C832CD1DB26628BD9D36A33,
 				2B0471E1DDB1AF54823409E1,
@@ -607,6 +644,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_LINK_OBJC_RUNTIME = NO;
+				CODE_SIGN_ENTITLEMENTS = "App.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
 				CONFIGURATION_BUILD_DIR = "$(PROJECT_DIR)/build/$(CONFIGURATION)";
 				DEAD_CODE_STRIPPING = YES;
@@ -621,8 +659,8 @@
 					"JUCE_USE_CURL=0",
 					"JUCE_DISPLAY_SPLASH_SCREEN=0",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=1.2.0",
-					"JUCE_APP_VERSION_HEX=0x10200",
+					"JUCE_APP_VERSION=1.3.0",
+					"JUCE_APP_VERSION_HEX=0x10300",
 					"JucePlugin_Build_VST=0",
 					"JucePlugin_Build_VST3=0",
 					"JucePlugin_Build_AU=0",
@@ -707,6 +745,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_LINK_OBJC_RUNTIME = NO;
+				CODE_SIGN_ENTITLEMENTS = "App.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
 				CONFIGURATION_BUILD_DIR = "$(PROJECT_DIR)/build/$(CONFIGURATION)";
 				DEAD_CODE_STRIPPING = YES;
@@ -721,8 +760,8 @@
 					"JUCE_USE_CURL=0",
 					"JUCE_DISPLAY_SPLASH_SCREEN=0",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=1.2.0",
-					"JUCE_APP_VERSION_HEX=0x10200",
+					"JUCE_APP_VERSION=1.3.0",
+					"JUCE_APP_VERSION_HEX=0x10300",
 					"JucePlugin_Build_VST=0",
 					"JucePlugin_Build_VST3=0",
 					"JucePlugin_Build_AU=0",

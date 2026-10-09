@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Writes ARCO.jucer - the project JUCE's Projucer turns into the Xcode project for iPad / iPhone (Builds/iOS).
-Run from the repository root:  python3 tools/make_jucer.py   then   Projucer --resave ARCO.jucer"""
+Run from the repository root:  python3 tools/make_jucer.py   then   Projucer --resave ARCO.jucer
+(then empty Builds/iOS/App.entitlements: the Projucer adds inter-app-audio for AU hosting, which ARCO does not need)"""
 import os, hashlib, xml.sax.saxutils as su
 
 VERSION = open("VERSION").read().strip() if os.path.exists("VERSION") else "1.1.0"
@@ -45,7 +46,7 @@ w('  <MODULES>')
 for m in modules:
     w(f'    <MODULE id="{m}" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>')
 w('  </MODULES>')
-w('  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1"/>')
+w('  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_PLUGINHOST_AU="1"/>')
 w('  <EXPORTFORMATS>')
 w('    <XCODE_IPHONE targetFolder="Builds/iOS" iosDeviceFamily="1,2" bigIcon="icnios" smallIcon="icnios" '
   'iPhoneScreenOrientation="UIInterfaceOrientationPortrait,UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" '

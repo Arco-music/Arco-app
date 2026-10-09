@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.2.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" compilerFlagSchemes="nofastmath" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
+<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.3.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" compilerFlagSchemes="nofastmath" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
   <MAINGROUP id="grp000" name="ARCO">
     <GROUP id="f31bbd" name="Source">
       <FILE id="9354fc" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
@@ -11,23 +11,32 @@
       <FILE id="7e3b9f" name="AudioHost.h" compile="0" resource="0" file="Source/App/AudioHost.h"/>
       <FILE id="ff5044" name="AutoMix.cpp" compile="1" resource="0" file="Source/App/AutoMix.cpp"/>
       <FILE id="d7d5c1" name="AutoMix.h" compile="0" resource="0" file="Source/App/AutoMix.h"/>
+      <FILE id="de30c3" name="FxPresets.h" compile="0" resource="0" file="Source/App/FxPresets.h"/>
       <FILE id="b8689c" name="IOSAudio.h" compile="0" resource="0" file="Source/App/IOSAudio.h"/>
       <FILE id="b6eccb" name="IOSAudio.mm" compile="1" resource="0" file="Source/App/IOSAudio.mm"/>
+      <FILE id="b18709" name="Instruments.cpp" compile="1" resource="0" file="Source/App/Instruments.cpp"/>
+      <FILE id="255881" name="Instruments.h" compile="0" resource="0" file="Source/App/Instruments.h"/>
       <FILE id="71bae1" name="PhoneLink.cpp" compile="1" resource="0" file="Source/App/PhoneLink.cpp"/>
       <FILE id="1a2702" name="PhoneLink.h" compile="0" resource="0" file="Source/App/PhoneLink.h"/>
       <FILE id="c1bafd" name="Render.cpp" compile="1" resource="0" file="Source/App/Render.cpp"/>
       <FILE id="6dd06d" name="Render.h" compile="0" resource="0" file="Source/App/Render.h"/>
+      <FILE id="7b1621" name="Sampler.cpp" compile="1" resource="0" file="Source/App/Sampler.cpp"/>
+      <FILE id="382ad3" name="Sampler.h" compile="0" resource="0" file="Source/App/Sampler.h"/>
       <FILE id="8637f6" name="SelfTest.h" compile="0" resource="0" file="Source/App/SelfTest.h"/>
       <FILE id="8debd5" name="Studio.cpp" compile="1" resource="0" file="Source/App/Studio.cpp"/>
       <FILE id="ba601d" name="Studio.h" compile="0" resource="0" file="Source/App/Studio.h"/>
+      <FILE id="f4218b" name="StudioFx.h" compile="0" resource="0" file="Source/App/StudioFx.h"/>
       <FILE id="efd528" name="SynthPlayer.h" compile="0" resource="0" file="Source/App/SynthPlayer.h"/>
       <FILE id="ada1db" name="Updater.h" compile="0" resource="0" file="Source/App/Updater.h"/>
     </GROUP>
     <GROUP id="d5ffc8" name="Source/Engine">
+      <FILE id="07681a" name="Ambisonics.h" compile="0" resource="0" file="Source/Engine/Ambisonics.h"/>
       <FILE id="b1f2ac" name="Engine.cpp" compile="1" resource="0" file="Source/Engine/Engine.cpp"/>
       <FILE id="9c9ffa" name="Engine.h" compile="0" resource="0" file="Source/Engine/Engine.h"/>
       <FILE id="7e0b30" name="ExtraFx.h" compile="0" resource="0" file="Source/Engine/ExtraFx.h"/>
       <FILE id="d58f3e" name="GenModules.h" compile="0" resource="0" file="Source/Engine/GenModules.h"/>
+      <FILE id="099e7d" name="Modular.cpp" compile="1" resource="0" file="Source/Engine/Modular.cpp"/>
+      <FILE id="55b23b" name="Modular.h" compile="0" resource="0" file="Source/Engine/Modular.h"/>
       <FILE id="7d60aa" name="StripMix.h" compile="0" resource="0" file="Source/Engine/StripMix.h"/>
       <FILE id="c8f048" name="Synth2.h" compile="0" resource="0" file="Source/Engine/Synth2.h"/>
     </GROUP>
@@ -63,6 +72,8 @@
       <FILE id="4c3fa6" name="Commands.cpp" compile="1" resource="0" file="Source/UI/Commands.cpp"/>
       <FILE id="996cd8" name="HelpText.cpp" compile="1" resource="0" file="Source/UI/HelpText.cpp"/>
       <FILE id="d240cb" name="HelpText.h" compile="0" resource="0" file="Source/UI/HelpText.h"/>
+      <FILE id="8f4fc2" name="InstrumentPanels.cpp" compile="1" resource="0" file="Source/UI/InstrumentPanels.cpp"/>
+      <FILE id="0bbfad" name="InstrumentPanels.h" compile="0" resource="0" file="Source/UI/InstrumentPanels.h"/>
       <FILE id="fbc2cd" name="LearnOverlay.h" compile="0" resource="0" file="Source/UI/LearnOverlay.h"/>
       <FILE id="b065e3" name="MainView.cpp" compile="1" resource="0" file="Source/UI/MainView.cpp"/>
       <FILE id="b2f4ea" name="MainView.h" compile="0" resource="0" file="Source/UI/MainView.h"/>
@@ -72,6 +83,8 @@
       <FILE id="200fb2" name="PhoneRemote.h" compile="0" resource="0" file="Source/UI/PhoneRemote.h"/>
       <FILE id="fcdebe" name="Sheets.cpp" compile="1" resource="0" file="Source/UI/Sheets.cpp"/>
       <FILE id="af4daa" name="Sheets.h" compile="0" resource="0" file="Source/UI/Sheets.h"/>
+      <FILE id="fe0bf2" name="SpatialPanel.cpp" compile="1" resource="0" file="Source/UI/SpatialPanel.cpp"/>
+      <FILE id="e9e75e" name="SpatialPanel.h" compile="0" resource="0" file="Source/UI/SpatialPanel.h"/>
       <FILE id="0113ff" name="StudioView.cpp" compile="1" resource="0" file="Source/UI/StudioView.cpp"/>
       <FILE id="35d58b" name="StudioView.h" compile="0" resource="0" file="Source/UI/StudioView.h"/>
       <FILE id="dc0181" name="SynthPanel.cpp" compile="1" resource="0" file="Source/UI/SynthPanel.cpp"/>
@@ -100,7 +113,7 @@
     <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
-  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1"/>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_PLUGINHOST_AU="1"/>
   <EXPORTFORMATS>
     <XCODE_IPHONE targetFolder="Builds/iOS" iosDeviceFamily="1,2" bigIcon="icnios" smallIcon="icnios" iPhoneScreenOrientation="UIInterfaceOrientationPortrait,UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" iPadScreenOrientation="UIInterfaceOrientationPortrait,UIInterfaceOrientationPortraitUpsideDown,UIInterfaceOrientationLandscapeLeft,UIInterfaceOrientationLandscapeRight" microphonePermissionNeeded="1" microphonePermissionsText="ARCO uses the microphone (or your audio interface) to record your instrument." iosBackgroundAudio="1" UIFileSharingEnabled="1" UISupportsDocumentBrowser="1" UIStatusBarHidden="1" customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;NSLocalNetworkUsageDescription&lt;/key&gt;&lt;string&gt;ARCO finds your phones and your station (Mac or iPad) on the Wi-Fi: microphones and remote control.&lt;/string&gt;&lt;key&gt;LSSupportsOpeningDocumentsInPlace&lt;/key&gt;&lt;true/&gt;&lt;key&gt;NSBonjourServices&lt;/key&gt;&lt;array&gt;&lt;string&gt;_arco._tcp&lt;/string&gt;&lt;/array&gt;&lt;key&gt;UIRequiresFullScreen&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;" extraFrameworks="AVKit,CoreAudioKit" extraCompilerFlags="-Wno-unused-variable -Wno-unused-parameter" nofastmath="-fno-fast-math">
       <CONFIGURATIONS>
