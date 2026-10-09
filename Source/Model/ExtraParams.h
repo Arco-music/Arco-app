@@ -38,10 +38,10 @@ inline const std::vector<ExtraFxDef>& extraFxDefs() {
         { "crs", "CRUSH", "bits and samples, crunchy", { { "SEND", "SEND" }, { "crs_bits", "BITS" }, { "crs_rate", "DOWNSAMPLE" }, { "crs_tone", "TONE" }, { "crs_ret", "RETURN" } },
           { 40, 35, 65, 60 } },
         // 1.3
-        { "pdl", "PEDAL", "the piano's sustain pedal: strings ring", { { "SEND", "SEND" }, { "pdl_ring", "RING" }, { "pdl_bright", "BRIGHT" }, { "pdl_body", "BODY" },
+        { "pdl", "PEDAL", "sustain pedal", { { "SEND", "SEND" }, { "pdl_ring", "RING" }, { "pdl_bright", "BRIGHT" }, { "pdl_body", "BODY" },
                                                                      { "pdl_auto", "AUTO PEDAL" }, { "pdl_ret", "RETURN" }, { "pdl_spc", "→ SPACE" } },
           { 55, 50, 35, 0, 75, 10 } },
-        { "fbk", "FEEDBACK", "a note that feeds itself - never too loud", { { "SEND", "SEND" }, { "fbk_mode", "MODE" }, { "fbk_grow", "GROW" }, { "fbk_level", "LEVEL" },
+        { "fbk", "FEEDBACK", "never too loud", { { "SEND", "SEND" }, { "fbk_mode", "MODE" }, { "fbk_grow", "GROW" }, { "fbk_level", "LEVEL" },
                                                                       { "fbk_harm", "PITCH" }, { "fbk_tone", "TONE" }, { "fbk_ret", "RETURN" }, { "fbk_spc", "→ SPACE" } },
           { 50, 45, 55, 0, 55, 70, 20 } },
     };

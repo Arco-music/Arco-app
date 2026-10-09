@@ -52,12 +52,16 @@ void PhoneRemote::start() {
     host.synth.allOff();
     host.phoneLink.start(myName);
     host.micMode.store(true);
+   #if ! JUCE_LINUX                                  // (the Linux test build has no screen saver to talk to)
     juce::Desktop::getInstance().setScreenSaverEnabled(false);
+   #endif
 }
 void PhoneRemote::stop() {
     host.micMode.store(false);
     host.phoneLink.stop();
+   #if ! JUCE_LINUX
     juce::Desktop::getInstance().setScreenSaverEnabled(true);
+   #endif
 }
 void PhoneRemote::rename() {
     auto* w = new juce::AlertWindow("This phone's name", "The station shows it (SETUP → iPHONES):", juce::MessageBoxIconType::NoIcon);
