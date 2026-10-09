@@ -4,6 +4,7 @@
 #include "Sheets.h"
 #include "LearnOverlay.h"
 #include "SpatialPanel.h"
+#include "InstrumentPanels.h"
 #include "../App/FxPresets.h"
 
 namespace arco {
@@ -331,6 +332,10 @@ Canvas::Canvas(AudioHost& h) : host(h) {
     addChildComponent(look.get()); look->setBounds(0, 0, 1440, 880);
     spatial = std::make_unique<SpatialPanel>(*this);
     addChildComponent(spatial.get()); spatial->setBounds(0, 0, 1440, 880);
+    keyboardWin = std::make_unique<KeyboardPanel>(*this);
+    addChildComponent(keyboardWin.get()); keyboardWin->setBounds(0, 0, 1440, 880);
+    modularWin = std::make_unique<ModularPanel>(*this);
+    addChildComponent(modularWin.get()); modularWin->setBounds(0, 0, 1440, 880);
     exportSheet = std::make_unique<ExportSheet>(*this); addChildComponent(exportSheet.get()); exportSheet->setBounds(0, 0, 1440, 880);
     helpSheet = std::make_unique<HelpSheet>(*this); addChildComponent(helpSheet.get()); helpSheet->setBounds(0, 0, 1440, 880);
     aboutSheet = std::make_unique<AboutSheet>(*this); addChildComponent(aboutSheet.get()); aboutSheet->setBounds(0, 0, 1440, 880);
@@ -371,7 +376,8 @@ void Canvas::setLayout(bool tall, int w, int h) {
         c->setBounds(0, 0, 1440, portrait ? (int) std::ceil(H / s) : 880);              // the whole screen is dimmed behind it
         c->setTransform(portrait ? juce::AffineTransform::scale(s).translated(0.0f, 60.0f) : juce::AffineTransform()); };
     for (juce::Component* c : { (juce::Component*) setup.get(), (juce::Component*) look.get(), (juce::Component*) exportSheet.get(), (juce::Component*) helpSheet.get(),
-                                (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get(), (juce::Component*) spatial.get() }) fit(c);
+                                (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get(), (juce::Component*) spatial.get(),
+                                (juce::Component*) keyboardWin.get(), (juce::Component*) modularWin.get() }) fit(c);
     if (learnLayer) learnLayer->setBounds(0, 0, W, H);
    #if JUCE_IOS
     if (studioView != nullptr) studioView->setBounds(0, 0, W, H);          // STUDIO uses the whole screen either way
@@ -497,7 +503,9 @@ void Canvas::buildTopBar() {
     auto* studioB = add<Pill>({ 1380, 9, 48, 22 }, "STUDIO", [] { return Theme::blue(); }, 7.5f, 7.0f);
     studioB->onClick = [this] { openStudio(); };
     studioB->setComponentID("t:studio");
-    auto* st = add<Pill>({ 1326, 35, 72, 20 }, "SETUP", [] { return Theme::off(); }, 7.5f, 7.0f);
+    auto* kk = add<Pill>({ 1326, 35, 34, 20 }, "KEYS", [] { return Theme::c(Theme::rgb(0.40f, 0.30f, 0.70f)); }, 7.0f, 7.0f);
+    kk->onClick = [this] { openKeyboard(true); }; kk->setTooltip("KEYBOARD: a big keyboard, sampled instruments, plug-ins, MODULAR");
+    auto* st = add<Pill>({ 1363, 35, 37, 20 }, "SETUP", [] { return Theme::off(); }, 7.0f, 7.0f);
     st->onClick = [this] { openSetup(true); };
     auto* pw = add<Pill>({ 1404, 34, 24, 22 }, U("⏻"), [this] { return host.devices.getCurrentAudioDevice() != nullptr ? Theme::green() : Theme::off(); }, 10.0f, 6.0f);
     pw->onClick = [this] { if (host.devices.getCurrentAudioDevice() != nullptr) host.devices.closeAudioDevice(); else host.devices.restartLastAudioDevice(); };
@@ -580,6 +588,8 @@ void Canvas::openSetup(bool show) { setup->setVisible(show); if (show) setup->to
 void Canvas::openMic(bool show) { if (auto* mc = findParentComponentOfClass<MainComponent>()) mc->showMic(show); }
 void Canvas::openLook(bool show) { look->setVisible(show); if (show) look->toFront(true); }
 void Canvas::openSpatial(bool show) { spatial->setVisible(show); if (show) spatial->toFront(true); }
+void Canvas::openKeyboard(bool show) { keyboardWin->setVisible(show); if (show) keyboardWin->toFront(true); }
+void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) modularWin->toFront(true); }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 

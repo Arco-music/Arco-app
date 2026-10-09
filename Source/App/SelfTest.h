@@ -728,6 +728,16 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         h.devices.closeAudioDevice();
         h.nLive = 1; h.inputCh[0] = 1; h.inputCh[1] = 2;
     }
+    // ---- 1.3: the KEYBOARD's instrument plays through the station like the SYNTH
+    {
+        h.keys.allNotesOff(0); h.synth.allOff(); h.setSynthInto(0); run(1.0, 0);
+        h.rack.modular.setPatch(Modular::defaultPatch(0)); h.rack.setKind(InstrumentRack::KModular);
+        float quiet = run(0.3, 0);
+        h.keys.noteOn(1, 57, 0.9f); float pk = run(0.8, 0); h.keys.noteOff(1, 57, 0);
+        check(h.synthInto == 1 && quiet < 0.005f && pk > 0.02f && e.snap("syn_n").v.load() < 0.5f, "KEYBOARD: the keys play MODULAR into LIVE 2 (not the SYNTH)", pk);
+        run(2.0, 0);
+        h.rack.setKind(InstrumentRack::KSynth); h.setSynthInto(0);
+    }
     // ---- 1.3: MODULAR and the SFZ sample player
     {
         Modular mod; mod.prepare(48000);

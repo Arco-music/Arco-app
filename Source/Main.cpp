@@ -95,6 +95,8 @@ public:
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
         if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue()); }
         if (cmd.contains("look")) mc->canvas.openLook(true);
+        if (cmd.contains("keyboard")) mc->canvas.openKeyboard(true);
+        if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true); }
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }

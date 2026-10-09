@@ -23,7 +23,8 @@ juce_add_gui_app(ARCO
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "ARCO records your instrument from your sound card."
     HARDENED_RUNTIME_ENABLED TRUE
-    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input)
+    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation com.apple.security.cs.allow-jit
+    PLUGINHOST_AU TRUE)
 
 juce_generate_juce_header(ARCO)
 juce_add_binary_data(ARCOData SOURCES
@@ -44,6 +45,7 @@ target_sources(ARCO PRIVATE
     Source/App/AutoMix.cpp
     Source/App/Studio.cpp
     Source/App/Sampler.cpp
+    Source/App/Instruments.cpp
     $<$<PLATFORM_ID:iOS>:Source/App/IOSAudio.mm>
     Source/UI/MainView.cpp
     Source/UI/Panels.cpp
@@ -53,11 +55,13 @@ target_sources(ARCO PRIVATE
     Source/UI/Commands.cpp
     Source/UI/PhoneRemote.cpp
     Source/UI/StudioView.cpp
-    Source/UI/SpatialPanel.cpp)
+    Source/UI/SpatialPanel.cpp
+    Source/UI/InstrumentPanels.cpp)
 
 target_compile_definitions(ARCO PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ARCO,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ARCO,JUCE_VERSION>" JUCE_DISPLAY_SPLASH_SCREEN=0 ARCO_BUILD=${ARCO_BUILD})
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ARCO,JUCE_VERSION>" JUCE_DISPLAY_SPLASH_SCREEN=0 ARCO_BUILD=${ARCO_BUILD}
+    JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_LV2=0)
 if(UNIX AND NOT APPLE)
   # the Linux test build reaches the internet through curl (the Mac uses Apple's own networking)
   find_package(CURL REQUIRED)

@@ -15,6 +15,7 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     formats.registerBasicFormats();
     writerThread.startThread();
     engine.prepare(48000.0);
+    rack.prepare(48000.0); engine.ext.store(&rack);
     model.sendAll();
     loadSetup(openDevice);
     if (openDevice) fxpresets::applyDefaults(model);
@@ -53,13 +54,13 @@ void AudioHost::phoneCommand(PhoneConn& c, const juce::String& line) {
     else if (w == "listen" && t.size() >= 2) c.listenMix.store(juce::jlimit(0, 2, t[1].getIntValue()));
     else if (w == "noteon" && t.size() >= 3) keys.noteOn(1, juce::jlimit(0, 127, t[1].getIntValue()), (float) juce::jlimit(0.01, 1.0, num(2)));
     else if (w == "noteoff" && t.size() >= 2) keys.noteOff(1, juce::jlimit(0, 127, t[1].getIntValue()), 0.0f);
-    else if (w == "alloff") { synth.allOff(); synth.padOff(); }
+    else if (w == "alloff") { synth.allOff(); synth.padOff(); rack.allOff(); }
     else if (w == "padon" && t.size() >= 3) synth.padOn((float) num(1), (float) num(2));
     else if (w == "padmove" && t.size() >= 3) synth.padMove((float) num(1), (float) num(2));
     else if (w == "padoff") synth.padOff();
     else if (w == "bend" && t.size() >= 2) synth.pitchBend((float) num(1));
     else if (w == "expr" && t.size() >= 2) synth.setExpression((float) juce::jlimit(0.0, 1.0, num(1)));
-    else if (w == "sustain" && t.size() >= 2) synth.setSustain(t[1].getIntValue() != 0);
+    else if (w == "sustain" && t.size() >= 2) setSustain(t[1].getIntValue() != 0);
     else if (w == "rec") {
         if (isRecording()) stopRecording();
         else {
@@ -109,6 +110,7 @@ void AudioHost::tickPhones() {
 }
 
 AudioHost::~AudioHost() {
+    engine.ext.store(nullptr);
     if (live) saveSetup();
     devices.removeMidiInputDeviceCallback({}, this);
     stopTimer();
@@ -131,6 +133,7 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     if (r != lastRate) {                     // a new sample rate: the engine starts again (loops are kept only at the same rate)
         lastRate = r;
         engine.prepare(r);
+        rack.prepare(r);
         engineRestarted = true;
     }
     triggerAsyncUpdate();                    // every (re)start: the inputs / outputs may be different now
@@ -259,7 +262,7 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
     else if (m.isController() && (m.getControllerNumber() == 1 || m.getControllerNumber() == 64) && !isPedalCC(m.getControllerNumber(), ch)) {
         int c = m.getControllerNumber(), v = m.getControllerValue();
         if (c == 1) juce::MessageManager::callAsync([this, v] { model.set("l_pitch", v / 127.0 * 60.0); });   // mod wheel = vibrato
-        else juce::MessageManager::callAsync([this, v] { synth.setSustain(v >= 64); model.set("pdl_down", v >= 64 ? 1 : 0); });   // sustain pedal (the synth and the PEDAL effect)
+        else juce::MessageManager::callAsync([this, v] { setSustain(v >= 64); model.set("pdl_down", v >= 64 ? 1 : 0); });   // sustain pedal (the synth and the PEDAL effect)
         if (learning.load() < 0) return;
         if (v < 64) return;
         type = 2; num = c;
@@ -397,6 +400,7 @@ void AudioHost::newSong() {
     studio.playing = false; { const juce::ScopedLock sl(studio.lock); studio.song = StudioSong(); }
     model.press("st_looper", "rstall");
     model.resetSong();
+    rack.fromVar({});
     fxpresets::applyDefaults(model);          // the effects as you like them for new songs
     songFolder = juce::File();
     sigSettle = 20;
@@ -415,6 +419,7 @@ bool AudioHost::saveSong(const juce::File& folder) {
     if (!studio.song.clips.empty()) studio.save(folder);           // STUDIO's arrangement goes with the song
     auto name = folder.getFileName();
     auto root = model.songState();
+    root.getDynamicObject()->setProperty("instrument", rack.toVar());   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
     auto* sess = new juce::DynamicObject();
     for (auto* k : { "sv_bl", "sv_bts", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3",
                      "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "sv_ntr" })
@@ -464,6 +469,7 @@ bool AudioHost::openSong(const juce::File& sel) {
         readInto(formats, folder.getChildFile(base + "-p" + L[i] + ".wav"), engine.buffer(std::string("st_pitch") + L[i]));
     }
     model.loadSongState(v);
+    rack.fromVar(v["instrument"]);
     auto s = v["session"];
     static const char* RS[15] = { "rs_bl", "rs_bts", "rs_len0", "rs_len1", "rs_len2", "rs_len3", "rs_mask0", "rs_mask1", "rs_mask2", "rs_mask3",
                                   "rs_spd0", "rs_spd1", "rs_spd2", "rs_spd3", "rs_ntr" };
@@ -631,6 +637,8 @@ void AudioHost::saveSetup() {
       for (auto& l : midiLinks) { auto* x = new juce::DynamicObject(); x->setProperty("id", l.id); x->setProperty("t", l.type); x->setProperty("n", l.num); x->setProperty("c", l.ch); ml.add(juce::var(x)); }
       o->setProperty("midimap", ml); }
     o->setProperty("pedals", pd);
+    { juce::Array<juce::var> us; for (auto& k : rack.userSfz) us.add(k); o->setProperty("userSfz", us); }
+    if (auto kx = rack.known.createXml()) o->setProperty("plugins", kx->toString());
     if (auto xml = devices.createStateXml()) o->setProperty("audio", xml->toString());
     f.replaceWithText(juce::JSON::toString(juce::var(o)));
 }
@@ -664,6 +672,8 @@ void AudioHost::loadSetup(bool openDevice) {
         if (auto* pd = v["pedals"].getArray())
             for (int a = 0; a < NumActions && a * 3 + 2 < pd->size(); ++a) pedal[a] = { (int) (*pd)[a * 3], (int) (*pd)[a * 3 + 1], (int) (*pd)[a * 3 + 2] };
         if (v["audio"].isString()) xml = juce::parseXML(v["audio"].toString());
+        if (auto* us = v["userSfz"].getArray()) for (auto& k : *us) if (juce::File(k.toString()).existsAsFile()) rack.userSfz.addIfNotAlreadyThere(k.toString());
+        if (v["plugins"].isString()) if (auto kx = juce::parseXML(v["plugins"].toString())) rack.known.recreateFromXml(*kx);
     }
     if (openDevice) {
         auto err = devices.initialise(64, 34, xml.get(), true);

@@ -18,6 +18,8 @@ class ImportSheet;
 class AutoMixSheet;
 class StudioView;
 class SpatialPanel;
+class KeyboardPanel;
+class ModularPanel;
 class AppMenu;
 class LearnOverlay;
 
@@ -53,6 +55,8 @@ public:
     std::vector<juce::Component*> pagePills;
     void openLook(bool show);
     void openSpatial(bool show);
+    void openKeyboard(bool show);
+    void openModular(bool show);
     // 1.3: iPad portrait - the same station, rearranged for a tall screen (logical size W x H)
     bool portrait = false; int W = 1440, H = 880, stripRows = 1;
     void setLayout(bool tall, int w, int h);
@@ -73,6 +77,8 @@ private:
     std::unique_ptr<SynthPanel> synthWin;
     std::unique_ptr<LookPanel> look;
     std::unique_ptr<SpatialPanel> spatial;
+    std::unique_ptr<KeyboardPanel> keyboardWin;
+    std::unique_ptr<ModularPanel> modularWin;
 public:
     std::unique_ptr<ExportSheet> exportSheet;
     std::unique_ptr<HelpSheet> helpSheet;

@@ -332,6 +332,10 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     auto& h = cv.host; auto& m = cv.model();
     setWantsKeyboardFocus(true);
     auto* close = add<Pill>(-1, { 1360 - 104, 14, 88, 26 }, U8("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
+    auto* kbB = add<Pill>(-1, { 1360 - 330, 14, 106, 26 }, U8("KEYBOARD ▸"), [] { return Theme::btn(); }, 8.0f, 7.0f);
+    kbB->onClick = [this] { cv.openKeyboard(true); };
+    auto* mdB = add<Pill>(-1, { 1360 - 216, 14, 104, 26 }, U8("MODULAR ▸"), [] { return Theme::btn(); }, 8.0f, 7.0f);
+    mdB->onClick = [this] { cv.openModular(true); };
     close->onClick = [this] { cv.host.synth.allOff(); setVisible(false); };
     const char* INTO[4] = { "OFF", "LIVE 2", "LIVE 3", "LIVE 4" };
     for (int i = 0; i < 4; ++i) {
@@ -464,6 +468,7 @@ void SynthPanel::visibilityChanged() {
         kb->setColour(juce::MidiKeyboardComponent::shadowColourId, juce::Colours::transparentBlack);
         kb->setColour(juce::MidiKeyboardComponent::upDownButtonBackgroundColourId, bg);
         juce::Timer::callAfterDelay(50, [sp = juce::Component::SafePointer<SynthPanel>(this)] { if (sp) sp->grabKeyboardFocus(); });
+        cv.host.rack.setKind(InstrumentRack::KSynth);     // the SYNTH window: the keys play the SYNTH
     } else { cv.host.synth.allOff(); cv.host.synth.padOff(); }
 }
 
@@ -519,7 +524,7 @@ void SynthPanel::paint(juce::Graphics& g) {
             if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y); }
         g.setColour(c); g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); };
     L("SYNTH 2", 24, 10, 200, 17.0f, Theme::txt(), 2);
-    L(U8("four oscillators, a mod matrix, an arpeggiator - drag a ⟿ dot onto any knob to move it · it plays through the LIVE strip below, so every track can record it"), 150, 16, 1080, 8.5f, Theme::sub());
+    L(U8("four oscillators, a mod matrix, an arpeggiator - drag a ⟿ dot onto any knob to move it · it plays through a LIVE strip, so every track can record it"), 150, 16, 860, 8.5f, Theme::sub());
     L("PLAYS INTO", 24, 55, 90, 8.5f, Theme::txt(), 2);
     L("RECORD ON TRACK", 380, 55, 140, 8.5f, Theme::txt(), 2);
     L("SOUND", 812, 55, 50, 8.5f, Theme::txt(), 2);

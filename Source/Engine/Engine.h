@@ -98,6 +98,9 @@ struct Ring { static constexpr int N = 2048; std::array<float, N> d {}; std::ato
         for (int i = 0; i < n; ++i) { if (++dec >= 4) { dec = 0; d[(size_t) ww] = x[i]; ww = (ww + 1) % N; } }
         w.store(ww, std::memory_order_release); } };
 
+// 1.3: an instrument outside the engine (MODULAR, a sampled instrument, a plug-in): it plays with the SYNTH (adds into it)
+struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) = 0; };
+
 class Engine {
 public:
     Engine();
@@ -115,6 +118,7 @@ public:
     std::atomic<int> inputChannel[4] { {0}, {1}, {2}, {3} };     // device input for live 1-4
     const float* phoneData[4] = { nullptr, nullptr, nullptr, nullptr };   // LIVE 1-4 from a phone (set by the host right before process)
     std::atomic<int> phonesFirst { 2 };                            // device output of headphones L (R = +1); -1 = none
+    std::atomic<ExtInstrument*> ext { nullptr };                    // 1.3: the KEYBOARD's instrument (plays with the SYNTH)
     std::atomic<int> synthInto { 0 };                              // 0 off, 1 = LIVE 2, 2 = LIVE 3, 3 = LIVE 4
     std::atomic<float> grid[14][NSPK];                             // direct outs: source x speaker
     // ---- what the interface reads

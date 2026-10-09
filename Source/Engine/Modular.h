@@ -83,7 +83,9 @@ public:
         const juce::ScopedLock sl(lock);
         patch.cables.erase(std::remove_if(patch.cables.begin(), patch.cables.end(), [&](const ModCable& c) { return c.toMod == toMod && c.toPort == toPort; }), patch.cables.end()); rebuild();
     }
-    void setParam(int id, int k, float v) { const juce::ScopedLock sl(lock); for (auto& m : patch.mods) if (m.id == id) m.p[(size_t) k] = v; for (auto& r : rt) if (r.id == id) r.p[(size_t) k] = v; }
+    void setParam(int id, int k, float v) {   // (no lock: a knob turning never interrupts the sound)
+        for (auto& m : patch.mods) if (m.id == id) m.p[(size_t) k] = v;
+        for (auto& r : rt) if (r.id == id) r.p[(size_t) k] = v; }
     // ---- notes (any thread) - mono, the last note wins
     void noteOn(int note, float vel) { const juce::SpinLock::ScopedLockType sl(noteLock); held.removeAllInstancesOf(note); held.add(note); curNote = note; curVel = vel; gateOn = true; ++trigCount; }
     void noteOff(int note) { const juce::SpinLock::ScopedLockType sl(noteLock); held.removeAllInstancesOf(note); if (held.isEmpty()) gateOn = false; else curNote = held.getLast(); }

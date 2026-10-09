@@ -9,6 +9,7 @@
 #include "SynthPlayer.h"
 #include "Analysis.h"
 #include "Studio.h"
+#include "Instruments.h"
 
 namespace arco {
 
@@ -61,8 +62,14 @@ public:
     SynthPlayer synth { engine };
     void recordSynthOn(int track);            // REC on that track, listening to the synth
     std::atomic<bool> studioKeys { false };    // STUDIO is open with an instrument lane: the keys play it (and record into it)
-    void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override { if (studioKeys.load()) studio.midiNote(note, vel, true); else synth.noteOn(note, vel); }
-    void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override { if (studioKeys.load()) studio.midiNote(note, 0, false); else synth.noteOff(note); }
+    InstrumentRack rack;                       // 1.3: the KEYBOARD's instrument (MODULAR, a sampled instrument, a plug-in) - or the SYNTH
+    void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override {
+        if (studioKeys.load()) studio.midiNote(note, vel, true);
+        else if (rack.takesNotes()) { if (synthInto == 0) setSynthInto(1); rack.noteOn(note, vel); }
+        else synth.noteOn(note, vel); }
+    void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override {
+        if (studioKeys.load()) studio.midiNote(note, 0, false); else { rack.noteOff(note); synth.noteOff(note); } }
+    void setSustain(bool down) { synth.setSustain(down); rack.sustain(down); }
 
     // pedals / keys: REC, PLAY/STOP, UNDO, NEXT SCENE
     enum Action { ActRec = 0, ActPlay, ActUndo, ActScene, NumActions };
