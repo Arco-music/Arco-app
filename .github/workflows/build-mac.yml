@@ -1,3 +1,4 @@
+# ARCO: builds the Mac app and the iPad / iPhone app (releases from main)
 name: Build ARCO
 # Builds only for a release (a push to main) or by hand - Mac / iPad minutes are precious on a private project.
 on:
