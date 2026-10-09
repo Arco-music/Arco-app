@@ -5,6 +5,7 @@
 #include "LearnOverlay.h"
 #include "SpatialPanel.h"
 #include "InstrumentPanels.h"
+#include "StudioView.h"
 #include "../App/FxPresets.h"
 
 namespace arco {
