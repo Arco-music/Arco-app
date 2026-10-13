@@ -122,7 +122,8 @@ struct Theme {
         static const std::map<std::string, int> F = {
             { "eq", 2 }, { "drv", 0 }, { "trm", 7 }, { "phs", 4 }, { "swl", 7 }, { "tun", 4 }, { "cho", 5 }, { "dly", 3 }, { "rev", 3 },
             { "fxb", 0 }, { "shd", 4 }, { "halo", 4 }, { "res", 2 }, { "grn", 7 }, { "frz", 5 }, { "spc", 5 }, { "orb", 1 }, { "drm", 6 },
-            { "flg", 3 }, { "png", 3 }, { "wah", 2 }, { "oct", 4 }, { "tap", 0 }, { "flt", 1 }, { "rng", 0 }, { "stu", 2 }, { "vib", 1 }, { "crs", 0 } };
+            { "flg", 3 }, { "png", 3 }, { "wah", 2 }, { "oct", 4 }, { "tap", 0 }, { "flt", 1 }, { "rng", 0 }, { "stu", 2 }, { "vib", 1 }, { "crs", 0 },
+            { "pdl", 2 }, { "fbk", 0 }, { "voc", 4 }, { "pit", 4 }, { "spr", 5 }, { "tlk", 2 } };
         auto it = F.find(k); return it == F.end() ? 6 : it->second;
     }
     static juce::Colour fxRaw(const std::string& k) { return pal().acc[(size_t) family(k)]; }
@@ -137,7 +138,8 @@ struct Theme {
             { "flg", rgb(0.40f, 0.75f, 0.95f) }, { "png", rgb(0.38f, 0.56f, 0.98f) }, { "wah", rgb(1.00f, 0.62f, 0.30f) },
             { "oct", rgb(0.66f, 0.52f, 0.98f) }, { "tap", rgb(0.92f, 0.62f, 0.45f) }, { "flt", rgb(0.36f, 0.82f, 0.62f) },
             { "rng", rgb(0.98f, 0.45f, 0.60f) }, { "stu", rgb(0.98f, 0.82f, 0.40f) }, { "vib", rgb(0.55f, 0.85f, 0.45f) },
-            { "crs", rgb(1.00f, 0.42f, 0.38f) }, { "pdl", rgb(0.95f, 0.84f, 0.52f) }, { "fbk", rgb(1.00f, 0.46f, 0.30f) } };
+            { "crs", rgb(1.00f, 0.42f, 0.38f) }, { "pdl", rgb(0.95f, 0.84f, 0.52f) }, { "fbk", rgb(1.00f, 0.46f, 0.30f) },
+            { "voc", rgb(0.62f, 0.66f, 1.00f) }, { "pit", rgb(0.80f, 0.55f, 1.00f) }, { "spr", rgb(0.50f, 0.85f, 0.85f) }, { "tlk", rgb(1.00f, 0.66f, 0.52f) } };
         auto it = F.find(k); return soft(it == F.end() ? rgb(0.88f, 0.89f, 0.92f) : it->second);
     }
     static juce::Colour fx(const std::string& k) { return pal().style == 1 ? fxClassic(k) : fxRaw(k); }

@@ -115,8 +115,8 @@ void Engine::prepare(double sampleRate) {
         auto* xm = new XMod(); mods.emplace_back(xm); busToMod["st_xfx"] = (int) mods.size() - 1; xm->fx.init(sr);
         std::array<const float*, 12> chp; for (int i = 0; i < 12; ++i) chp[(size_t) i] = B("ch" + std::to_string(i));
         std::array<float*, ExtraFx::NFX> rp; for (int e = 0; e < ExtraFx::NFX; ++e) rp[(size_t) e] = B("xr_" + std::string(extraFxDefs()[(size_t) e].key));
-        float* dl = B("dryL"); float* dr = B("dryR"); float* sp = B("to_spc"); float* bpm = B("ebpm"); float* pit = B("pitch");
-        graph.push_back([xm, chp, rp, dl, dr, sp, bpm, pit]() mutable { xm->fx.process(chp.data(), dl, dr, sp, SUB, bpm, pit, rp.data()); });
+        float* dl = B("dryL"); float* dr = B("dryR"); float* sp = B("to_spc"); float* bpm = B("ebpm"); float* pit = B("pitch"); float* syn = B("syn_mono");
+        graph.push_back([xm, chp, rp, dl, dr, sp, bpm, pit, syn]() mutable { xm->fx.process(chp.data(), dl, dr, sp, SUB, bpm, pit, rp.data(), syn); });
     }
     addNode<Master>(this, mods, busToMod, graph, b, "st_master",
                     { "dryL", "dryR", "choL", "choR", "dlyL", "dlyR", "haloL", "haloR", "frzL", "frzR", "to_spc", "-",

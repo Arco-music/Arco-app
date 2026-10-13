@@ -37,7 +37,7 @@ struct XOnePole { float z = 0; float lp(float x, float a) { z += a * (x - z); re
 
 class ExtraFx {
 public:
-    static constexpr int NFX = 12;
+    static constexpr int NFX = 16;
     explicit ExtraFx() {
         int i = 0;
         for (auto& d : extraParams()) { idx[d.id] = i++; vals.push_back(d.def); }
@@ -54,14 +54,14 @@ public:
         for (auto& t : tp) t.init((int) (0.05 * sr));
         for (auto& r : rt) r.init((int) (0.01 * sr));
         stuBuf.assign((size_t) (4.5 * sr), 0.0f); stuW = 0;
-        initPedal(); initFeedback();
+        initPedal(); initFeedback(); initNew();
         for (auto& s : sv) s.reset();
         std::fill(std::begin(tail), std::end(tail), 0);
         std::fill(std::begin(g), std::end(g), 0.0f);
     }
 
     // ch: the 12 strip signals; outL/outR: added to; spc: SPACE send, added to; bpm: the tempo; pitch: LIVE 1 note (MIDI) or <= 0
-    void process(const float* const* ch, float* outL, float* outR, float* spc, int n, const float* bpm, const float* pitch, float* ringL[NFX]) {
+    void process(const float* const* ch, float* outL, float* outR, float* spc, int n, const float* bpm, const float* pitch, float* ringL[NFX], const float* synth = nullptr) {
         for (int e = 0; e < NFX; ++e) {
             // gather the sends (smoothed, squared response like the other sends)
             bool any = false; float tgt[12];
@@ -87,6 +87,10 @@ public:
                 case 9: crush(n, L, R); break;
                 case 10: pedal(n, L, R, bpm); break;
                 case 11: feedback(n, L, R); break;
+                case 12: vocoder(n, L, R, pitch, synth); break;
+                case 13: pitchShift(n, L, R); break;
+                case 14: spring(n, L, R); break;
+                case 15: talk(n, L, R, bpm); break;
             }
             float ret = p(e, "ret") / 100.0f; ret = ret * ret * 1.4f;
             float sp = has(e, "spc") ? p(e, "spc") / 100.0f : 0.0f;
@@ -108,7 +112,7 @@ private:
     float g[NFX * 12] {};
     int tail[NFX] {};
     float in[SUBMAX] {};
-    static constexpr const char* keys[NFX] = { "flg", "png", "wah", "oct", "tap", "flt", "rng", "stu", "vib", "crs", "pdl", "fbk" };
+    static constexpr const char* keys[NFX] = { "flg", "png", "wah", "oct", "tap", "flt", "rng", "stu", "vib", "crs", "pdl", "fbk", "voc", "pit", "spr", "tlk" };
     int sendIdx[NFX][12] {};
     float p(int e, const char* k) const {
         auto it = idx.find(std::string(keys[e]) + "_" + k);
@@ -481,6 +485,109 @@ private:
             y *= lim;
             if (!std::isfinite(y)) { initFeedback(); y = 0; }
             L[i] = y * 1.4f; R[i] = y * 1.4f;
+        }
+    }
+    // ================================================================ 1.4
+    void initNew() {
+        for (auto& b : vcM) b.reset(); for (auto& b : vcC) b.reset();
+        std::fill(std::begin(vcEnv), std::end(vcEnv), 0.0f);
+        for (int k = 0; k < NVB; ++k) { double f = 90.0 * std::pow(8500.0 / 90.0, k / (double) (NVB - 1)); vcG[k] = (float) std::tan(3.14159265 * f / sr); }
+        std::fill(std::begin(vcPh), std::end(vcPh), 0.0);
+        psLine.init((int) (0.2 * sr)); psPh = 0;
+        for (auto& a : spAp) a.init((int) (0.004 * sr) + 8);
+        spLine.init((int) (0.12 * sr)); spLp.z = 0; spHp.z = 0; spState = 0;
+        for (auto& f : tkF) f.reset(); tkEnv = 0; tkPos = 0;
+    }
+    // ---- VOCODER: your sound shapes another one - the SYNTH, a chord that follows the note you play, or a robot voice
+    static constexpr int NVB = 20;
+    XSvf vcM[NVB], vcC[NVB]; float vcG[NVB] {}, vcEnv[NVB] {}; double vcPh[3] {}; juce::Random vcRnd;
+    void vocoder(int n, float* L, float* R, const float* pitch, const float* synth) {
+        float src = p(12, "src") / 100.0f, react = p(12, "react") / 100.0f, bright = p(12, "bright") / 100.0f, note = p(12, "note") / 100.0f;
+        int mode = src < 0.34f ? 0 : (src < 0.67f ? 1 : 2);              // SYNTH, CHORD (follows you), ROBOT (a fixed note)
+        float att = 0.02f + react * 0.2f, rel = 0.0015f + react * 0.02f;
+        const float q = 0.12f;                                            // narrow bands
+        for (int i = 0; i < n; ++i) {
+            float carrier = 0;
+            if (mode == 0) carrier = synth ? synth[i] * 2.5f : 0.0f;
+            else {
+                double base = mode == 1 ? (pitch && pitch[i] > 20 ? pitch[i] : 48.0) : 36.0 + note * 36.0;
+                const double iv[3] = { 0, mode == 1 ? 4.0 : 0.0, mode == 1 ? 7.0 : 12.0 };
+                for (int v = 0; v < (mode == 1 ? 3 : 2); ++v) {
+                    double hz = 440.0 * std::pow(2.0, (base + iv[v] - 69) / 12.0);
+                    vcPh[v] += hz / sr; if (vcPh[v] >= 1) vcPh[v] -= 1;
+                    carrier += (float) (2 * vcPh[v] - 1) * 0.5f;
+                }
+            }
+            carrier += (vcRnd.nextFloat() * 2 - 1) * bright * 0.3f;      // breath / consonants
+            float x = in[i], y = 0;
+            for (int k = 0; k < NVB; ++k) {
+                float lp, bp, hp;
+                vcM[k].tick(x, vcG[k], q, lp, bp, hp);
+                float a = std::abs(bp); float& e = vcEnv[k]; e += (a > e ? att : rel) * (a - e);
+                vcC[k].tick(carrier, vcG[k], q, lp, bp, hp);
+                y += bp * e * (1.0f + bright * k / (float) NVB);
+            }
+            y = std::tanh(y * 6.0f) * 0.42f;
+            L[i] = y; R[i] = y;
+        }
+    }
+    // ---- PITCH: the sound moved up or down (up to an octave, by semitones), fine-tuned, a short delay for a "double"
+    XDelay psLine; double psPh = 0; XOnePole psLp;
+    void pitchShift(int n, float* L, float* R) {
+        float semis = std::round(p(13, "semi") / 100.0f * 24.0f - 12.0f), fine = (p(13, "fine") / 100.0f - 0.5f), smooth = p(13, "smooth") / 100.0f;
+        double ratio = std::pow(2.0, (semis + fine) / 12.0), win = (0.02 + smooth * 0.08) * sr;
+        for (int i = 0; i < n; ++i) {
+            psLine.push(in[i]);
+            psPh += (1.0 - ratio) / win; psPh -= std::floor(psPh);
+            double p2 = psPh + 0.5; p2 -= std::floor(p2);
+            float a = psLine.read(1 + psPh * win), b = psLine.read(1 + p2 * win);
+            float wa = (float) std::sin(3.14159265 * psPh), wb = (float) std::sin(3.14159265 * p2);
+            float y = a * wa * wa + b * wb * wb;
+            L[i] = y; R[i] = y;
+        }
+    }
+    // ---- SPRING: a guitar amp's spring reverb - the "drip", the boing, the twang
+    XDelay spAp[8]; XDelay spLine; XOnePole spLp, spHp; float spState = 0;
+    void spring(int n, float* L, float* R) {
+        float decay = p(14, "decay") / 100.0f, tone = p(14, "tone") / 100.0f, drip = p(14, "drip") / 100.0f, tension = p(14, "tension") / 100.0f;
+        float fb = 0.55f + decay * 0.4f, apg = 0.45f + drip * 0.35f;
+        double dl = (0.022 + (1.0 - tension) * 0.06) * sr;
+        float lpA = 0.08f + tone * 0.6f;
+        for (int i = 0; i < n; ++i) {
+            float x = spLp.lp(in[i] + spState * fb, lpA);
+            for (int k = 0; k < 8; ++k) {                                   // the springs' dispersion: allpasses (chirps)
+                float dly = spAp[k].read(18 + k * 3 + (int) (drip * 20));
+                float v = x + apg * dly; spAp[k].push(v); x = dly - apg * v;
+            }
+            spLine.push(x);
+            float y = spLine.read(dl);
+            float wobble = spLine.read(dl * 0.71);
+            spState = std::tanh(y);
+            float hp = y - spHp.lp(y, 0.01f);
+            L[i] = hp * 1.5f; R[i] = (0.6f * hp + 0.4f * (wobble - spHp.z)) * 1.5f;
+        }
+    }
+    // ---- TALK: the sound speaks vowels (A E I O U) - by hand, moving in tempo, or opening with how hard you play
+    XSvf tkF[3]; float tkEnv = 0; double tkPos = 0;
+    void talk(int n, float* L, float* R, const float* bpm) {
+        static const float FM[5][3] = { { 800, 1150, 2900 }, { 400, 1700, 2600 }, { 300, 2200, 3000 }, { 450, 800, 2830 }, { 325, 700, 2530 } };   // A E I O U
+        float vowel = p(15, "vowel") / 100.0f, move = p(15, "move") / 100.0f, follow = p(15, "follow") / 100.0f, reso = p(15, "reso") / 100.0f;
+        float k = 0.5f - reso * 0.42f;
+        for (int i = 0; i < n; ++i) {
+            float a = std::abs(in[i]); tkEnv += (a > tkEnv ? 0.01f : 0.0005f) * (a - tkEnv);
+            if (move > 0.02f) { static const double B[5] = { 4.0, 2.0, 1.0, 0.5, 0.25 }; double beats = B[std::clamp((int) (move * 4.99f), 0, 4)];
+                tkPos += tempo(bpm, i) / 60.0 / beats / sr; tkPos -= std::floor(tkPos); }
+            float pos = vowel + (move > 0.02f ? (float) (0.5 - 0.5 * std::cos(6.2831853 * tkPos)) : 0.0f) + follow * std::min(1.0f, tkEnv * 6.0f);
+            pos = std::fmod(pos, 1.0f) * 4.0f; int v0 = std::clamp((int) pos, 0, 3); float fr = pos - v0;
+            float y = 0;
+            for (int f = 0; f < 3; ++f) {
+                float hz = FM[v0][f] + (FM[v0 + 1][f] - FM[v0][f]) * fr;
+                float g = std::tan(3.14159265f * std::min(hz, (float) sr * 0.45f) / (float) sr);
+                float lp, bp, hp; tkF[f].tick(in[i], g, k, lp, bp, hp);
+                y += bp * (f == 0 ? 1.0f : (f == 1 ? 0.7f : 0.4f));
+            }
+            y *= 1.0f;
+            L[i] = y; R[i] = y;
         }
     }
 };
