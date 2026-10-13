@@ -615,6 +615,8 @@ void Canvas::openKeyboard(bool show) { keyboardWin->setVisible(show); if (show) 
 void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) modularWin->toFront(true); }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
 void Canvas::synthKeys(int m, bool edit) { synthWin->setKeysMode(m, edit); }
+void Canvas::synthPreset(int i) { synthWin->loadPreset(i); }
+int Canvas::synthPresetIndex() const { return synthWin->presetIndex; }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
 void Canvas::doSave(bool askName) {

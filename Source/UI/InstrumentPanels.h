@@ -7,6 +7,7 @@
 namespace arco {
 class Canvas;
 
+class KeyPad;
 class KeyboardPanel : public juce::Component, private juce::Timer {
 public:
     explicit KeyboardPanel(Canvas& c);
@@ -27,9 +28,14 @@ private:
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY())); return c; }
     std::vector<Row> sampleRows() const;
     std::vector<Row> pluginRows() const;
-    juce::Rectangle<int> sampleArea { 24, 214, 650, 352 }, pluginArea { 694, 214, 642, 352 };
     int pluginScroll = 0, sampleScroll = 0;
     int octave = 3;
+    int page = 0, playMode = 0, modPatch = 0;
+    std::vector<juce::Component*> pages[4];
+    void showPage(int p);
+    void setPlayMode(int m);
+    std::unique_ptr<KeyPad> surface;
+    std::unique_ptr<juce::Component> held;
     juce::String scanText;
     void addSfz();
     std::unique_ptr<juce::FileChooser> chooser;
@@ -53,6 +59,12 @@ private:
     juce::Viewport view;
     std::unique_ptr<Rack> rack;
     int patchIndex = 0;
+    std::unique_ptr<juce::MidiKeyboardComponent> kb;     // 1.4: play it right here
+    std::unique_ptr<KeyPad> surface;
+    std::unique_ptr<juce::Component> held;
+    int playMode = 0, octave = 3;
+public:
+    bool dimCables = false;
 };
 
 } // namespace arco

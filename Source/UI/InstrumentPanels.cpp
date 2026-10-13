@@ -2,6 +2,8 @@
 #include "MainView.h"
 #include "../App/AudioHost.h"
 #include "../Engine/Modular.h"
+#include "PlaySurfaces.h"
+#include "SynthPanel.h"
 
 namespace arco {
 
@@ -12,56 +14,75 @@ static void lab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r
 static juce::String mb(int m) { return m >= 1000 ? juce::String(m / 1000.0, 1) + " GB" : juce::String(m) + " MB"; }
 
 // ================================================================== KEYBOARD
+// 1.4, cleaner: the instrument at the top (one page each), the way to play below. Nothing else on screen.
 KeyboardPanel::KeyboardPanel(Canvas& c) : cv(c) {
     auto& h = cv.host; auto& r = h.rack;
     setWantsKeyboardFocus(true);
-    auto pill = [&](juce::Rectangle<int> b, const juce::String& t, ColourFn col, std::function<void()> f, float fs = 8.0f) { auto* p = add<Pill>(b, t, std::move(col), fs, 6.0f); p->onClick = std::move(f); return p; };
-    pill({ 1360 - 104, 14, 88, 26 }, U8("✕ CLOSE"), [] { return Theme::btn(); }, [this] { cv.host.keys.allNotesOff(0); cv.host.rack.allOff(); setVisible(false); });
+    auto pill = [&](juce::Rectangle<int> b, const juce::String& t, ColourFn col, std::function<void()> f, float fs = 8.0f) { auto* p = add<Pill>(b, t, std::move(col), fs, 7.0f); p->onClick = std::move(f); return p; };
+    pill({ 1360 - 104, 14, 88, 30 }, U8("✕ CLOSE"), [] { return Theme::btn(); }, [this] { cv.host.keys.allNotesOff(0); cv.host.rack.allOff(); setVisible(false); });
+    // the instrument: four tabs
+    const char* KN[4] = { "SYNTH 2", "MODULAR", "SAMPLED", "PLUG-IN" };
+    for (int k = 0; k < 4; ++k) {
+        auto* p = pill({ 210 + k * 156, 12, 150, 34 }, KN[k], [this, k] { return page == k ? Theme::sel() : Theme::btn(); }, [this, k] { showPage(k); }, 10.0f);
+        p->dynText = [&r, k, KN] { return (r.kind.load() == k ? U8("● ") : juce::String()) + KN[k]; };
+    }
+    // where it plays
     const char* INTO[4] = { "OFF", "LIVE 2", "LIVE 3", "LIVE 4" };
-    for (int i = 0; i < 4; ++i) pill({ 110 + i * 62, 52, 58, 24 }, INTO[i], [&h, i] { return h.synthInto == i ? Theme::violet() : Theme::btn(); }, [&h, i] { h.setSynthInto(i); });
+    for (int i = 0; i < 4; ++i) pill({ 110 + i * 64, 62, 60, 26 }, INTO[i], [&h, i] { return h.synthInto == i ? Theme::violet() : Theme::btn(); }, [&h, i] { h.setSynthInto(i); });
     for (int t = 0; t < 8; ++t)
-        pill({ 520 + t * 36, 52, 32, 24 }, juce::String(t + 1), [this, t] {
+        pill({ 520 + t * 38, 62, 34, 26 }, juce::String(t + 1), [this, t] {
             int st = ((int) cv.snap(t < 4 ? "statA" : "statB") >> (4 * (t % 4))) & 15;
             bool mine = (int) cv.model().get("src" + std::to_string(t + 1)) == cv.host.synthInto + 1 && cv.host.synthInto > 0;
             if (mine && (st == 2 || st == 5 || st == 7)) return Theme::red();
             if (mine && st == 6) return Theme::amber();
             return Theme::strip(t + 4).withMultipliedBrightness(0.75f); }, [&h, t] { h.recordSynthOn(t + 1); }, 9.0f);
-    // the four kinds of instrument
-    const char* KN[4] = { "SYNTH 2", "MODULAR", "SAMPLED", "PLUG-IN" };
-    for (int k = 0; k < 4; ++k) {
-        auto* p = pill({ 24 + k * 166, 96, 158, 64 }, KN[k], [&r, k] { return r.kind.load() == k ? Theme::violet() : Theme::card2(); }, [this, &r, k] {
-            if (k == InstrumentRack::KSampler && r.sampler.instrument() == nullptr) { cv.showMessage("choose a sampled instrument below (download one, or ADD SFZ FILE)"); return; }
-            if (k == InstrumentRack::KPlugin && r.plugin == nullptr) { cv.showMessage("choose a plug-in on the right (FIND PLUG-INS looks for them)"); return; }
-            r.setKind(k); repaint(); }, 11.0f);
-        p->dynText = [&r, k, KN] {
-            juce::String what = k == 0 ? juce::String("ARCO's synthesizer") : k == 1 ? juce::String("patch it yourself")
-                              : k == 2 ? (r.samplerName.isNotEmpty() ? r.samplerName : juce::String("pianos, Rhodes, bass, drums"))
-                                       : (r.pluginName.isNotEmpty() ? r.pluginName : juce::String("AU / VST3 instruments"));
-            return (r.kind.load() == k ? U8("● ") : juce::String()) + KN[k] + "\n" + what; };
-    }
-    pill({ 694, 96, 150, 30 }, U8("OPEN SYNTH ▸"), [] { return Theme::btn(); }, [this] { cv.openSynth(true); });
-    pill({ 694, 130, 150, 30 }, U8("OPEN MODULAR ▸"), [] { return Theme::btn(); }, [this] { cv.openModular(true); });
-    pill({ 854, 96, 160, 30 }, "SHOW PLUG-IN WINDOW", [&r] { return r.plugin != nullptr ? Theme::blue() : Theme::btn(); }, [this, &r] {
-        if (r.plugin == nullptr) cv.showMessage("no plug-in chosen yet"); else r.showPluginWindow(); });
-    pill({ 854, 130, 160, 30 }, "ALL NOTES OFF", [] { return Theme::btn(); }, [this, &h] { h.keys.allNotesOff(0); h.rack.allOff(); h.synth.allOff(); });
-    // the lists
-    pill({ 520, 184, 154, 24 }, U8("ADD SFZ FILE …"), [] { return Theme::btn(); }, [this] { addSfz(); });
-    pill({ 1172, 184, 164, 24 }, U8("FIND PLUG-INS"), [] { return Theme::blue(); }, [this, &r] {
-        scanText = U8("looking for instrument plug-ins …"); repaint();
-        juce::MessageManager::callAsync([this, &r] {
-            r.scanPlugins([this](const juce::String& s) { scanText = s; });
-            scanText = juce::String(r.instrumentPlugins().size()) + " instrument plug-ins found";
-            cv.host.saveSetup(); repaint(); }); });
-    // the keyboard
-    pill({ 24, 588, 30, 26 }, U8("−"), [] { return Theme::btn(); }, [this] { octave = juce::jmax(0, octave - 1); kb->setAvailableRange(octave * 12 + 12, 127); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
-    pill({ 58, 588, 30, 26 }, "+", [] { return Theme::btn(); }, [this] { octave = juce::jmin(5, octave + 1); kb->setAvailableRange(octave * 12 + 12, 127); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
-    auto* sus = pill({ 100, 588, 110, 26 }, "SUSTAIN", [this] { return cv.model().get("pdl_down") > 0.5 ? Theme::green() : Theme::btn(); }, [this, &h] {
+    // ---- page SYNTH 2
+    auto* sname = pill({ 24, 150, 520, 44 }, "", [] { return Theme::card2(); }, [this] {
+        juce::PopupMenu pm; auto n = SynthPanel::presetNames();
+        for (int i = 0; i < n.size(); ++i) pm.addItem(i + 1, n[i], true, i == cv.synthPresetIndex());
+        pm.showMenuAsync(juce::PopupMenu::Options(), [this](int x) { if (x > 0) { cv.synthPreset(x - 1); cv.host.rack.setKind(InstrumentRack::KSynth); } }); }, 12.0f);
+    sname->dynText = [this] { return U8("SOUND:  ") + SynthPanel::presetNames()[cv.synthPresetIndex()] + U8("   ▾"); };
+    sname->textColour = [] { return Theme::txt(); };
+    pages[0] = { sname,
+        pill({ 552, 150, 44, 44 }, U8("◀"), [] { return Theme::btn(); }, [this] { int n = SynthPanel::presetNames().size(); cv.synthPreset((cv.synthPresetIndex() + n - 1) % n); }, 11.0f),
+        pill({ 600, 150, 44, 44 }, U8("▶"), [] { return Theme::btn(); }, [this] { int n = SynthPanel::presetNames().size(); cv.synthPreset((cv.synthPresetIndex() + 1) % n); }, 11.0f),
+        pill({ 660, 150, 200, 44 }, U8("OPEN THE SYNTH ▸"), [] { return Theme::violet(); }, [this] { cv.openSynth(true); }, 10.0f) };
+    // ---- page MODULAR
+    auto* mp = pill({ 24, 150, 520, 44 }, "", [] { return Theme::card2(); }, [this, &r] {
+        juce::PopupMenu pm; auto names = Modular::patchNames();
+        for (int i = 0; i < names.size(); ++i) pm.addItem(i + 1, names[i]);
+        pm.showMenuAsync(juce::PopupMenu::Options(), [this, &r](int x) { if (x <= 0) return; modPatch = x - 1; r.modular.setPatch(Modular::defaultPatch(modPatch)); r.setKind(InstrumentRack::KModular); }); }, 12.0f);
+    mp->dynText = [this] { return U8("START FROM:  ") + Modular::patchNames()[modPatch] + U8("   ▾"); };
+    mp->textColour = [] { return Theme::txt(); };
+    pages[1] = { mp, pill({ 660, 150, 200, 44 }, U8("OPEN MODULAR ▸"), [] { return Theme::violet(); }, [this] { cv.openModular(true); }, 10.0f) };
+    // ---- page SAMPLED
+    pages[2] = { pill({ 1336 - 170, 112, 170, 28 }, U8("ADD SFZ FILE …"), [] { return Theme::btn(); }, [this] { addSfz(); }) };
+    // ---- page PLUG-IN
+    pages[3] = { pill({ 1336 - 170, 112, 170, 28 }, U8("FIND PLUG-INS"), [] { return Theme::blue(); }, [this, &r] {
+                     scanText = U8("looking for instrument plug-ins …"); repaint();
+                     juce::MessageManager::callAsync([this, &r] { r.scanPlugins([this](const juce::String& s) { scanText = s; });
+                         scanText = juce::String(r.instrumentPlugins().size()) + " instrument plug-ins found"; cv.host.saveSetup(); repaint(); }); }),
+                 pill({ 1336 - 350, 112, 172, 28 }, "SHOW ITS WINDOW", [&r] { return r.plugin != nullptr ? Theme::violet() : Theme::btn(); },
+                      [this, &r] { if (r.plugin == nullptr) cv.showMessage("no plug-in chosen yet"); else r.showPluginWindow(); }) };
+    // ---- playing
+    const char* MD[3] = { "KEYS", "CHORDS", "HARMONY" };
+    for (int i = 0; i < 3; ++i) pill({ 24 + i * 100, 540, 94, 28 }, MD[i], [this, i] { return playMode == i ? Theme::violet() : Theme::btn(); }, [this, i] { setPlayMode(i); });
+    auto* edit = pill({ 330, 540, 130, 28 }, "SET THE CHORDS", [this] { return surface && surface->editing ? Theme::amber() : Theme::btn(); }, [this] {
+        if (playMode != 1) setPlayMode(1); surface->editing = !surface->editing; if (!surface->editing) cv.host.saveSetup(); surface->repaint(); });
+    edit->dynText = [this] { return surface && surface->editing ? juce::String::fromUTF8("✓ DONE") : juce::String("SET THE CHORDS"); };
+    auto* hold = pill({ 470, 540, 130, 28 }, "HOLD", [&h] { return h.latch ? Theme::green() : Theme::btn(); }, [this, &h] { h.setLatch(!h.latch); repaint(); });
+    hold->dynText = [&h] { return h.latch ? juce::String::fromUTF8("● HOLD") : juce::String("HOLD"); };
+    hold->setTooltip("HOLD: a touch turns a note on, the next touch turns it off (easy chords; every note joins the arpeggiator)");
+    pill({ 610, 540, 110, 28 }, "SUSTAIN", [this] { return cv.model().get("pdl_down") > 0.5 ? Theme::green() : Theme::btn(); }, [this, &h] {
         bool on = cv.model().get("pdl_down") < 0.5; cv.model().set("pdl_down", on ? 1 : 0); h.setSustain(on); });
-    sus->setTooltip("the sustain pedal (a MIDI pedal works too)");
+    pill({ 1336 - 300, 540, 34, 28 }, U8("−"), [] { return Theme::btn(); }, [this] { octave = juce::jmax(0, octave - 1); kb->setAvailableRange(octave * 12 + 12, 127); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
+    pill({ 1336 - 186, 540, 34, 28 }, "+", [] { return Theme::btn(); }, [this] { octave = juce::jmin(5, octave + 1); kb->setAvailableRange(octave * 12 + 12, 127); kb->setKeyPressBaseOctave(octave + 2); }, 12.0f);
+    pill({ 1336 - 140, 540, 140, 28 }, "ALL NOTES OFF", [] { return Theme::btn(); }, [this, &h] { h.keys.allNotesOff(0); h.releaseLatched(); h.rack.allOff(); h.synth.allOff(); });
+    auto playArea = juce::Rectangle<int>(box.getX() + 24, box.getY() + 578, 1312, 232);
     kb = std::make_unique<juce::MidiKeyboardComponent>(h.keys, juce::MidiKeyboardComponent::horizontalKeyboard);
     kb->setAvailableRange(octave * 12 + 12, 127);   // (no scroll buttons: the range starts where the keys start)
-    kb->setBounds(box.getX() + 24, box.getY() + 624, 1312, 182);
-    kb->setKeyWidth(1312.0f / 36.0f);
+    kb->setBounds(playArea);
+    kb->setKeyWidth(1312.0f / 29.0f);
     kb->setVelocity(0.85f, true);
     kb->setScrollButtonsVisible(false);
     kb->setOctaveForMiddleC(4);
@@ -69,16 +90,38 @@ KeyboardPanel::KeyboardPanel(Canvas& c) : cv(c) {
     kb->setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::violet());
     kb->setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, Theme::violet().withAlpha(0.3f));
     addAndMakeVisible(kb.get());
+    surface = std::make_unique<KeyPad>(cv, [this] { return octave + 1; });
+    addChildComponent(*surface); surface->setBounds(playArea);
+    held = std::make_unique<HeldOverlay>(*kb, h); addAndMakeVisible(*held); held->setBounds(playArea);
+    showPage(r.kind.load());
     startTimerHz(15);
 }
 KeyboardPanel::~KeyboardPanel() = default;
 
+void KeyboardPanel::showPage(int p) {
+    page = juce::jlimit(0, 3, p);
+    for (int k = 0; k < 4; ++k) for (auto* c : pages[k]) c->setVisible(k == page);
+    auto& r = cv.host.rack;
+    if (page == 0) r.setKind(InstrumentRack::KSynth);
+    else if (page == 1) r.setKind(InstrumentRack::KModular);
+    else if (page == 2 && r.sampler.instrument() != nullptr && !r.samplerLoading.load()) r.setKind(InstrumentRack::KSampler);
+    else if (page == 3 && r.plugin != nullptr) r.setKind(InstrumentRack::KPlugin);
+    repaint();
+}
+void KeyboardPanel::setPlayMode(int m) {
+    playMode = juce::jlimit(0, 2, m);
+    kb->setVisible(playMode == 0); held->setVisible(playMode == 0);
+    surface->setVisible(playMode > 0); surface->mode = playMode == 1 ? 2 : 3; surface->editing = false;
+    surface->repaint(); repaint();
+}
+
 void KeyboardPanel::visibilityChanged() {
     if (!isVisible()) return;
+    showPage(cv.host.rack.kind.load());
     toFront(true); kb->grabKeyboardFocus();
 }
 bool KeyboardPanel::keyPressed(const juce::KeyPress& k) { if (k == juce::KeyPress::escapeKey) { setVisible(false); return true; } return false; }
-void KeyboardPanel::timerCallback() { if (isShowing()) repaint(); }
+void KeyboardPanel::timerCallback() { if (isShowing()) { repaint(); if (held->isVisible()) held->repaint(); } }
 
 std::vector<KeyboardPanel::Row> KeyboardPanel::sampleRows() const {
     auto& r = cv.host.rack;
@@ -164,53 +207,58 @@ void KeyboardPanel::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black.withAlpha(0.45f));
     g.setColour(Theme::card()); g.fillRoundedRectangle(box.toFloat(), 14.0f);
     g.saveState(); g.setOrigin(box.getPosition());
-    lab(g, "KEYBOARD", { 24, 10, 200, 28 }, 17.0f, Theme::txt(), 2);
-    lab(g, U8("play an instrument with these keys, the computer's keys or a MIDI keyboard · it plays into a LIVE strip, so it can be looped and recorded"), { 170, 16, 1060, 16 }, 8.5f, Theme::sub());
-    lab(g, "PLAYS INTO", { 24, 55, 90, 18 }, 8.5f, Theme::txt(), 2);
-    lab(g, "RECORD ON TRACK", { 380, 55, 140, 18 }, 8.5f, Theme::txt(), 2);
-    // the level of what plays
-    { float lv = juce::jlimit(0.0f, 1.0f, r.level.load()); juce::Rectangle<float> m(1030, 100, 300, 8); g.setColour(Theme::scr()); g.fillRoundedRectangle(m, 4.0f);
-      g.setColour(lv > 0.95f ? Theme::red() : Theme::green()); g.fillRoundedRectangle(m.withWidth(m.getWidth() * std::sqrt(lv)), 4.0f);
-      lab(g, cv.host.synthInto == 0 ? juce::String("PLAYS INTO is OFF: the first note sends it to LIVE 2") : "plays into LIVE " + juce::String(cv.host.synthInto + 1), { 1030, 112, 300, 16 }, 8.0f, Theme::sub());
-      auto midi = juce::MidiInput::getAvailableDevices(); juce::StringArray names; for (auto& d : midi) names.add(d.name);
-      lab(g, names.isEmpty() ? juce::String("MIDI: no keyboard connected (plug one in: it plays at once)") : "MIDI: " + names.joinIntoString(", "), { 1030, 132, 300, 28 }, 8.0f, Theme::sub()); }
-    lab(g, U8("SAMPLED INSTRUMENTS  ·  free, recorded from real instruments: downloaded once, then always here"), { 24, 186, 490, 20 }, 8.5f, Theme::txt(), 2);
-    lab(g, U8("PLUG-INS  ·  the instrument plug-ins on this device"), { 694, 186, 300, 20 }, 8.5f, Theme::txt(), 2);
-    auto sr = sampleRows(), pr = pluginRows();
-    paintRows(g, sr, sampleArea, sampleScroll, "");
-   #if JUCE_IOS
-    juce::String noPlug = "no instrument plug-ins yet - FIND PLUG-INS looks for the AUv3 instruments installed on this iPad";
-   #else
-    juce::String noPlug = "no instrument plug-ins yet - FIND PLUG-INS looks for the Audio Unit and VST3 instruments on this computer";
-   #endif
-    paintRows(g, pr, pluginArea, pluginScroll, noPlug);
-    juce::String status = r.samplerError.isNotEmpty() ? r.samplerError : r.downloadStatus;
-    if (auto s = r.sampler.instrument(); s != nullptr && r.samplerError.isEmpty() && r.downloadId.isEmpty())
-        status = r.samplerName + U8(" ready  ·  ") + juce::String((int) s->regions.size()) + " samples zones  ·  " + juce::String(s->memoryBytes() / 1000000) + " MB in memory";
-    lab(g, status, { 24, 568, 650, 16 }, 8.0f, Theme::sub());
-    lab(g, scanText.isNotEmpty() ? scanText : (r.pluginName.contains("could not") ? r.pluginName : juce::String()), { 694, 568, 642, 16 }, 8.0f, Theme::sub());
-    lab(g, juce::String("from C") + juce::String(octave) + U8("  ·  computer keys: A W S E D F T G Y H U J K  ·  wheel or drag on a list to scroll"), { 222, 592, 700, 18 }, 8.0f, Theme::sub());
+    lab(g, "KEYBOARD", { 24, 14, 180, 30 }, 17.0f, Theme::txt(), 2);
+    lab(g, "PLAYS INTO", { 24, 66, 86, 18 }, 8.5f, Theme::txt(), 2);
+    lab(g, "RECORD ON TRACK", { 378, 66, 140, 18 }, 8.5f, Theme::txt(), 2);
+    { float lv = juce::jlimit(0.0f, 1.0f, r.level.load()); juce::Rectangle<float> m(1036, 72, 300, 8); g.setColour(Theme::scr()); g.fillRoundedRectangle(m, 4.0f);
+      g.setColour(lv > 0.95f ? Theme::red() : Theme::green()); g.fillRoundedRectangle(m.withWidth(m.getWidth() * std::sqrt(lv)), 4.0f); }
+    g.setColour(Theme::line()); g.drawHorizontalLine(100, 24.0f, 1336.0f);
+    // the page of the instrument
+    auto list = juce::Rectangle<int>(24, 150, 1312, 340);
+    if (page == 0) {
+        lab(g, U8("ARCO's synthesizer: four oscillators, a filter, envelopes, LFOs, an arpeggiator. Choose a sound here; shape it in the SYNTH window."), { 24, 112, 1000, 28 }, 9.0f, Theme::sub());
+        lab(g, U8("Ten famous synthesizers to start from: Minimoog, Juno-60, DX7, TB-303, Prophet-5, OB-Xa, CS-80, Jupiter-8, MS-20, Odyssey."), { 24, 206, 1000, 20 }, 8.5f, Theme::sub());
+    } else if (page == 1) {
+        lab(g, U8("ARCO's modular synthesizer: modules and cables. Choose where to start here; patch it in the MODULAR window."), { 24, 112, 1000, 28 }, 9.0f, Theme::sub());
+    } else if (page == 2) {
+        lab(g, U8("Real instruments, recorded note by note - free, downloaded once, then always here."), { 24, 112, 900, 28 }, 9.0f, Theme::sub());
+        paintRows(g, sampleRows(), list, sampleScroll, "");
+        juce::String status = r.samplerError.isNotEmpty() ? r.samplerError : r.downloadStatus;
+        if (auto si = r.sampler.instrument(); si != nullptr && r.samplerError.isEmpty() && r.downloadId.isEmpty())
+            status = r.samplerName + U8(" ready  ·  ") + juce::String(si->memoryBytes() / 1000000) + " MB in memory";
+        lab(g, status, { 24, 494, 1312, 16 }, 8.0f, Theme::sub());
+    } else {
+       #if JUCE_IOS
+        juce::String noPlug = "no instrument plug-ins yet - FIND PLUG-INS looks for the AUv3 instruments installed on this iPad";
+       #else
+        juce::String noPlug = "no instrument plug-ins yet - FIND PLUG-INS looks for the Audio Unit and VST3 instruments on this computer";
+       #endif
+        lab(g, U8("The instrument plug-ins you have. PLAY one; SHOW ITS WINDOW opens its own controls."), { 24, 112, 900, 28 }, 9.0f, Theme::sub());
+        paintRows(g, pluginRows(), list, pluginScroll, noPlug);
+        lab(g, scanText.isNotEmpty() ? scanText : (r.pluginName.contains("could not") ? r.pluginName : juce::String()), { 24, 494, 1312, 16 }, 8.0f, Theme::sub());
+    }
+    g.setColour(Theme::line()); g.drawHorizontalLine(522, 24.0f, 1336.0f);
+    lab(g, "C" + juce::String(octave), { 1336 - 262, 540, 74, 28 }, 10.0f, Theme::txt(), 2, juce::Justification::centred);
+    auto midi = juce::MidiInput::getAvailableDevices();
+    lab(g, midi.isEmpty() ? juce::String("plug in a MIDI keyboard: it plays at once") : "MIDI: " + midi[0].name + (midi.size() > 1 ? " +" + juce::String(midi.size() - 1) : juce::String()),
+        { 730, 540, 300, 28 }, 8.0f, Theme::sub());
     g.restoreState();
 }
 
 void KeyboardPanel::mouseDown(const juce::MouseEvent& e) {
     auto p = e.getPosition() - box.getPosition();
-    auto hit = [&](const std::vector<Row>& rows, juce::Rectangle<int> area, int scroll) {
-        if (!area.contains(p)) return false;
-        int i = (p.y - area.getY() - 6) / 48 + scroll;
-        if (i >= 0 && i < (int) rows.size() && rows[(size_t) i].click) {
-            bool onButton = p.x > area.getRight() - 140;
-            if (onButton || rows[(size_t) i].button == "PLAY") rows[(size_t) i].click();
-        }
-        repaint(); return true; };
-    if (hit(sampleRows(), sampleArea, sampleScroll)) return;
-    hit(pluginRows(), pluginArea, pluginScroll);
+    auto list = juce::Rectangle<int>(24, 150, 1312, 340);
+    if (!list.contains(p) || page < 2) return;
+    auto rows = page == 2 ? sampleRows() : pluginRows(); int scroll = page == 2 ? sampleScroll : pluginScroll;
+    int i = (p.y - list.getY() - 6) / 48 + scroll;
+    if (i >= 0 && i < (int) rows.size() && rows[(size_t) i].click) rows[(size_t) i].click();
+    repaint();
 }
 
 void KeyboardPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
-    auto p = e.getPosition() - box.getPosition(); int d = w.deltaY < 0 ? 1 : -1;
-    if (sampleArea.contains(p)) sampleScroll = juce::jlimit(0, juce::jmax(0, (int) sampleRows().size() - 6), sampleScroll + d);
-    if (pluginArea.contains(p)) pluginScroll = juce::jlimit(0, juce::jmax(0, (int) pluginRows().size() - 6), pluginScroll + d);
+    int d = w.deltaY < 0 ? 1 : -1; juce::ignoreUnused(e);
+    if (page == 2) sampleScroll = juce::jlimit(0, juce::jmax(0, (int) sampleRows().size() - 6), sampleScroll + d);
+    if (page == 3) pluginScroll = juce::jlimit(0, juce::jmax(0, (int) pluginRows().size() - 6), pluginScroll + d);
     repaint();
 }
 
@@ -241,7 +289,13 @@ struct ModularPanel::Rack : public juce::Component {
     bool portAt(juce::Point<float> p, int& id, bool& out, int& port) const;
     void build();
     void paintOverChildren(juce::Graphics& g) override;
-    void paint(juce::Graphics& g) override { g.fillAll(Theme::scr()); }
+    void paint(juce::Graphics& g) override {               // a rack: rails top and bottom of every row
+        g.fillAll(Theme::scr());
+        for (int y = 8; y < getHeight(); y += 310) {
+            g.setColour(Theme::card().withAlpha(0.6f)); g.fillRect(0, y - 6, getWidth(), 5); g.fillRect(0, y + 301, getWidth(), 5);
+            g.setColour(Theme::line().withAlpha(0.5f)); for (int x = 12; x < getWidth(); x += 24) { g.fillEllipse((float) x, (float) y - 5, 3, 3); g.fillEllipse((float) x, (float) y + 302, 3, 3); }
+        }
+    }
     void beginDrag(int id, bool out, int port, juce::Point<float> at) {
         if (!out) {     // an input with a cable: pick that cable up (its plug follows the mouse)
             for (auto& c : M.patch.cables) if (c.toMod == id && c.toPort == port) { int fm = c.fromMod, fp = c.fromPort; dragColour = c.colour; M.disconnect(id, port); dragMod = fm; dragPort = fp; dragFromOut = true; dragging = true; dragPos = at; repaint(); return; }
@@ -322,7 +376,7 @@ struct ModularPanel::Rack::ModView : public juce::Component {
     }
     juce::Point<float> port(bool out, int k) const {
         auto& D = modDefs()[(size_t) type]; int n = (int) (out ? D.outs.size() : D.ins.size());
-        return { getWidth() * (k + 0.5f) / (float) juce::jmax(1, n), out ? 262.0f : 214.0f };
+        return { getWidth() * (k + 0.5f) / (float) juce::jmax(1, n), out ? 276.0f : 224.0f };
     }
     int portHit(juce::Point<float> p, bool& out) const {
         auto& D = modDefs()[(size_t) type];
@@ -340,9 +394,8 @@ struct ModularPanel::Rack::ModView : public juce::Component {
         lab(g, D.desc, { 10, 24, getWidth() - 16, 14 }, 6.5f, Theme::sub());
         lab(g, U8("✕"), { getWidth() - 24, 6, 18, 18 }, 9.0f, Theme::sub(), 2, juce::Justification::centred);
         // ports
-        g.setColour(Theme::line()); g.drawHorizontalLine(196, 8.0f, getWidth() - 8.0f);
-        lab(g, "IN", { 8, 198, 30, 10 }, 6.0f, Theme::sub(), 2);
-        lab(g, "OUT", { 8, 247, 30, 10 }, 6.0f, Theme::sub(), 2);
+        g.setColour(Theme::line()); g.drawHorizontalLine(192, 8.0f, getWidth() - 8.0f);
+        g.setColour(Theme::scr().withAlpha(0.55f)); g.fillRoundedRectangle(4.0f, 244.0f, getWidth() - 8.0f, 50.0f, 6.0f);    // the outputs sit on a darker plate
         for (int o = 0; o < 2; ++o) {
             int n = (int) (o ? D.outs.size() : D.ins.size());
             for (int k = 0; k < n; ++k) {
@@ -354,7 +407,7 @@ struct ModularPanel::Rack::ModView : public juce::Component {
                 g.setColour(Theme::bg()); g.fillEllipse(p.x - 8, p.y - 8, 16, 16);
                 g.setColour(o == 1 ? col : Theme::txt().withAlpha(0.7f)); g.drawEllipse(p.x - 8, p.y - 8, 16, 16, 2.0f);
                 g.setColour(Theme::bg().darker(0.4f)); g.fillEllipse(p.x - 3.5f, p.y - 3.5f, 7, 7);
-                lab(g, o ? D.outs[(size_t) k] : D.ins[(size_t) k], { (int) p.x - 30, (int) p.y + 10, 60, 11 }, 6.0f, Theme::sub(), 2, juce::Justification::centred);
+                lab(g, o ? D.outs[(size_t) k] : D.ins[(size_t) k], { (int) p.x - 30, (int) p.y - 24, 60, 11 }, 6.0f, o ? col : Theme::sub(), 2, juce::Justification::centred);
             }
         }
         if (type == MOut) { float lv = juce::jlimit(0.0f, 1.0f, rack.M.outLevel.load()); g.setColour(Theme::scr()); g.fillRoundedRectangle(16, 150, getWidth() - 32.0f, 8, 4);
@@ -395,8 +448,9 @@ void ModularPanel::Rack::paintOverChildren(juce::Graphics& g) {
     auto cable = [&](juce::Point<float> a, juce::Point<float> b, juce::Colour c) {
         float sag = 30.0f + a.getDistanceFrom(b) * 0.22f;
         juce::Path p; p.startNewSubPath(a); p.cubicTo(a + juce::Point<float>(0, sag), b + juce::Point<float>(0, sag), b);
-        g.setColour(juce::Colours::black.withAlpha(0.35f)); g.strokePath(p, juce::PathStrokeType(5.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour(c.withAlpha(0.9f)); g.strokePath(p, juce::PathStrokeType(3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        float al = panel.dimCables && !dragging ? 0.28f : 0.9f;
+        g.setColour(juce::Colours::black.withAlpha(0.35f * al)); g.strokePath(p, juce::PathStrokeType(5.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(c.withAlpha(al)); g.strokePath(p, juce::PathStrokeType(3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         for (auto e : { a, b }) { g.setColour(c); g.fillEllipse(e.x - 5, e.y - 5, 10, 10); }
     };
     const auto& cs = M.patch.cables;   // (the message thread is the only one that changes the patch)
@@ -431,15 +485,37 @@ ModularPanel::ModularPanel(Canvas& c) : cv(c) {
     rack = std::make_unique<Rack>(*this, r.modular);
     view.setViewedComponent(rack.get(), false);
     view.setScrollBarsShown(true, false);
-    view.setBounds(box.getX() + 16, box.getY() + 88, 1328, 726);
+    view.setBounds(box.getX() + 16, box.getY() + 88, 1328, 520);
     addAndMakeVisible(view);
+    auto* dim = pill({ 1160, 52, 176, 24 }, "", [this] { return dimCables ? Theme::sel() : Theme::btn(); }, [this] { dimCables = !dimCables; rack->repaint(); });
+    dim->dynText = [this] { return dimCables ? U8("CABLES: SEE-THROUGH") : U8("CABLES: SOLID"); };
+    // ---- play it here: the keys (or HARMONY), HOLD, the octave
+    const char* MD[2] = { "KEYS", "HARMONY" };
+    for (int i = 0; i < 2; ++i) pill({ 16 + i * 100, 620, 94, 26 }, MD[i], [this, i] { return playMode == i ? Theme::violet() : Theme::btn(); }, [this, i] {
+        playMode = i; kb->setVisible(i == 0); held->setVisible(i == 0); surface->setVisible(i == 1); surface->mode = 3; });
+    auto* hold = pill({ 222, 620, 110, 26 }, "HOLD", [&h] { return h.latch ? Theme::green() : Theme::btn(); }, [&h] { h.setLatch(!h.latch); });
+    hold->dynText = [&h] { return h.latch ? U8("● HOLD") : juce::String("HOLD"); };
+    pill({ 340, 620, 30, 26 }, U8("−"), [] { return Theme::btn(); }, [this] { octave = juce::jmax(0, octave - 1); kb->setAvailableRange(octave * 12 + 12, 127); }, 12.0f);
+    pill({ 374, 620, 30, 26 }, "+", [] { return Theme::btn(); }, [this] { octave = juce::jmin(5, octave + 1); kb->setAvailableRange(octave * 12 + 12, 127); }, 12.0f);
+    auto playArea = juce::Rectangle<int>(box.getX() + 16, box.getY() + 654, 1328, 156);
+    kb = std::make_unique<juce::MidiKeyboardComponent>(h.keys, juce::MidiKeyboardComponent::horizontalKeyboard);
+    kb->setAvailableRange(octave * 12 + 12, 127); kb->setBounds(playArea); kb->setKeyWidth(1328.0f / 29.0f);
+    kb->setScrollButtonsVisible(false); kb->setOctaveForMiddleC(4); kb->setVelocity(0.85f, true);
+    kb->setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::violet());
+    addAndMakeVisible(*kb);
+    surface = std::make_unique<KeyPad>(cv, [this] { return octave + 1; }); addChildComponent(*surface); surface->setBounds(playArea); surface->mode = 3;
+    held = std::make_unique<HeldOverlay>(*kb, h); addAndMakeVisible(*held); held->setBounds(playArea);
     rebuild();
     startTimerHz(30);
 }
 ModularPanel::~ModularPanel() { view.setViewedComponent(nullptr, false); }
 
 void ModularPanel::rebuild() { rack->setSize(view.getMaximumVisibleWidth() > 0 ? view.getMaximumVisibleWidth() : 1316, 10); rack->build(); repaint(); }
-void ModularPanel::visibilityChanged() { if (isVisible()) { toFront(true); rebuild(); } }
+void ModularPanel::visibilityChanged() {
+    if (!isVisible()) return;
+    toFront(true); rebuild();
+    if (cv.host.rack.kind.load() != InstrumentRack::KModular) cv.host.rack.setKind(InstrumentRack::KModular);    // this window plays MODULAR
+}
 void ModularPanel::timerCallback() { if (isShowing()) rack->repaint(); }
 
 void ModularPanel::paint(juce::Graphics& g) {
@@ -449,6 +525,8 @@ void ModularPanel::paint(juce::Graphics& g) {
     lab(g, U8("ARCO's modular synthesizer: drag from an output ● to an input ○ to patch · pull a cable off an input to unplug · double-click a knob to reset · 1 V per octave"),
         { box.getX() + 160, box.getY() + 16, 880, 16 }, 8.0f, Theme::sub());
     lab(g, "PLAYS INTO", { box.getX() + 630, box.getY() + 55, 90, 18 }, 8.5f, Theme::txt(), 2);
+    lab(g, "C" + juce::String(octave), { box.getX() + 410, box.getY() + 620, 40, 26 }, 9.0f, Theme::txt(), 2);
+    lab(g, U8("the keys play MODULAR (its KEYS module: pitch, gate, velocity)  ·  a MIDI keyboard too"), { box.getX() + 460, box.getY() + 620, 700, 26 }, 8.0f, Theme::sub());
 }
 
 } // namespace arco

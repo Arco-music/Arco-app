@@ -39,6 +39,7 @@ public:
     void openSynth(bool show);
     void synthPage(int p);
     void synthKeys(int m, bool edit);
+    void synthPreset(int i); int synthPresetIndex() const;
     void openMic(bool show);
     bool keyPressed(const juce::KeyPress& k) override;
     void doSave(bool askName);
