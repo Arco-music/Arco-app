@@ -92,6 +92,8 @@ public:
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);
         if (cmd.contains("portrait")) mc->setSize(820, 1180);               // an iPad held upright
+        if (cmd.contains("size=")) { auto sz = cmd.fromFirstOccurrenceOf("size=", false, false).upToFirstOccurrenceOf(" ", false, false);
+            mc->setSize(sz.upToFirstOccurrenceOf("x", false, false).getIntValue(), sz.fromFirstOccurrenceOf("x", false, false).getIntValue()); }
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
         if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue());
             if (cmd.contains("skeys=")) mc->canvas.synthKeys(cmd.fromFirstOccurrenceOf("skeys=", false, false).getIntValue(), cmd.contains("sedit")); }

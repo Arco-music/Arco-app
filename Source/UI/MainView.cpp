@@ -81,12 +81,23 @@ public:
         tog("M", "mute", [] { return Theme::red(); }, { 6, 268, 24, 20 });
         tog("S", "solo", [] { return Theme::blue(); }, { 32, 268, 24, 20 });
         auto* fd = new Fader([&m, this] { return m.get("vol" + std::to_string(s)); }, [&m, this](double v) { m.set("vol" + std::to_string(s), v); }, 0, 100, 71);
-        add(fd, { 66, 177, 18, 112 }); fd->setComponentID("p:vol" + juce::String(s));
+        add(fd, { 66, 177, 18, 112 }); fd->setComponentID("p:vol" + juce::String(s)); fader = fd;
         meter = new Meter([this] { return c.engine().peak("ch" + std::to_string(s)); }, true);
         add(meter, { 88, 177, 6, 112 });
+        for (auto* k : kids) base.push_back({ k, k->getBounds() });
         if (s < 4) { inMeter = new Meter([this] { return c.engine().peak("live_in" + std::to_string(s + 1)); }); add(inMeter, { 6, s == 0 ? 116 : 80, 100, 6 }); }
     }
     ~StripView() override { kids.clear(true); }
+    // 1.4: a taller strip (the screen has room): the fader grows, CUE / ROOM / M / S stay at the bottom
+    void resized() override {
+        int extra = juce::jmax(0, getHeight() - 298);
+        for (auto& b : base) {
+            auto r = b.second;
+            if (b.first == fader || b.first == meter) r.setHeight(r.getHeight() + extra);
+            else if (r.getY() >= 215) r.translate(0, extra);
+            b.first->setBounds(r);
+        }
+    }
     juce::String name() const { return s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3); }
     void update() {
         if (meter) meter->update(); if (inMeter) inMeter->update();
@@ -143,7 +154,8 @@ public:
 private:
     Canvas& c; int s;
     juce::OwnedArray<juce::Component> kids;
-    Pill* head = nullptr; WaveScreen* wave = nullptr; Meter* meter = nullptr; Meter* inMeter = nullptr;
+    Pill* head = nullptr; WaveScreen* wave = nullptr; Meter* meter = nullptr; Meter* inMeter = nullptr; juce::Component* fader = nullptr;
+    std::vector<std::pair<juce::Component*, juce::Rectangle<int>>> base;
 };
 
 // ===================================================================== one effect card
@@ -363,7 +375,7 @@ Canvas::Canvas(AudioHost& h) : host(h) {
 juce::Rectangle<int> Canvas::place(juce::Rectangle<int> r) const {
     if (!portrait) return r;
     if (r.getY() < 62) return r.getX() >= 770 ? r.translated(16 - 770, 62) : r;           // the top bar: its right half becomes a second row
-    if (r.getY() < 100) return r.getX() >= 880 ? r.translated(-440, 62) : r.translated(0, 62);   // the scene row, its right end pulled in
+    if (r.getY() < 100) return r.getX() >= 776 ? r.translated(16 + (1000 - 32 - 652) / 2 - 776, 104) : r.translated(0, 62);   // the scene row; the window buttons get a row of their own
     return r;
 }
 
@@ -495,37 +507,35 @@ void Canvas::buildTopBar() {
     add<Knob>({ 1132, 25, 30, 30 }, [&m] { return m.get("master"); }, [&m](double v) { m.set("master", v); }, 0, 100, 75, [] { return Theme::txt(); })->setComponentID("p:master");
     add<Knob>({ 1172, 25, 30, 30 }, [&m] { return m.get("glue"); }, [&m](double v) { m.set("glue", v); }, 0, 100, 25, [] { return Theme::amber(); })->setComponentID("p:glue");
     meters.add(add<Meter>({ 1212, 18, 7, 36 }, [this] { return engine().peak("glue_gr"); }, true));
-    meters.add(add<Meter>({ 1270, 16, 42, 6 }, [this] { return engine().peak("live_in1"); }));
-    meters.add(add<Meter>({ 1270, 32, 42, 5 }, [this] { return engine().peak("mainL"); }));
-    meters.add(add<Meter>({ 1270, 40, 42, 5 }, [this] { return engine().peak("mainR"); }));
-    // windows
-    auto* syn = add<Pill>({ 1326, 9, 50, 22 }, "SYNTH", [] { return Theme::c(Theme::rgb(0.40f, 0.30f, 0.70f)); }, 8.5f, 7.0f);
-    syn->onClick = [this] { openSynth(true); };
-    auto* studioB = add<Pill>({ 1380, 9, 48, 22 }, "STUDIO", [] { return Theme::blue(); }, 7.5f, 7.0f);
-    studioB->onClick = [this] { openStudio(); };
-    studioB->setComponentID("t:studio");
-    auto* kk = add<Pill>({ 1326, 35, 34, 20 }, "KEYS", [] { return Theme::c(Theme::rgb(0.40f, 0.30f, 0.70f)); }, 7.0f, 7.0f);
-    kk->onClick = [this] { openKeyboard(true); }; kk->setTooltip("KEYBOARD: a big keyboard, sampled instruments, plug-ins, MODULAR");
-    auto* st = add<Pill>({ 1363, 35, 37, 20 }, "SETUP", [] { return Theme::off(); }, 7.0f, 7.0f);
-    st->onClick = [this] { openSetup(true); };
-    auto* pw = add<Pill>({ 1404, 34, 24, 22 }, U("⏻"), [this] { return host.devices.getCurrentAudioDevice() != nullptr ? Theme::green() : Theme::off(); }, 10.0f, 6.0f);
+    meters.add(add<Meter>({ 1272, 16, 104, 6 }, [this] { return engine().peak("live_in1"); }));
+    meters.add(add<Meter>({ 1272, 32, 104, 5 }, [this] { return engine().peak("mainL"); }));
+    meters.add(add<Meter>({ 1272, 40, 104, 5 }, [this] { return engine().peak("mainR"); }));
+    auto* pw = add<Pill>({ 1392, 14, 36, 40 }, U("⏻"), [this] { return host.devices.getCurrentAudioDevice() != nullptr ? Theme::green() : Theme::off(); }, 13.0f, 8.0f);
+    pw->setTooltip("the sound on / off");
     pw->onClick = [this] { if (host.devices.getCurrentAudioDevice() != nullptr) host.devices.closeAudioDevice(); else host.devices.restartLastAudioDevice(); };
 }
 
 void Canvas::buildScenes() {
-    // the effect cards: choose them, and turn the pages when more than 18 are shown
-    auto* fxb = add<Pill>({ 1356, 68, 72, 24 }, U("EFFECTS ⚙"), [] { return Theme::btn(); }, 7.5f, 6.0f);
-    fxb->onClick = [this] { openLook(true); };
-    auto* pp = add<Pill>({ 1316, 68, 18, 24 }, U("‹"), [] { return Theme::btn(); }, 11.0f, 5.0f);
-    pp->onClick = [this] { if (cardPage > 0) { --cardPage; layoutCards(); } };
-    auto* pn = add<Pill>({ 1336, 68, 18, 24 }, U("›"), [] { return Theme::btn(); }, 11.0f, 5.0f);
-    pn->onClick = [this] { if (cardPage < numCardPages - 1) { ++cardPage; layoutCards(); } };
-    pagePills = { pp, pn };
-    auto* am = add<Pill>({ 1092, 68, 110, 24 }, "AUTO MIX", [this] { return autoMixAvailable() ? Theme::green() : Theme::violet(); }, 8.0f, 6.0f);
-    am->onClick = [this] { openAutoMix(); };
-    am->setComponentID("t:automix");
-    auto* mi = add<Pill>({ 1208, 68, 96, 24 }, U("MIDI LEARN"), [this] { return midiLearn ? Theme::amber() : Theme::btn(); }, 7.5f, 6.0f);
-    mi->onClick = [this] { setMidiLearn(!midiLearn); };
+    // the windows: one row of buttons, all the same size
+    {
+        const int bw = 88, gap = 6, x0 = 1428 - (7 * bw + 6 * gap);
+        auto win = [&](int i, const juce::String& t, ColourFn col, std::function<void()> f, const juce::String& id) {
+            auto* p = add<Pill>({ x0 + i * (bw + gap), 66, bw, 28 }, t, std::move(col), 8.5f, 7.0f);
+            p->onClick = std::move(f); if (id.isNotEmpty()) p->setComponentID(id); return p; };
+        win(0, "SYNTH", [] { return Theme::btn(); }, [this] { openSynth(true); }, "t:synth");
+        win(1, "KEYS", [] { return Theme::btn(); }, [this] { openKeyboard(true); }, "t:keys")->setTooltip("KEYBOARD: a big keyboard, sampled instruments, plug-ins, MODULAR");
+        win(2, "STUDIO", [] { return Theme::btn(); }, [this] { openStudio(); }, "t:studio");
+        win(3, "AUTO MIX", [this] { return autoMixAvailable() ? Theme::green() : Theme::btn(); }, [this] { openAutoMix(); }, "t:automix");
+        win(4, "MIDI LEARN", [this] { return midiLearn ? Theme::amber() : Theme::btn(); }, [this] { setMidiLearn(!midiLearn); }, "t:midilearn");
+        win(5, U("EFFECTS"), [] { return Theme::btn(); }, [this] { openLook(true); }, "t:effects")->setTooltip("choose the effect cards");
+        win(6, "SETUP", [] { return Theme::btn(); }, [this] { openSetup(true); }, "t:setup");
+        // the effect cards' pages (more than fit)
+        auto* pp = add<Pill>({ x0 - 50, 66, 22, 28 }, U("‹"), [] { return Theme::btn(); }, 11.0f, 6.0f);
+        pp->onClick = [this] { if (cardPage > 0) { --cardPage; layoutCards(); } };
+        auto* pn = add<Pill>({ x0 - 26, 66, 22, 28 }, U("›"), [] { return Theme::btn(); }, 11.0f, 6.0f);
+        pn->onClick = [this] { if (cardPage < numCardPages - 1) { ++cardPage; layoutCards(); } };
+        pagePills = { pp, pn };
+    }
     for (int i = 0; i < 4; ++i) {
         auto* tab = add<Pill>({ 64 + i * 98, 66, 62, 28 }, juce::String::charToString((juce::juce_wchar) ('A' + i)), [this, i] {
             int sc = (int) snap("scenes"), mask = (int) snap("smask"), n = i + 1;
@@ -541,29 +551,40 @@ void Canvas::buildScenes() {
                   [this](double v) { model().press("st_looper", "ntr", 16, (int) v); }, 1, 8, 0, [] { return Theme::green(); });
 }
 
+// 1.4: the window is filled top to bottom: the strips grow (longer faders) with the room the effect cards do not need
+int Canvas::visibleCardCount() const { int n = 0; for (auto& d : cardTable()) n += host.visibleCards.contains(d.key); return n; }
+
 void Canvas::layoutStrips() {
     int ntn = juce::jlimit(1, 8, (int) snap("ntn")); if (snap("ntn") < 1) ntn = 4;
+    int nvis = 0;
+    for (int s = 0; s < NSTRIP; ++s) nvis += s < 4 ? (s < host.nLive || (host.synthInto > 0 && s == host.synthInto)) : (s - 4) < ntn;
+    stripRows = portrait ? (nvis + 7) / 8 : 1;
+    // how tall: the cards take whole rows (238); the strips take the rest (at least 298, at most 298 + 260)
+    int top = portrait ? 210 : 100;
+    int cols = portrait ? 6 : 9;
+    int need = juce::jmax(1, (visibleCardCount() + cols - 1) / cols);
+    int avail = H - top - 10;
+    int rows = juce::jlimit(1, juce::jmax(1, need), (avail - stripRows * 304) / 238);
+    stripH = juce::jlimit(298, 298 + 260, (avail - rows * 238) / stripRows - 6);
     int idx = 0;
     for (int s = 0; s < NSTRIP; ++s) {
         bool vis = s < 4 ? (s < host.nLive || (host.synthInto > 0 && s == host.synthInto)) : (s - 4) < ntn;
         strips[s]->setVisible(vis);
         if (vis) {
-            if (portrait) { int perRow = 8; strips[s]->setBounds(16 + (idx % perRow) * 118, 166 + (idx / perRow) * 304, 112, 298); }
-            else strips[s]->setBounds(16 + idx * 118, 100, 112, 298);
+            if (portrait) { int perRow = 8; strips[s]->setBounds(16 + (idx % perRow) * 118, top + (idx / perRow) * (stripH + 6), 112, stripH); }
+            else strips[s]->setBounds(16 + idx * 118, top, 112, stripH);
             ++idx;
         }
     }
-    stripRows = portrait ? (idx + 7) / 8 : 1;
 }
 
-// the effect cards chosen in SETUP > EFFECTS: two rows of up to 9, centred; more than 18 = pages
+// the effect cards chosen in SETUP > EFFECTS: rows of up to 9 (portrait 6), centred, under the strips; more = pages
 void Canvas::layoutCards() {
     auto& ct = cardTable();
     juce::Array<int> vis;
     for (int i = 0; i < (int) ct.size(); ++i) if (host.visibleCards.contains(ct[(size_t) i].key)) vis.add(i);
-    // landscape: 9 x 2 per page; portrait: 6 across, as many rows as fit under the strips
-    int top = portrait ? 166 + stripRows * 304 + 4 : 406;
-    int maxCols = portrait ? 6 : 9, maxRows = portrait ? juce::jmax(1, (H - top - 8) / 238) : 2;
+    int top = (portrait ? 210 + stripRows * (stripH + 6) : 100 + stripH + 8);
+    int maxCols = portrait ? 6 : 9, maxRows = juce::jmax(1, (H - top - 4) / 238);
     int perPage = maxCols * maxRows;
     int pages = juce::jmax(1, (vis.size() + perPage - 1) / perPage);
     cardPage = juce::jlimit(0, pages - 1, cardPage);
@@ -664,8 +685,7 @@ void Canvas::paint(juce::Graphics& g) {
     // portrait: the top bar in two rows, the scene row under them (the same drawing, moved)
     { juce::Graphics::ScopedSaveState ss(g); g.reduceClipRegion(0, 0, 770, 62); paintTop(g); }
     { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(16 - 770, 62); g.reduceClipRegion(770, 0, 680, 62); paintTop(g); }
-    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(0, 62); g.reduceClipRegion(0, 62, 880, 40); paintScenes(g); }
-    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(-440, 62); g.reduceClipRegion(880, 62, 560, 46); paintScenes(g); }
+    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(0, 62); g.reduceClipRegion(0, 62, 726, 40); paintScenes(g); }
 }
 void Canvas::paintTop(juce::Graphics& g) {
     auto card = [&](int x, int y, int w, int h) { g.setColour(Theme::card()); g.fillRoundedRectangle((float) x, (float) y, (float) w, (float) h, 12.0f); };
@@ -674,7 +694,7 @@ void Canvas::paintTop(juce::Graphics& g) {
     bool running = engine().cpu.load() > 0.0001f && host.devices.getCurrentAudioDevice() != nullptr;
     label(g, running ? U("engine running ✓") : U("audio is off - press ⏻ or open SETUP"), { 16, 33, 176, 14 }, 8.0f, running ? Theme::green() : Theme::amber());
     label(g, inputSeen ? U("input 1 → looper ✓") : "input 1: waiting for sound", { 16, 46, 176, 13 }, 7.5f, inputSeen ? Theme::green() : Theme::sub());
-    card(196, 8, 572, 52); card(776, 8, 262, 52); card(1046, 8, 70, 52); card(1124, 8, 112, 52); card(1244, 8, 74, 52);
+    card(196, 8, 572, 52); card(776, 8, 262, 52); card(1046, 8, 70, 52); card(1124, 8, 112, 52); card(1244, 8, 140, 52);
     auto sl = [&](const char* t, int x, int y, int w) { label(g, t, { x, y, w, 14 }, 7.5f, Theme::sub()); };
     sl("BPM", 398, 11, 50); sl("BEATS", 456, 11, 44); sl("BARS", 498, 11, 40); sl("COUNT", 536, 11, 40); sl("CLICK", 577, 11, 40); sl("VOL", 618, 11, 30);
     sl("BAR", 654, 11, 40); sl("BEAT", 690, 11, 40); sl("LOOP", 726, 11, 40); sl("SONG", 784, 11, 60);
@@ -687,19 +707,18 @@ void Canvas::paintTop(juce::Graphics& g) {
     label(g, host.status, { 784, 49, 250, 11 }, 7.0f, Theme::sub());
     double sec = host.recordSeconds();
     label(g, juce::String::formatted("%02d:%02d", (int) sec / 60, (int) sec % 60), { 1052, 42, 58, 14 }, 7.5f, Theme::sub(), 0, juce::Justification::centred);
-    label(g, "CPU " + juce::String((int) std::round(engine().cpu.load() * 100)) + "%", { 1250, 47, 64, 12 }, 6.5f, Theme::sub());
+    label(g, "CPU " + juce::String((int) std::round(engine().cpu.load() * 100)) + "%", { 1250, 47, 120, 12 }, 6.5f, Theme::sub());
 }
 void Canvas::paintScenes(juce::Graphics& g) {
     // scenes row
     label(g, "SCENE", { 16, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
     if (juce::Time::getMillisecondCounterHiRes() < flashUntil) {
-        g.setColour(Theme::amber()); g.fillRoundedRectangle(930, 68, 150, 24, 6.0f);
-        label(g, flash, { 930, 68, 150, 24 }, 9.5f, Theme::textOn(Theme::amber()), 2, juce::Justification::centred);
+        g.setColour(Theme::amber()); g.fillRoundedRectangle(566, 66, 150, 28, 6.0f);
+        label(g, flash, { 566, 66, 150, 28 }, 9.5f, Theme::textOn(Theme::amber()), 2, juce::Justification::centred);
     }
     label(g, "TRACKS", { 462, 72, 50, 16 }, 8.0f, Theme::sub(), 2);
     int s = model().selected;
-    label(g, juce::String(U("SEND ▸ ")) + (s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3)), { 566, 72, 260, 16 }, 9.0f, Theme::txt(), 2);
-    if (numCardPages > 1) label(g, juce::String(cardPage + 1) + " / " + juce::String(numCardPages), { 1270, 94, 140, 12 }, 7.0f, Theme::sub(), 1, juce::Justification::centredRight);
+    label(g, juce::String(U("SEND ▸ ")) + (s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3)), { 566, 72, 150, 16 }, 9.0f, Theme::txt(), 2);
 }
 
 } // namespace arco

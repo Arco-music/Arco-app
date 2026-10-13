@@ -59,7 +59,8 @@ public:
     void openKeyboard(bool show);
     void openModular(bool show);
     // 1.3: iPad portrait - the same station, rearranged for a tall screen (logical size W x H)
-    bool portrait = false; int W = 1440, H = 880, stripRows = 1;
+    bool portrait = false; int W = 1440, H = 880, stripRows = 1, stripH = 298;
+    int visibleCardCount() const;
     void setLayout(bool tall, int w, int h);
     juce::Rectangle<int> place(juce::Rectangle<int> landscape) const;   // where a top-bar / scene-row control goes now
 private:
@@ -130,7 +131,10 @@ public:
        #endif
         // a tall screen (iPad in portrait): the station rearranges itself, 1000 wide
         bool tall = area.getHeight() > area.getWidth() * 1.05f;
-        int w = tall ? 1000 : 1440, h = tall ? juce::jmax(1200, juce::roundToInt(1000.0f * area.getHeight() / juce::jmax(1, area.getWidth()))) : 880;
+        // the design is 1440 wide (1000 standing up); its height follows the screen, so the whole screen is used
+        int w = tall ? 1000 : 1440;
+        int h = tall ? juce::jmax(1200, juce::roundToInt(1000.0f * area.getHeight() / juce::jmax(1, area.getWidth())))
+                     : juce::jlimit(880, 1300, juce::roundToInt(1440.0f * area.getHeight() / juce::jmax(1, area.getWidth())));
         canvas.setLayout(tall, w, h);
         float s = juce::jmin(area.getWidth() / (float) w, area.getHeight() / (float) h);
         canvas.setBounds(0, 0, w, h);
