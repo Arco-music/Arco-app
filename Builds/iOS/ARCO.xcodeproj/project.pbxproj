@@ -131,6 +131,7 @@
 		558AE09E14D58E98D80575EB /* GenModules.h */ /* GenModules.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GenModules.h; path = ../../Source/Engine/GenModules.h; sourceTree = SOURCE_ROOT; };
 		58703C4EC8A5520BC0E3A33D /* StripMix.h */ /* StripMix.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StripMix.h; path = ../../Source/Engine/StripMix.h; sourceTree = SOURCE_ROOT; };
 		5C41656670C9D35A1FCC07B2 /* MainView.cpp */ /* MainView.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MainView.cpp; path = ../../Source/UI/MainView.cpp; sourceTree = SOURCE_ROOT; };
+		5EB4C904B8D54C4DE195CAE9 /* PlaySurfaces.h */ /* PlaySurfaces.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PlaySurfaces.h; path = ../../Source/UI/PlaySurfaces.h; sourceTree = SOURCE_ROOT; };
 		617186D7BB802C15DFE33582 /* SpatialPanel.cpp */ /* SpatialPanel.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SpatialPanel.cpp; path = ../../Source/UI/SpatialPanel.cpp; sourceTree = SOURCE_ROOT; };
 		665332A289A5A89F0105751D /* include_juce_audio_devices.mm */ /* include_juce_audio_devices.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_audio_devices.mm; path = ../../JuceLibraryCode/include_juce_audio_devices.mm; sourceTree = SOURCE_ROOT; };
 		66BEF046006153CF11FE298A /* Synth2.h */ /* Synth2.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Synth2.h; path = ../../Source/Engine/Synth2.h; sourceTree = SOURCE_ROOT; };
@@ -283,6 +284,7 @@
 				F832DA3868FF91AD6D30E1AA,
 				2C6B4DE24EF8CB56A6E9AE4D,
 				C811F75BB50BB30D94F310DA,
+				5EB4C904B8D54C4DE195CAE9,
 				4BEA913D184F7D1C92524BD8,
 				F3F7E1353621F1C5E8094AEC,
 				617186D7BB802C15DFE33582,
@@ -659,8 +661,8 @@
 					"JUCE_USE_CURL=0",
 					"JUCE_DISPLAY_SPLASH_SCREEN=0",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=1.3.0",
-					"JUCE_APP_VERSION_HEX=0x10300",
+					"JUCE_APP_VERSION=1.4.0",
+					"JUCE_APP_VERSION_HEX=0x10400",
 					"JucePlugin_Build_VST=0",
 					"JucePlugin_Build_VST3=0",
 					"JucePlugin_Build_AU=0",
@@ -760,8 +762,8 @@
 					"JUCE_USE_CURL=0",
 					"JUCE_DISPLAY_SPLASH_SCREEN=0",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=1.3.0",
-					"JUCE_APP_VERSION_HEX=0x10300",
+					"JUCE_APP_VERSION=1.4.0",
+					"JUCE_APP_VERSION_HEX=0x10400",
 					"JucePlugin_Build_VST=0",
 					"JucePlugin_Build_VST3=0",
 					"JucePlugin_Build_AU=0",

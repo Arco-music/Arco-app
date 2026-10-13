@@ -71,31 +71,32 @@ ARCO listens to every recorded track, understands what it is and mixes the piece
 - BEFORE / AFTER switches between the two at any time (also Edit → Compare). UNDO goes back completely.
 - CHARACTER: NATURAL, BALANCED or PUNCHY.)" },
         { "STUDIO", R"(# STUDIO
-A complete studio for the song - arrange, record, play instruments, automate, mix and export.
+Turn what you played into a song - arrange, record, mix, export. It always plays at the right speed, whatever the sound card's rate.
 
-## Getting the station in
-- The BROWSER (left): drag a scene or a single loop of the station onto the timeline. LAY OUT ALL SCENES puts the whole performance in a row.
-- RECORD THE STATION records what the station plays, straight into a new lane.
-- IMPORT or drop audio files on a lane.
+## The top bar
+- ⏮ back to the start, ▶ play, ● record. The display: bar.beat, time, BPM (drag it), beats per bar (tap).
+- LOOP, CLICK, COUNT-IN · ↶ ↷ undo / redo · ARRANGE / MIXER · SAVE, EXPORT, ✕.
+
+## Starting
+- An empty song shows three big buttons: LAY OUT THE SCENES (everything you played, in order), RECORD THE STATION, IMPORT AUDIO.
+- ◧ (top left of the lanes) opens the station drawer: drag a scene or a single loop onto the timeline, or add lanes.
 
 ## Lanes
-- AUDIO lanes hold recordings. INSTRUMENT lanes hold MIDI clips that play their own SYNTH. RETURN A (reverb) and RETURN B (delay) are shared by all lanes (SEND A / B).
-- Every lane has devices: EQ, COMPRESSOR, SATURATION, DELAY, REVERB, CHORUS, GATE, UTILITY, LIMITER, FILTER - add them in the details below, drag their knobs.
-- ● arms a lane: press the big RECORD to record into it - audio from the chosen input, or notes from the keys / a MIDI keyboard. MONITOR lets you hear the input.
+- Each lane: its name, M (mute), S (solo), ● (arm for recording), the volume bar with its meter, and ⋯ for the rest - automation, what it records, hearing the input, rename, duplicate, colour, export a stem.
+- REVERB and ECHO are shared by all lanes: turn up REVERB / ECHO in a lane's details.
+- Devices on every lane: EQ, COMPRESSOR, SATURATION, DELAY, REVERB, CHORUS, GATE, UTILITY, LIMITER, FILTER (+ DEVICE).
+- The details below show the clip, the lane or MASTER. HIDE ▾ gives the lanes the whole screen; DETAILS ▴ brings them back.
 
 ## Clips
-- Drag to move (snaps to the beat; Shift finer, Alt free), drag the edges to trim, the top corners for fades. S splits, ⌘D duplicates, Delete removes.
-- Double-click a MIDI clip: the piano roll - draw notes, drag them, change their length and velocity.
-- Right-click (or ⋯ on iPad): reverse, mute, rename, colour, transpose and more.
+- Drag to move (snaps - SNAP ▾ chooses to what; Shift is free; Alt-drag copies), drag the edges to trim, the top corners for fades. S splits, ⌘D duplicates, Delete removes. − / + zoom.
+- Double-click an instrument lane: a MIDI clip with a piano roll.
+- Right-click (or ⋯): reverse, mute, rename, transpose and more.
 
 ## Automation
-- A on a lane chooses what to automate: volume, pan, sends or any device knob. Click to add a point, drag it, Alt-click removes it.
+- ⋯ → Automation: volume, pan, sends or any device knob. Click to add a point, drag it, Alt-click removes it.
 
-## Playing and mixing
-- LOOP: drag on the ruler. CLICK (M) and COUNT-IN for recording. Double-click the ruler for a marker.
-- Tab switches between the arrangement and the MIXER. MASTER has a glue compressor and a limiter.
-- EXPORT: the mix or every lane as stems - WAV or FLAC, up to 96 kHz / 32-bit float, streaming level or as it is.
-- SAVE keeps the arrangement with the song.)" },
+## Export
+- EXPORT: the mix or every lane as stems - WAV or FLAC, up to 96 kHz / 32-bit float. SAVE keeps the arrangement with the song.)" },
         { "SYNTH 2", R"(# SYNTH 2
 ## Sound
 - Four oscillators, each WAVE (sine → saw → square → pulse, WARP bends it), FM, FOLD or SYNC. UNISON and DETUNE make it wide.
@@ -110,7 +111,8 @@ A complete studio for the song - arrange, record, play instruments, automate, mi
 
 ## Play
 - ARPEGGIATOR: hold a chord - up, down, up-down, random, as played, or chords; 1/4 to 1/32 in the loop's tempo; 1-4 octaves; GATE; HOLD.
-- Ways to play: KEYS (piano, computer keys, MIDI), SLIDE PAD (left-right pitch, up-down loudness, gliding), CHORDS (8 chords of the key), SCALE GRID (only the notes of the key).
+- Ways to play: KEYS (piano, computer keys, MIDI), SLIDE PAD (left-right pitch, up-down loudness, gliding), CHORDS (8 pads - SET THE CHORDS: pick any chord, or its exact notes), HARMONY (a grid where neighbours always sound good together - made for fingers on the iPad).
+- HOLD: tap notes and they keep sounding - tap more to stack them; tap again to let one go, CLEAR to stop all. With the ARPEGGIATOR, every note you tap is added to the arpeggio.
 - PLAYS INTO: the synth sounds through LIVE 2-4, so RECORD ON TRACK records it like any instrument.)" },
         { "Import files", R"(# Importing audio files
 - Drop a file (WAV, AIFF, MP3, FLAC, M4A) on a track's screen, or press FILE, or File → Import.
@@ -166,7 +168,8 @@ A big keyboard and the instrument it plays - KEYS (top right) or View → KEYBOA
 - PLUG-IN: FIND PLUG-INS finds the instrument plug-ins on this device (Audio Units and VST3 on the Mac, AUv3 on the iPad). PLAY loads one; SHOW PLUG-IN WINDOW opens its own controls.
 
 ## Playing
-- Click the keys, use the computer keys (A W S E D ...), or plug in a MIDI keyboard - it plays at once. A sustain pedal works; SUSTAIN on the screen too.
+- Tabs on top: SYNTH 2, MODULAR, SAMPLED, PLUG-IN - choose one and it plays.
+- Below: KEYS, CHORDS or HARMONY, HOLD (notes keep sounding, tap more on top) and the octave. Computer keys (A W S E D ...), a MIDI keyboard and a sustain pedal work too.
 - PLAYS INTO: the instrument sounds through LIVE 2-4, so loops, effects, RECORD ON TRACK and STUDIO all work with it.
 - The instrument and its settings (the MODULAR patch, the plug-in's sound) are saved with the song.)" },
         { "MODULAR", R"(# MODULAR
@@ -180,9 +183,20 @@ A modular synthesizer: modules with knobs, connected by cables - in the spirit o
 ## The modules
 - KEYS (the keyboard), VCO, LFO, ENV, VCF (ladder low-pass + band / high-pass), VCA, MIXER, NOISE, S&H, SEQ (8 steps), CLOCK (the loops' tempo), DELAY, ATTENUATE, QUANTIZER, SLEW, FOLDER, OUT.
 - Pitch is 1 V per octave, gates are 10 V, sound is +/-5 V. OUT never lets the sound go above 0 dB.
-- PLAY MODULAR makes the keys play it; PLAYS INTO sends it into a LIVE strip like the SYNTH.)" },
-        { "Speakers & Space", R"(# SPEAKERS & SPACE (ambisonics)
-Place every sound around the audience, still or moving - View → Speakers & Space, or SETUP → SPEAKERS & SPACE.
+- Play it right in the window: KEYS or HARMONY, HOLD and the octave are under the rack. CABLES makes the cables see-through.
+- PLAYS INTO sends it into a LIVE strip like the SYNTH.)" },
+        { "Speakers & Space", R"(# OUTPUTS, SPEAKERS & SPACE
+View → Outputs, Speakers & Space. Two pages.
+
+## OUTPUTS - to a mixing desk
+- A grid: every sound (LIVE 1-4 - the SYNTH plays through its LIVE strip -, the tracks, drums, HALO) down the side, the sound card's outputs across. Tap a square: that sound goes out of that output. Several squares = several outputs.
+- ROOM: the sound also stays in the main mix (the room's speakers).
+- ONE OUTPUT EACH: every sound on its own output, ready for a desk. CLEAR ALL starts again.
+- More outputs: plug in an interface (USB on the iPad) and choose it in SETUP → SOUND CARD.
+- iPad: CHOOSE OUTPUT ▸ picks Bluetooth headphones, AirPlay, a cable or the speaker.
+
+## SPEAKERS & SPACE (ambisonics)
+Place every sound around the audience, still or moving.
 
 ## Your speakers
 - Choose a layout (STEREO, QUAD, 5.0, 7.0, RINGS, DOME, CUBE, 5.0.4) or drag the speakers where they really are. Each one: direction, height, distance (ARCO evens out distance with delay and level).
@@ -192,6 +206,15 @@ Place every sound around the audience, still or moving - View → Speakers & Spa
 - Choose a LIVE strip or a track, PLACE IT, and drag it in the circle: direction and distance. WIDTH spreads it.
 - Motion: STILL, CIRCLE, SWING, WANDER, FLY OVER - SPEED and RANGE, or IN TEMPO with the loops.
 - Up to 32 speakers (3rd-order ambisonics, AllRAD). With headphones you hear a stereo version. Exports are always stereo.)" },
+        { "What's new in 1.4", R"(# What's new in ARCO 1.4
+- iPad: CHOOSE OUTPUT ▸ sends the sound to Bluetooth headphones, AirPlay or a cable; Bluetooth headphones get the full-quality connection. Adding a file to a track no longer crashes.
+- HOLD: tap a note, then more on top - they all keep sounding; with the arpeggiator every tap joins the arpeggio.
+- HARMONY: a new way to play, made for fingers - neighbours always sound good together. CHORDS: choose any chord, or its exact notes.
+- KEYBOARD and MODULAR: cleaner windows, play them right there.
+- OUTPUTS: a simple grid to send each sound (live, tracks, synth ...) to one or more outputs - for a mixing desk.
+- STUDIO, rebuilt: simpler and always at the right speed.
+- New effects: VOCODER, PITCH, SPRING, TALK.
+- The top bar: every button the same size; the station fills the screen in both directions.)" },
         { "What's new in 1.3", R"(# What's new in ARCO 1.3
 - Colours: the original black, with Storm, Light and Chambray in the same calm contrast.
 - STUDIO: a full studio - instrument lanes with MIDI and a piano roll, devices on every lane, automation, return reverb and delay, recording (inputs, the station, MIDI), loop, click, count-in, markers, mixer, stems.
