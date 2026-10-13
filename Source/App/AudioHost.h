@@ -3,6 +3,8 @@
 // importing files, and saving / opening a song folder.
 #include <JuceHeader.h>
 #include <deque>
+#include <set>
+#include <array>
 #include "../Engine/Engine.h"
 #include "../Model/Model.h"
 #include "PhoneLink.h"
@@ -64,11 +66,29 @@ public:
     std::atomic<bool> studioKeys { false };    // STUDIO is open with an instrument lane: the keys play it (and record into it)
     InstrumentRack rack;                       // 1.3: the KEYBOARD's instrument (MODULAR, a sampled instrument, a plug-in) - or the SYNTH
     void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override {
-        if (studioKeys.load()) studio.midiNote(note, vel, true);
-        else if (rack.takesNotes()) { if (synthInto == 0) setSynthInto(1); rack.noteOn(note, vel); }
-        else synth.noteOn(note, vel); }
+        if (studioKeys.load()) { studio.midiNote(note, vel, true); return; }
+        if (latch) {                                    // HOLD: a touch turns a note on, the next touch turns it off
+            if (latched.count(note)) { latched.erase(note); playOff(note); } else { latched.insert(note); playOn(note, vel); }
+            return; }
+        playOn(note, vel); }
     void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override {
-        if (studioKeys.load()) studio.midiNote(note, 0, false); else { rack.noteOff(note); synth.noteOff(note); } }
+        if (studioKeys.load()) { studio.midiNote(note, 0, false); return; }
+        if (latch) return;
+        playOff(note); }
+    void playOn(int note, float vel) { if (rack.takesNotes()) { if (synthInto == 0) setSynthInto(1); rack.noteOn(note, vel); } else synth.noteOn(note, vel); }
+    void playOff(int note) { rack.noteOff(note); synth.noteOff(note); }
+    // 1.4: HOLD - notes stay on until touched again (easy chords on a screen; with the arpeggiator every touched note joins it)
+    bool latch = false;
+    std::set<int> latched;
+    void setLatch(bool on) { if (!on) releaseLatched(); latch = on; }
+    void releaseLatched() { for (int n : latched) playOff(n); latched.clear(); }
+    void latchChord(const std::vector<int>& notes, float vel) {     // a chord pad with HOLD: it replaces the held chord (the same pad again: off)
+        std::set<int> want(notes.begin(), notes.end());
+        bool same = want == latched;
+        releaseLatched();
+        if (!same) for (int n : want) { latched.insert(n); playOn(n, vel); } }
+    // 1.4: the 8 chord pads (notes above the C of the octave shown; empty = the chords of the key)
+    std::array<std::vector<int>, 8> chordPads;
     void setSustain(bool down) { synth.setSustain(down); rack.sustain(down); }
 
     // pedals / keys: REC, PLAY/STOP, UNDO, NEXT SCENE

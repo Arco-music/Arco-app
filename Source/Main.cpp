@@ -93,7 +93,8 @@ public:
         mc->setSize(1440, 880);
         if (cmd.contains("portrait")) mc->setSize(820, 1180);               // an iPad held upright
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
-        if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue()); }
+        if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue());
+            if (cmd.contains("skeys=")) mc->canvas.synthKeys(cmd.fromFirstOccurrenceOf("skeys=", false, false).getIntValue(), cmd.contains("sedit")); }
         if (cmd.contains("look")) mc->canvas.openLook(true);
         if (cmd.contains("keyboard")) mc->canvas.openKeyboard(true);
         if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true); }

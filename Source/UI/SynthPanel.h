@@ -11,7 +11,7 @@ void applyFactorySynthPreset(Model& m, int index);
 
 // SYNTH 2: three pages - SOUND (3 oscillators, sub, noise, filter, voice), MOVEMENT (3 envelopes, 3 LFOs, the modulation
 // list, 4 macros) and PLAY (the arpeggiator). Drag a source (the dots on LFOs, envelopes, macros) onto any knob to move it.
-// Below: four ways to play - piano keys, the slide pad, chord pads, a scale grid - plus the computer keys and MIDI.
+// Below: four ways to play - piano keys, the slide pad, chord pads (set note by note), HARMONY - plus the computer keys and MIDI.
 class SynthPanel : public juce::Component, public juce::DragAndDropContainer, private juce::Timer {
 public:
     explicit SynthPanel(Canvas& c);
@@ -28,6 +28,7 @@ public:
     int page = 0;                       // 0 SOUND, 1 MOVEMENT, 2 PLAY
     int keysMode = 0;                   // 0 piano, 1 slide pad, 2 chords, 3 scale grid
     void setPage(int p);
+    void setKeysMode(int m, bool edit);   // 0 KEYS, 1 SLIDE PAD, 2 CHORDS, 3 HARMONY (edit: setting the chords)
     void addMod(int source, const std::string& knobId);     // a new slot: source -> the knob's destination
     Canvas& cv;
     int octave = 5;
@@ -37,7 +38,7 @@ private:
     juce::OwnedArray<juce::Component> kids;
     std::vector<juce::Component*> pages[3];
     std::unique_ptr<juce::MidiKeyboardComponent> kb;
-    std::unique_ptr<juce::Component> pad;
+    std::unique_ptr<juce::Component> pad, held;
     template <typename T, typename... A> T* add(int pg, juce::Rectangle<int> r, A&&... a) {
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY()));
         if (pg >= 0) pages[pg].push_back(c); return c; }

@@ -54,7 +54,8 @@ void AudioHost::phoneCommand(PhoneConn& c, const juce::String& line) {
     else if (w == "listen" && t.size() >= 2) c.listenMix.store(juce::jlimit(0, 2, t[1].getIntValue()));
     else if (w == "noteon" && t.size() >= 3) keys.noteOn(1, juce::jlimit(0, 127, t[1].getIntValue()), (float) juce::jlimit(0.01, 1.0, num(2)));
     else if (w == "noteoff" && t.size() >= 2) keys.noteOff(1, juce::jlimit(0, 127, t[1].getIntValue()), 0.0f);
-    else if (w == "alloff") { synth.allOff(); synth.padOff(); rack.allOff(); }
+    else if (w == "alloff") { latched.clear(); synth.allOff(); synth.padOff(); rack.allOff(); }
+    else if (w == "hold" && t.size() >= 2) setLatch(t[1].getIntValue() != 0);
     else if (w == "padon" && t.size() >= 3) synth.padOn((float) num(1), (float) num(2));
     else if (w == "padmove" && t.size() >= 3) synth.padMove((float) num(1), (float) num(2));
     else if (w == "padoff") synth.padOff();
@@ -639,6 +640,7 @@ void AudioHost::saveSetup() {
       o->setProperty("midimap", ml); }
     o->setProperty("pedals", pd);
     { juce::Array<juce::var> us; for (auto& k : rack.userSfz) us.add(k); o->setProperty("userSfz", us); }
+    { juce::Array<juce::var> cp; for (auto& pad : chordPads) { juce::Array<juce::var> a; for (int n : pad) a.add(n); cp.add(a); } o->setProperty("chordPads", cp); }
     if (auto kx = rack.known.createXml()) o->setProperty("plugins", kx->toString());
     if (auto xml = devices.createStateXml()) o->setProperty("audio", xml->toString());
     f.replaceWithText(juce::JSON::toString(juce::var(o)));
@@ -673,6 +675,7 @@ void AudioHost::loadSetup(bool openDevice) {
         if (auto* pd = v["pedals"].getArray())
             for (int a = 0; a < NumActions && a * 3 + 2 < pd->size(); ++a) pedal[a] = { (int) (*pd)[a * 3], (int) (*pd)[a * 3 + 1], (int) (*pd)[a * 3 + 2] };
         if (v["audio"].isString()) xml = juce::parseXML(v["audio"].toString());
+        if (auto* cp = v["chordPads"].getArray()) for (int i = 0; i < juce::jmin(8, cp->size()); ++i) { chordPads[(size_t) i].clear(); if (auto* a = (*cp)[i].getArray()) for (auto& n : *a) chordPads[(size_t) i].push_back((int) n); }
         if (auto* us = v["userSfz"].getArray()) for (auto& k : *us) if (juce::File(k.toString()).existsAsFile()) rack.userSfz.addIfNotAlreadyThere(k.toString());
         if (v["plugins"].isString()) if (auto kx = juce::parseXML(v["plugins"].toString())) rack.known.recreateFromXml(*kx);
     }

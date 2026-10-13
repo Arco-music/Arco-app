@@ -743,6 +743,22 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         h.devices.closeAudioDevice();
         h.nLive = 1; h.inputCh[0] = 1; h.inputCh[1] = 2;
     }
+    // ---- 1.4: HOLD (notes stay until touched again) and the arpeggiator taking them
+    {
+        h.keys.allNotesOff(0); h.synth.allOff(); applyFactorySynthPreset(m, 0); h.setSynthInto(1); run(1.0, 0);
+        h.setLatch(true);
+        h.keys.noteOn(1, 60, 0.8f); h.keys.noteOff(1, 60, 0); h.keys.noteOn(1, 64, 0.8f); h.keys.noteOff(1, 64, 0); run(0.4, 0);
+        float held = e.snap("syn_n").v.load();
+        h.keys.noteOn(1, 60, 0.8f); h.keys.noteOff(1, 60, 0); run(2.5, 0);
+        float after = e.snap("syn_n").v.load();
+        check(held >= 2 && after >= 1 && after < held && h.latched.size() == 1, "HOLD: touched notes stay; touched again, they stop", held);
+        m.set("arp_on", 1); h.releaseLatched(); run(0.3, 0);
+        for (int n : { 60, 64, 67 }) { h.keys.noteOn(1, n, 0.8f); h.keys.noteOff(1, n, 0); }
+        float pk = run(2.0, 0);
+        check(pk > 0.01f && h.latched.size() == 3, "  with the arpeggiator: every touched note joins it and keeps playing", pk);
+        h.setLatch(false); m.set("arp_on", 0); h.synth.allOff(); run(2.0, 0);
+        h.setSynthInto(0);
+    }
     // ---- 1.3: the KEYBOARD's instrument plays through the station like the SYNTH
     {
         h.keys.allNotesOff(0); h.synth.allOff(); h.setSynthInto(0); run(1.0, 0);

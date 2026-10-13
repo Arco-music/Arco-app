@@ -592,6 +592,7 @@ void Canvas::openSpatial(bool show) { spatial->setVisible(show); if (show) spati
 void Canvas::openKeyboard(bool show) { keyboardWin->setVisible(show); if (show) keyboardWin->toFront(true); }
 void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) modularWin->toFront(true); }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
+void Canvas::synthKeys(int m, bool edit) { synthWin->setKeysMode(m, edit); }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
 void Canvas::doSave(bool askName) {
