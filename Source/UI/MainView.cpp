@@ -610,6 +610,7 @@ void Canvas::openSetup(bool show) { setup->setVisible(show); if (show) setup->to
 void Canvas::openMic(bool show) { if (auto* mc = findParentComponentOfClass<MainComponent>()) mc->showMic(show); }
 void Canvas::openLook(bool show) { look->setVisible(show); if (show) look->toFront(true); }
 void Canvas::openSpatial(bool show) { spatial->setVisible(show); if (show) spatial->toFront(true); }
+void Canvas::openOutputs() { spatial->showTab(0); openSpatial(true); }
 void Canvas::openKeyboard(bool show) { keyboardWin->setVisible(show); if (show) keyboardWin->toFront(true); }
 void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) modularWin->toFront(true); }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }

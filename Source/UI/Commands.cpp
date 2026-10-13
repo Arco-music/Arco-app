@@ -122,7 +122,7 @@ void Canvas::command(int id) {
         case cmdMidiLearn: setMidiLearn(!midiLearn); break;
         case cmdMidiClear: host.clearMidiMap(); showMessage("all MIDI connections forgotten"); break;
         case cmdAutoMix: openAutoMix(); break;
-        case cmdSpatial: openSpatial(true); break;
+        case cmdSpatial: openOutputs(); break;
         case cmdKeyboard: openKeyboard(true); break;
         case cmdModular: openModular(true); break;
         case cmdAB: autoMixCompare(); break;

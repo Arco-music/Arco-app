@@ -56,6 +56,7 @@ public:
     std::vector<juce::Component*> pagePills;
     void openLook(bool show);
     void openSpatial(bool show);
+    void openOutputs();                  // the SPEAKERS & SPACE window on its OUTPUTS page
     void openKeyboard(bool show);
     void openModular(bool show);
     // 1.3: iPad portrait - the same station, rearranged for a tall screen (logical size W x H)

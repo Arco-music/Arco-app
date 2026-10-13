@@ -49,7 +49,26 @@ SpatialPanel::SpatialPanel(Canvas& c) : cv(c) {
     srcKnob(780, y0 + 164, "amb_spd", 0, 100, [] { return Theme::amber(); }); srcKnob(860, y0 + 164, "amb_rng", 0, 180, [] { return Theme::amber(); });
     pill({ 940, y0 + 172, 120, 26 }, "IN TEMPO", [this, &m] { return m.get("amb_sync" + std::to_string(selSrc)) > 0.5 ? Theme::amber() : Theme::btn(); },
          [this, &m] { auto id = "amb_sync" + std::to_string(selSrc); m.set(id, m.get(id) > 0.5 ? 0 : 1); });
+    // 1.4: two pages - OUTPUTS (what goes to which output of the sound card) and SPEAKERS & SPACE (ambisonics)
+    routing = std::make_unique<RoutingView>(cv);
+    addChildComponent(*routing);
+    routing->setBounds(box.getX() + 20, box.getY() + 64, box.getWidth() - 40, box.getHeight() - 80);
+    const char* TB[2] = { "OUTPUTS", "SPEAKERS & SPACE" };
+    for (int t = 0; t < 2; ++t) {
+        auto* p = new Pill(TB[t], [this, t] { return tab == t ? Theme::sel() : Theme::btn(); }, 10.0f, 8.0f);
+        p->onClick = [this, t] { showTab(t); };
+        addAndMakeVisible(p); p->setBounds(box.getX() + 24 + t * 196, box.getY() + 14, 188, 34);
+        tabPills.push_back(p); kidsTabs.add(p);
+    }
+    showTab(1);
     startTimerHz(30);
+}
+
+void SpatialPanel::showTab(int t) {
+    tab = juce::jlimit(0, 1, t);
+    for (int i = 1; i < kids.size(); ++i) kids[i]->setVisible(tab == 1);       // (0: CLOSE)
+    routing->setVisible(tab == 0);
+    repaint();
 }
 
 void SpatialPanel::visibilityChanged() { if (isVisible()) toFront(true); }
@@ -73,8 +92,8 @@ void SpatialPanel::paint(juce::Graphics& g) {
     auto& m = cv.model();
     g.fillAll(juce::Colours::black.withAlpha(0.45f));
     g.setColour(Theme::card()); g.fillRoundedRectangle(box.toFloat(), 14.0f);
-    lab(g, "SPEAKERS & SPACE", { box.getX() + 24, box.getY() + 14, 400, 28 }, 14.0f, Theme::txt(), 2);
-    lab(g, U8("ambisonics (3rd order, AllRAD): any layout up to 32 speakers - place each sound, still or moving"), { box.getX() + 24, box.getY() + 42, 700, 16 }, 8.0f, Theme::sub());
+    if (tab == 0) return;                                                                 // OUTPUTS draws itself
+    lab(g, U8("ambisonics (3rd order, AllRAD): any layout up to 32 speakers - place each sound, still or moving"), { box.getX() + 420, box.getY() + 22, 640, 16 }, 8.0f, Theme::sub());
     // ---- the room from above
     auto c = juce::Point<float>(box.getX() + centre.x, box.getY() + centre.y);
     g.setColour(Theme::scr()); g.fillEllipse(c.x - radius, c.y - radius, radius * 2, radius * 2);
@@ -154,6 +173,7 @@ void SpatialPanel::paint(juce::Graphics& g) {
 }
 
 void SpatialPanel::mouseDown(const juce::MouseEvent& e) {
+    if (tab == 0) return;
     auto p = e.position;
     if (!box.contains(p.toInt())) { cv.host.saveSetup(); setVisible(false); return; }
     auto& m = cv.model();
@@ -180,6 +200,7 @@ void SpatialPanel::mouseDown(const juce::MouseEvent& e) {
     repaint();
 }
 void SpatialPanel::mouseDrag(const juce::MouseEvent& e) {
+    if (tab == 0) return;
     auto& m = cv.model(); float az, d; fromPoint(e.position, az, d);
     az = std::round(az);
     if (dragSrc >= 0) { auto id = std::to_string(dragSrc); float el = (float) m.get("amb_el" + id); m.set("amb_az" + id, az); m.set("amb_dist" + id, std::round(d / std::max(0.2f, std::cos(el * juce::MathConstants<float>::pi / 180.0f)) * 10) / 10); }
@@ -209,6 +230,129 @@ void SpatialPanel::preset(int which) {
     for (size_t k = 0; k < L.size(); ++k) { auto id = std::to_string(k); m.set("spk_az" + id, L[k].first); m.set("spk_el" + id, L[k].second); m.set("spk_dist" + id, 2.0); }
     h.speakerLayout = 2; h.applySpeakers(); h.applyRouting(); h.saveSetup();
     selSpk = 0; repaint();
+}
+
+} // namespace arco
+
+namespace arco {
+
+// ===================================================================== OUTPUTS
+static const int NSRC = 14;
+RoutingView::RoutingView(Canvas& c) : cv(c) {
+    auto pill = [&](juce::Rectangle<int> r, const juce::String& t, ColourFn col, std::function<void()> f) {
+        auto* p = new Pill(t, std::move(col), 8.0f, 6.0f); p->onClick = std::move(f); kids.add(p); addAndMakeVisible(p); p->setBounds(r); return p; };
+    pill({ 0, 44, 250, 28 }, U8("ONE OUTPUT EACH (for a mixing desk)"), [] { return Theme::blue(); }, [this] { oneEach(); });
+    pill({ 258, 44, 110, 28 }, "CLEAR ALL", [] { return Theme::btn(); }, [this] { clearAll(); });
+    pill({ 376, 44, 150, 28 }, U8("SOUND CARD (SETUP) ▸"), [] { return Theme::btn(); }, [this] { cv.openSpatial(false); cv.openSetup(true); });
+    startTimerHz(15);
+}
+int RoutingView::numOuts() const {
+    if (auto* d = cv.host.devices.getCurrentAudioDevice()) return juce::jlimit(2, NSPK, d->getActiveOutputChannels().countNumberOfSetBits());
+    if (auto f = juce::SystemStats::getEnvironmentVariable("ARCO_FAKE_OUTS", ""); f.isNotEmpty()) return juce::jlimit(2, NSPK, f.getIntValue());   // (screenshots)
+    return 2;
+}
+juce::String RoutingView::sourceName(int s) const {
+    if (s < 4) return "LIVE " + juce::String(s + 1) + (cv.host.synthInto > 0 && cv.host.synthInto == s ? U8("  ·  SYNTH") : juce::String());
+    if (s < 12) return "TRACK " + juce::String(s - 3);
+    return s == 12 ? "DRUMS" : "HALO";
+}
+static const float NAMEW = 200, ROOMW = 78, TOP = 150;
+static void txtOn(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour bg) {
+    g.setColour(Theme::textOn(bg)); g.setFont(Theme::font(fs, 2)); g.drawFittedText(t, r, juce::Justification::centred, 1, 0.8f);
+}
+juce::Rectangle<float> RoutingView::roomCell(int src) const {
+    float rh = juce::jmin(36.0f, (getHeight() - TOP - 40) / (float) NSRC);
+    return { NAMEW, TOP + src * rh, ROOMW, rh };
+}
+juce::Rectangle<float> RoutingView::cell(int src, int out) const {
+    float rh = juce::jmin(36.0f, (getHeight() - TOP - 40) / (float) NSRC);
+    float cw = juce::jmin(48.0f, (getWidth() - NAMEW - ROOMW - 12) / (float) numOuts());
+    return { NAMEW + ROOMW + 12 + out * cw, TOP + src * rh, cw, rh };
+}
+bool RoutingView::hit(juce::Point<float> p, int& src, int& out) const {
+    for (int s = 0; s < NSRC; ++s) {
+        if (roomCell(s).contains(p)) { src = s; out = -1; return true; }
+        for (int k = 0; k < numOuts(); ++k) if (cell(s, k).contains(p)) { src = s; out = k; return true; }
+    }
+    return false;
+}
+void RoutingView::paint(juce::Graphics& g) {
+    auto& e = cv.engine(); auto& m = cv.model();
+    int no = numOuts(), spk = (int) m.get("spk_n"), pf = e.phonesFirst.load();
+    lab(g, U8("Every sound goes to the ROOM (the main speakers, laid out in SPEAKERS & SPACE) - and, if you want, straight to any output of the sound card: "
+              "one channel each on the room's mixing desk, a monitor for a musician, a recorder. Turn ROOM off and it goes only where you send it."),
+        { 0, 0, getWidth(), 40 }, 8.5f, Theme::sub());
+    juce::String dev = "no sound card";
+    if (auto* d = cv.host.devices.getCurrentAudioDevice()) dev = d->getName() + "  ·  " + juce::String(no) + " outputs";
+    lab(g, dev, { 540, 44, getWidth() - 540, 28 }, 9.0f, Theme::txt(), 2, juce::Justification::centredRight);
+    if (no <= 2) lab(g, U8("This sound card has 2 outputs. Connect an interface with more (on the iPad: USB, through the adapter) and they appear here."), { 0, 78, getWidth(), 18 }, 8.5f, Theme::amber());
+    // the column heads
+    lab(g, "SOUND", { 0, (int) TOP - 34, (int) NAMEW, 18 }, 8.0f, Theme::sub(), 2);
+    lab(g, "ROOM", { (int) NAMEW, (int) TOP - 34, (int) ROOMW, 18 }, 8.0f, Theme::sub(), 2, juce::Justification::centred);
+    lab(g, "OUTPUTS OF THE SOUND CARD", { (int) (NAMEW + ROOMW + 12), (int) TOP - 52, 400, 16 }, 8.0f, Theme::sub(), 2);
+    juce::StringArray chNames; if (auto* d = cv.host.devices.getCurrentAudioDevice()) chNames = d->getOutputChannelNames();
+    for (int k = 0; k < no; ++k) {
+        auto c = cell(0, k); auto hr = juce::Rectangle<float>(c.getX(), TOP - 34, c.getWidth(), 30).reduced(1);
+        bool isHp = pf >= 0 && (k == pf || k == pf + 1), isRoom = k < spk;
+        g.setColour(isHp ? Theme::amber().withAlpha(0.25f) : (isRoom ? Theme::green().withAlpha(0.2f) : Theme::card2())); g.fillRoundedRectangle(hr, 4.0f);
+        lab(g, juce::String(k + 1), hr.toNearestInt().withTrimmedBottom(12), 9.5f, Theme::txt(), 2, juce::Justification::centred);
+        lab(g, isHp ? "HP" : (isRoom ? "ROOM" : ""), hr.toNearestInt().removeFromBottom(12), 6.0f, Theme::sub(), 2, juce::Justification::centred);
+    }
+    int ntn = juce::jlimit(1, 8, (int) cv.snap("ntn")); if (cv.snap("ntn") < 1) ntn = 4;
+    for (int s = 0; s < NSRC; ++s) {
+        bool used = s < 4 ? (s < cv.host.nLive || (cv.host.synthInto > 0 && s == cv.host.synthInto)) : (s < 12 ? (s - 4) < ntn : true);
+        auto rr = roomCell(s); auto row = juce::Rectangle<float>(0, rr.getY(), (float) getWidth(), rr.getHeight());
+        if (s % 2 == 0) { g.setColour(Theme::card2().withAlpha(0.35f)); g.fillRect(row); }
+        g.setColour(s < 12 ? Theme::strip(s) : Theme::fx(s == 12 ? "drm" : "halo")); g.fillEllipse(6, rr.getCentreY() - 4, 8, 8);
+        lab(g, sourceName(s), { 22, (int) rr.getY(), (int) NAMEW - 24, (int) rr.getHeight() }, 9.0f, used ? Theme::txt() : Theme::sub(), used ? 2 : 0);
+        // ROOM
+        bool room = s < 12 ? m.get("room" + std::to_string(s)) > 0.5 : true;
+        auto rc = rr.reduced(8, 5);
+        g.setColour(room ? Theme::green() : Theme::btn()); g.fillRoundedRectangle(rc, 5.0f);
+        txtOn(g, s < 12 ? (room ? "ON" : "OFF") : "ALWAYS", rc.toNearestInt(), 7.5f, room ? Theme::green() : Theme::btn());
+        for (int k = 0; k < no; ++k) {
+            auto c = cell(s, k).reduced(3, 5);
+            bool on = e.grid[s][k].load() > 0;
+            g.setColour(on ? (s < 12 ? Theme::strip(s) : Theme::blue()) : Theme::scr()); g.fillRoundedRectangle(c, 4.0f);
+            if (on) { g.setColour(Theme::textOn(s < 12 ? Theme::strip(s) : Theme::blue())); g.fillEllipse(c.withSizeKeepingCentre(7, 7)); }
+        }
+    }
+    lab(g, U8("Touch a square to send that sound to that output (drag along a row for several). ROOM speakers (green) play the main mix; HP = the headphones."),
+        { 0, getHeight() - 30, getWidth(), 24 }, 8.0f, Theme::sub());
+}
+void RoutingView::mouseDown(const juce::MouseEvent& e) {
+    int s, k; if (!hit(e.position, s, k)) return;
+    auto& m = cv.model();
+    if (k < 0) { if (s < 12) { auto id = "room" + std::to_string(s); m.set(id, m.get(id) > 0.5 ? 0 : 1); } paintValue = -1; repaint(); return; }
+    bool on = cv.engine().grid[s][k].load() > 0;
+    paintValue = on ? 0 : 1;
+    cv.engine().grid[s][k].store((float) paintValue);
+    repaint();
+}
+void RoutingView::mouseDrag(const juce::MouseEvent& e) {
+    if (paintValue < 0) return;
+    int s, k; if (!hit(e.position, s, k) || k < 0) return;
+    cv.engine().grid[s][k].store((float) paintValue); repaint();
+}
+void RoutingView::mouseUp(const juce::MouseEvent&) { paintValue = -1; cv.host.saveSetup(); }
+void RoutingView::clearAll() { for (int s = 0; s < NSRC; ++s) for (int k = 0; k < NSPK; ++k) cv.engine().grid[s][k].store(0.0f); cv.host.saveSetup(); repaint(); }
+void RoutingView::oneEach() {
+    int no = numOuts(); auto& m = cv.model();
+    int first = juce::jmax(2, (int) m.get("spk_n")), pf = cv.engine().phonesFirst.load();
+    clearAll();
+    int ntn = juce::jlimit(1, 8, (int) cv.snap("ntn")); if (cv.snap("ntn") < 1) ntn = 4;
+    int k = first, done = 0;
+    for (int s = 0; s < NSRC; ++s) {
+        bool used = s < 4 ? (s < cv.host.nLive || (cv.host.synthInto > 0 && s == cv.host.synthInto)) : (s < 12 ? (s - 4) < ntn : false);
+        if (!used) continue;
+        while (k < no && pf >= 0 && (k == pf || k == pf + 1)) ++k;
+        if (k >= no) break;
+        cv.engine().grid[s][k].store(1.0f); ++k; ++done;
+    }
+    cv.host.saveSetup();
+    cv.showMessage(done > 0 ? juce::String(done) + U8(" sounds - one output each, from output ") + juce::String(first + 1)
+                            : U8("no free outputs: connect a sound card with more outputs"));
+    repaint();
 }
 
 } // namespace arco

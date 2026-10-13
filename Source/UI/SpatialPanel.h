@@ -8,9 +8,32 @@
 namespace arco {
 class Canvas;
 
+// 1.4: OUTPUTS - every sound (LIVE 1-4, the tracks, the drums, HALO; the SYNTH plays through its LIVE strip) to one or more
+// outputs of the sound card, e.g. one channel each on the room's mixing desk. A grid: a row per sound, a column per output.
+class RoutingView : public juce::Component, private juce::Timer {
+public:
+    explicit RoutingView(Canvas& c);
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+private:
+    Canvas& cv;
+    void timerCallback() override { if (isShowing()) repaint(); }
+    int numOuts() const;
+    juce::Rectangle<float> cell(int src, int out) const;
+    juce::Rectangle<float> roomCell(int src) const;
+    bool hit(juce::Point<float> p, int& src, int& out) const;     // out -1 = ROOM
+    int paintValue = -1;                                          // a drag paints on or off
+    juce::OwnedArray<juce::Component> kids;
+    juce::String sourceName(int s) const;
+    void oneEach(); void clearAll();
+};
+
 class SpatialPanel : public juce::Component, private juce::Timer {
 public:
     explicit SpatialPanel(Canvas& c);
+    void showTab(int t);                                           // 0 OUTPUTS, 1 SPEAKERS & SPACE
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
@@ -30,6 +53,10 @@ private:
     int dragSpk = -1, dragSrc = -1;
     void preset(int which);
     std::vector<std::pair<juce::Rectangle<int>, int>> srcRows;
+    int tab = 1;
+    std::unique_ptr<RoutingView> routing;
+    std::vector<juce::Component*> tabPills;
+    juce::OwnedArray<juce::Component> kidsTabs;
 };
 
 } // namespace arco
