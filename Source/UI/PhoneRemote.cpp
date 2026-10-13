@@ -160,7 +160,6 @@ void PhoneRemote::paint(juce::Graphics& g) {
     const char* T[5] = { "PLAY", "MIX", "EFFECTS", "SYNTH", "AUDIO" };
     for (int i = 0; i < 5; ++i) button(g, tabs.removeFromLeft(tabs.getWidth() / (5 - i)).reduced(2 * u, 6 * u), T[i], page == i ? Theme::sel() : Theme::card(), [this, i] { setPage(i); }, 8.5f, false);
    #if JUCE_IOS
-    if (routePicker != nullptr && page != 4) routePicker->setVisible(false);
    #endif
     area.removeFromBottom(4 * u);
     content = area;
@@ -366,17 +365,13 @@ void PhoneRemote::drawAudio(juce::Graphics& g, juce::Rectangle<float> r) {
          r.removeFromTop(48 * u), 7.5f, Theme::sub());
     r.removeFromTop(10 * u);
     text(g, U8("OUTPUT"), r.removeFromTop(26 * u), 11.0f, Theme::txt(), 2);
-    auto orow = r.removeFromTop(48 * u);
-    auto pick = orow.removeFromRight(48 * u);
-    text(g, U8("now: ") + curOut, orow, 9.0f, Theme::txt(), 1);
-   #if JUCE_IOS
-    if (routePicker == nullptr) { routePicker = std::make_unique<juce::UIViewComponent>(); addAndMakeVisible(*routePicker); routePicker->setView(ios::makeRoutePicker()); }
-    auto pb = pick.reduced(4 * u).toNearestInt();
-    bool inside = content.contains(pick);
-    if (routePicker->getBounds() != pb) routePicker->setBounds(pb);
-    if (routePicker->isVisible() != inside) routePicker->setVisible(inside);
-    g.setColour(Theme::card2()); g.fillRoundedRectangle(pick.reduced(2 * u), 10 * u);
-   #endif
+    text(g, U8("now: ") + curOut, r.removeFromTop(22 * u), 9.0f, Theme::txt(), 1);
+    auto orow = r.removeFromTop(44 * u).reduced(0, 3 * u);
+    button(g, orow, U8("CHOOSE WHERE THE SOUND GOES ▸"), Theme::blue(), [this] {
+       #if JUCE_IOS
+        ios::showOutputPicker();
+       #endif
+        repaint(); }, 9.0f);
     auto srow = r.removeFromTop(44 * u).reduced(0, 3 * u);
    #if JUCE_IOS
     bool spk = ios::speakerForced();
@@ -388,7 +383,7 @@ void PhoneRemote::drawAudio(juce::Graphics& g, juce::Rectangle<float> r) {
         ios::forceSpeaker(! ios::speakerForced()); host.saveSetup();
        #endif
         repaint(); }, 9.0f);
-    text(g, U8("The round button chooses where the sound goes: Bluetooth headphones or speakers, AirPlay, a cable. ")
+    text(g, U8("Bluetooth headphones or speakers, AirPlay, a cable - connected Bluetooth headphones take the sound by themselves. ")
          + (bt ? U8("Bluetooth delays the sound (about 0.2 s): good for listening, not for playing in time.") : juce::String()),
          r.removeFromTop(46 * u), 7.5f, bt ? Theme::amber() : Theme::sub());
     r.removeFromTop(10 * u);

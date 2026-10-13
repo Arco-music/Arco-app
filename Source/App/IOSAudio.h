@@ -15,4 +15,6 @@ bool outputIsBluetooth();
 bool speakerForced();
 void forceSpeaker(bool on);                          // the built-in speaker even with headphones plugged in
 void* makeRoutePicker();                             // a UIView* (AVRoutePickerView): Bluetooth, AirPlay, cable, speaker
+void showOutputPicker();                             // 1.4: opens iOS's own list of outputs (Bluetooth headphones, AirPlay, cable, speaker)
+void configureSession();                             // 1.4: Bluetooth headphones in full quality (A2DP) - the sound goes to them by itself
 }

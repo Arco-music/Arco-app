@@ -72,8 +72,44 @@ static void preferBest() {
     }
 }
 
+// The session JUCE opens allows Bluetooth "hands-free" (HFP) too: with a headset connected iOS then prefers the phone-call
+// connection (low quality, or the sound stays on the iPad). ARCO asks for high-quality Bluetooth (A2DP) only, unless a
+// Bluetooth microphone was chosen on purpose. Then Bluetooth headphones / speakers take the sound as soon as they connect.
+void configureSession() {
+    AVAudioSession* session = [AVAudioSession sharedInstance];
+    if (! [session.category isEqualToString: AVAudioSessionCategoryPlayAndRecord]) return;
+    bool btMic = chosen().startsWith("bt") || chosen().containsIgnoreCase("bluetooth");
+    for (AVAudioSessionPortDescription* p in session.availableInputs)
+        if ([p.portType isEqualToString: AVAudioSessionPortBluetoothHFP] && chosen().upToFirstOccurrenceOf("|", false, false) == S(p.UID)) btMic = true;
+    NSUInteger want = AVAudioSessionCategoryOptionMixWithOthers | AVAudioSessionCategoryOptionDefaultToSpeaker
+                    | AVAudioSessionCategoryOptionAllowAirPlay | AVAudioSessionCategoryOptionAllowBluetoothA2DP;
+    if (btMic) want |= AVAudioSessionCategoryOptionAllowBluetooth;
+    if (session.categoryOptions == want) return;
+    [session setCategory: AVAudioSessionCategoryPlayAndRecord mode: AVAudioSessionModeDefault options: want error: nil];
+}
+
+void showOutputPicker() {
+    static AVRoutePickerView* picker = nil;
+    UIWindow* win = nil;
+    for (UIScene* sc in [UIApplication sharedApplication].connectedScenes)
+        if ([sc isKindOfClass: [UIWindowScene class]])
+            for (UIWindow* w in ((UIWindowScene*) sc).windows) if (w.isKeyWindow) win = w;
+    if (win == nil) win = [UIApplication sharedApplication].windows.firstObject;
+    if (win == nil) return;
+    if (picker == nil) {
+        picker = [[AVRoutePickerView alloc] initWithFrame: CGRectMake(win.bounds.size.width * 0.5 - 20, 60, 40, 40)];
+        picker.prioritizesVideoDevices = NO;
+        picker.alpha = 0.011f;                       // invisible, but iOS still lets it show its list
+    }
+    if (picker.superview != win) [win addSubview: picker];
+    picker.frame = CGRectMake(win.bounds.size.width * 0.5 - 20, 60, 40, 40);
+    for (UIView* v in picker.subviews)
+        if ([v isKindOfClass: [UIButton class]]) { [(UIButton*) v sendActionsForControlEvents: UIControlEventTouchUpInside]; return; }
+}
+
 void applyInput() {
     AVAudioSession* session = [AVAudioSession sharedInstance];
+    configureSession();
     auto id = chosen();
     if (id == "auto" || id.isEmpty()) preferBest();
     else {

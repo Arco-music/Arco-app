@@ -27,12 +27,11 @@ AudioBox::AudioBox(Canvas& c, juce::LookAndFeel* laf) : cv(c) {
    #if JUCE_IOS
     // iPad: iOS has one sound device; the choice is the microphone (built-in, cable, USB, Bluetooth) and where the sound goes
     out.setVisible(false);
-    routePicker = std::make_unique<juce::UIViewComponent>();
-    addAndMakeVisible(*routePicker);
-    routePicker->setView(ios::makeRoutePicker());
-    routePicker->setBounds(110, 0, 30, 26);
+    auto* pick = new Pill(U("CHOOSE OUTPUT ▸"), [] { return Theme::blue(); }, 7.5f, 6.0f); kids.add(pick); addAndMakeVisible(pick);
+    pick->setBounds(110, 0, 120, 26);
+    pick->onClick = [] { ios::showOutputPicker(); };
     auto* spk = new Pill(U("SPEAKER"), [] { return ios::speakerForced() ? Theme::amber() : Theme::btn(); }, 7.5f, 6.0f); kids.add(spk); addAndMakeVisible(spk);
-    spk->setBounds(146, 0, 70, 26);
+    spk->setBounds(236, 0, 70, 26);
     spk->onClick = [this] { ios::forceSpeaker(! ios::speakerForced()); cv.host.saveSetup(); repaint(); };
     in.onChange = [this] { if (filling) return; int i = in.getSelectedItemIndex(); if (i >= 0 && i < iosIds.size()) { ios::chooseInput(iosIds[i]); cv.host.saveSetup(); } };
    #endif
@@ -91,7 +90,7 @@ void AudioBox::paint(juce::Graphics& g) {
     L("OUTPUT", 0, 0, 100, 26, 8.5f, Theme::txt(), 2);
    #if JUCE_IOS
     if (lastRoute != ios::currentInputName() + ios::currentOutputName()) juce::MessageManager::callAsync([sp = juce::Component::SafePointer<AudioBox>(this)] { if (sp) sp->refresh(); });
-    L(U("now: ") + ios::currentOutputName() + U("   ·   the round button: Bluetooth, AirPlay, cable"), 224, 0, 300, 26, 7.5f, ios::outputIsBluetooth() ? Theme::amber() : Theme::sub(), 1);
+    L(U("now: ") + ios::currentOutputName() + (ios::outputIsBluetooth() ? U("  ·  Bluetooth delays the sound a little") : juce::String()), 314, 0, 260, 26, 7.5f, ios::outputIsBluetooth() ? Theme::amber() : Theme::sub(), 1);
    #endif
     L("INPUT", 0, 40, 100, 26, 8.5f, Theme::txt(), 2);
     L("SAMPLE RATE", 0, 80, 100, 26, 8.5f, Theme::txt(), 2);

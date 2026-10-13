@@ -62,7 +62,6 @@ private:
     juce::Array<std::pair<juce::String, juce::String>> inputList;  // id, name (iOS)
     double inputsAt = 0;
    #if JUCE_IOS
-    std::unique_ptr<juce::UIViewComponent> routePicker;
    #endif
     juce::Rectangle<float> content;
     float u = 1.0f;                                   // the size unit (phones differ)
