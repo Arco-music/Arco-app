@@ -39,8 +39,8 @@ SourcePtr Studio::makeSource(const juce::String& name, std::vector<float> l, std
 
 void Studio::ensureReturns() {
     if (song.returnA() < 0) {
-        StudioLane A; A.name = "RETURN A"; A.kind = LaneReturn; A.colour = 9; A.devices.push_back(StudioDevice::make(DevReverb));
-        StudioLane B; B.name = "RETURN B"; B.kind = LaneReturn; B.colour = 10; B.devices.push_back(StudioDevice::make(DevDelay));
+        StudioLane A; A.name = "REVERB"; A.kind = LaneReturn; A.colour = 9; A.height = 46; A.devices.push_back(StudioDevice::make(DevReverb));
+        StudioLane B; B.name = "ECHO"; B.kind = LaneReturn; B.colour = 10; B.height = 46; B.devices.push_back(StudioDevice::make(DevDelay));
         song.lanes.push_back(A); song.lanes.push_back(B);
         laneStrip.push_back(-1); laneStrip.push_back(-1); laneScene.push_back(1); laneScene.push_back(1);
     }

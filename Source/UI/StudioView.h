@@ -36,7 +36,8 @@ private:
     void run() override;                         // export / print effects / transpose
     // ---- layout
     bool showBrowser = true, showDetail = true, mixView = false;
-    float topH = 52, rulerH = 34, headW = 232, browserW = 210, detailH = 236, laneGap = 4, autoH = 52;
+    int displayX = 300;
+    float topH = 60, rulerH = 34, headW = 232, browserW = 210, detailH = 236, laneGap = 4, autoH = 52;
     juce::Rectangle<int> browserArea() const;
     juce::Rectangle<int> rulerArea() const;
     juce::Rectangle<int> headArea() const;
@@ -98,6 +99,7 @@ private:
     void removeClip();
     void clipMenu(int ci);
     void laneMenu(int li);
+    void stationAction(int a);
     void inputMenu(int li);
     void autoMenu(int li);
     void addDeviceMenu(int li);
