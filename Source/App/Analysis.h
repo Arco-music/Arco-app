@@ -68,6 +68,7 @@ struct ImportPlan {
     bool matchTempo = true, matchKey = true;
     int semitones = 0;                       // the key move
     int outBars = 0;                         // after stretching
+    bool cut = false;                        // the file was longer than a track (only its first 42 s are used)
     juce::String summary() const;
     juce::String fitText(const struct PieceInfo& piece) const;
 };

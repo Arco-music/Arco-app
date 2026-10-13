@@ -295,7 +295,44 @@ void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long
     }
 }
 
+bool Studio::matchRate(double newSr) {
+    if (newSr < 8000 || std::abs(song.sr - newSr) < 0.5) return false;
+    bool wasPlaying = playing.load(); playing = false;
+    // resample the audio outside the lock (it can take a moment), then swap everything in at once
+    StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
+    const double k = newSr / copy.sr;
+    std::vector<SourcePtr> conv;
+    for (auto& sp : copy.sources) {
+        if (!sp) { conv.push_back(sp); continue; }
+        int ch = sp->r.empty() ? 1 : 2; int n = (int) sp->l.size();
+        auto S = std::make_shared<StudioSource>(); S->name = sp->name; S->id = sp->id;
+        if (n > 0) {
+            juce::AudioBuffer<float> b(ch, n);
+            b.copyFrom(0, 0, sp->l.data(), n); if (ch > 1) b.copyFrom(1, 0, sp->r.data(), n);
+            auto o = analysis::resample(b, copy.sr, newSr);
+            S->l.assign(o.getReadPointer(0), o.getReadPointer(0) + o.getNumSamples());
+            if (ch > 1) S->r.assign(o.getReadPointer(1), o.getReadPointer(1) + o.getNumSamples());
+        }
+        conv.push_back(SourcePtr(S));
+    }
+    auto L = [k](long v) { return (long) std::llround(v * k); };
+    copy.sources = std::move(conv);
+    for (auto& c : copy.clips) {
+        c.start = L(c.start); c.length = L(c.length); c.offset = L(c.offset); c.fadeIn *= (float) k; c.fadeOut *= (float) k; c.midiLen = L(c.midiLen);
+        for (auto& nt : c.notes) { nt.start *= k; nt.len *= k; }
+    }
+    for (auto& ln : copy.lanes) for (auto& a : ln.autos) for (auto& pt : a.pts) pt.t *= k;
+    for (auto& a : copy.masterAutos) for (auto& pt : a.pts) pt.t *= k;
+    for (auto& m : copy.markers) m.pos = L(m.pos);
+    copy.loopStart = L(copy.loopStart); copy.loopEnd = L(copy.loopEnd);
+    copy.sr = newSr;
+    { const juce::ScopedLock sl(lock); song = std::move(copy); pos = L(pos.load()); prepareRuntime(rt, song); }
+    if (wasPlaying) playing = true;
+    return true;
+}
+
 void Studio::play() {
+    matchRate(host.engine.sr);
     const juce::ScopedLock sl(lock);
     prepareRuntime(rt, song);
     if (song.loopOn && song.loopEnd > song.loopStart && (pos.load() < song.loopStart || pos.load() >= song.loopEnd)) pos = song.loopStart;

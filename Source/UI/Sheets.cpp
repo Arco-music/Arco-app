@@ -208,12 +208,16 @@ void ImportSheet::open(const juce::File& f, int t) {
 
 void ImportSheet::run() {
     if (wantRender) {
-        result = renderImport(plan, piece, [this](float p) { progress = p; return !threadShouldExit(); });
+        try { result = renderImport(plan, piece, [this](float p) { progress = p; return !threadShouldExit(); }); }
+        catch (...) { result = {}; error = "the file is too big to import"; }
         jobDone = true; return;
     }
     juce::String err;
     ImportPlan p;
-    if (!prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err)) { error = err; jobDone = true; return; }
+    bool ok = false;
+    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err); }
+    catch (...) { err = "the file is too big to read"; ok = false; }
+    if (!ok) { error = err; jobDone = true; return; }
     cv.host.listenKey(piece);
     // a thumbnail of the file
     std::vector<float> th(600, 0.0f);

@@ -64,6 +64,7 @@ void StudioView::open() {
         if (!loaded && !studio.buildFromStation(4, why)) { report = why; const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
     }
     { const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
+    studio.matchRate(cv.host.engine.sr);              // at the sound card's rate (a song from another rate is converted)
     builtFor = -2; rebuildDetail(); grabKeyboardFocus(); repaint();
 }
 

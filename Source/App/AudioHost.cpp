@@ -140,6 +140,7 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
 }
 
 void AudioHost::handleAsyncUpdate() {
+    if (!studio.song.clips.empty()) studio.matchRate(engine.sr);       // the sound card's rate changed: STUDIO follows
    #if JUCE_IOS
     // the microphone raw: no voice processing (noise gate, automatic level, echo cancelling) - those spoil an instrument
     if (auto* d = devices.getCurrentAudioDevice()) if (d != rawDone) { rawDone = d; d->setAudioPreprocessingEnabled(false); ios::applyInput(); }

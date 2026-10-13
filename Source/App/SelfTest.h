@@ -315,6 +315,21 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         std::vector<float> l(512, 0.0f), rr(512, 0.0f); h.studio.renderBlock(l.data(), rr.data(), 512); h.studio.renderBlock(l.data(), rr.data(), 512);
         check(h.studio.pos.load() == 1024, "  it plays (the playhead moves)");
         h.studio.playing = false;
+        {   // 1.4: a song from another rate plays at the right speed (it was slowed down)
+            StudioSong keep; { const juce::ScopedLock sl(h.studio.lock); keep = h.studio.song; }
+            StudioSong t; t.sr = 44100; t.bpm = 120;
+            std::vector<float> sine(44100); for (int i = 0; i < 44100; ++i) sine[(size_t) i] = 0.5f * (float) std::sin(2 * M_PI * 441.0 * i / 44100.0);
+            t.sources.push_back(h.studio.makeSource("sine", std::move(sine)));
+            StudioLane ln; t.lanes.push_back(ln);
+            StudioClip c; c.lane = 0; c.source = 0; c.start = 0; c.length = 44100; c.loop = false; t.clips.push_back(c);
+            { const juce::ScopedLock sl(h.studio.lock); h.studio.song = t; }
+            h.studio.matchRate(48000);
+            juce::AudioBuffer<float> out; h.studio.renderAll(out, nullptr);
+            int zc = 0; for (int i = 4800; i < 4800 + 24000 && i + 1 < out.getNumSamples(); ++i) zc += (out.getSample(0, i) <= 0 && out.getSample(0, i + 1) > 0);
+            double hz = zc / 0.5;
+            check(std::abs(h.studio.song.sr - 48000) < 1 && std::abs(hz - 441) < 4 && std::abs(h.studio.song.clips[0].length - 48000) < 2, "  a song from 44.1 kHz plays at the right speed at 48 kHz", hz);
+            { const juce::ScopedLock sl(h.studio.lock); h.studio.song = keep; }
+        }
         auto sf = dir.getChildFile("studio song"); sf.deleteRecursively(); sf.createDirectory();
         int nClips = (int) S.clips.size();
         bool sv = h.studio.save(sf);

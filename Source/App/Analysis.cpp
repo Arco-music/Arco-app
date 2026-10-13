@@ -320,6 +320,7 @@ juce::AudioBuffer<float> resample(const juce::AudioBuffer<float>& in, double fro
 juce::String ImportPlan::summary() const {
     juce::String s;
     s << (fileBpm > 0 ? juce::String(fileBpm, 1) + " BPM" : juce::String("no clear beat")) << juce::String::fromUTF8("  ·  ") << key.name();
+    if (cut) s << juce::String::fromUTF8("  ·  its first 42 s (a track holds 40 s; use STUDIO for long files)");
     return s;
 }
 
@@ -327,8 +328,10 @@ bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::Au
     std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
     if (r == nullptr) { error = "can't read " + f.getFileName() + " (use WAV, AIFF, MP3, FLAC or M4A)"; return false; }
     p.file = f; p.fileSr = r->sampleRate;
-    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * 600));
+    // a track holds up to 40 s: read only what can be used (a long file read whole filled the iPad's memory and it closed)
+    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * 42.0));
     if (n < 32) { error = "the file is empty"; return false; }
+    p.cut = r->lengthInSamples > n;
     juce::AudioBuffer<float> tmp((int) juce::jlimit(1u, 2u, r->numChannels), (int) n);
     r->read(&tmp, 0, (int) n, 0, true, tmp.getNumChannels() > 1);
     p.seconds = n / r->sampleRate;

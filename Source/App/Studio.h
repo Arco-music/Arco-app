@@ -99,6 +99,9 @@ public:
     std::atomic<long> pos { 0 };
     std::atomic<long> countInLeft { 0 };
     void play(); void stop(); void startRecording(); void stopRecording();
+    // 1.4: the studio always runs at the sound card's rate. A song made (or opened) at another rate is converted:
+    // its audio resampled, its times moved (before, it played too slow or too fast). Message thread.
+    bool matchRate(double newSr);
     bool renderBlock(float* l, float* r, int n);                       // audio thread: adds into l / r (false: nothing to play)
     void input(const float* const* in, int numIn, const float* live[4], const float* mixL, const float* mixR, int n);   // audio thread: what can be recorded
     void collectRecordings();                                           // message thread, often: the recorded audio into clips
