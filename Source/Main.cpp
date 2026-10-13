@@ -105,6 +105,7 @@ public:
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("newfx")) { host->visibleCards = juce::StringArray { "pdl", "fbk", "eq", "dly", "rev", "spc" }; mc->canvas.layoutCards(); }
+        if (cmd.contains("fx14")) { host->visibleCards = juce::StringArray { "voc", "pit", "spr", "tlk", "dly", "spc" }; mc->canvas.layoutCards(); }
         if (cmd.contains("fewfx")) { host->visibleCards = juce::StringArray { "eq", "dly", "rev", "flg", "png", "tap" }; mc->canvas.layoutCards(); }
         if (cmd.contains("phone")) {
             mc->setSize(cmd.contains("wide") ? 844 : 390, cmd.contains("wide") ? 390 : 844); mc->showMic(true); mc->phone.demo = true;

@@ -45,7 +45,7 @@ inline const std::vector<ExtraFxDef>& extraFxDefs() {
                                                                       { "fbk_harm", "PITCH" }, { "fbk_tone", "TONE" }, { "fbk_ret", "RETURN" }, { "fbk_spc", "→ SPACE" } },
           { 50, 45, 55, 0, 55, 70, 20 } },
         // 1.4
-        { "voc", "VOCODER", "your sound shapes a synth", { { "SEND", "SEND" }, { "voc_src", "SYNTH/CHORD/ROBOT" }, { "voc_note", "ROBOT NOTE" }, { "voc_react", "SPEED" },
+        { "voc", "VOCODER", "your sound shapes a synth", { { "SEND", "SEND" }, { "voc_src", "SOURCE" }, { "voc_note", "NOTE" }, { "voc_react", "SPEED" },
                                                            { "voc_bright", "BREATH" }, { "voc_ret", "RETURN" }, { "voc_spc", "→ SPACE" } },
           { 50, 30, 40, 25, 75, 10 } },
         { "pit", "PITCH", "up or down by semitones", { { "SEND", "SEND" }, { "pit_semi", "SEMITONES" }, { "pit_fine", "FINE" }, { "pit_smooth", "SMOOTH" },
@@ -54,7 +54,7 @@ inline const std::vector<ExtraFxDef>& extraFxDefs() {
         { "spr", "SPRING", "an amp's spring reverb", { { "SEND", "SEND" }, { "spr_decay", "DECAY" }, { "spr_tone", "TONE" }, { "spr_drip", "DRIP" },
                                                       { "spr_tension", "TENSION" }, { "spr_ret", "RETURN" } },
           { 55, 50, 50, 50, 70 } },
-        { "tlk", "TALK", "the sound says A E I O U", { { "SEND", "SEND" }, { "tlk_vowel", "VOWEL" }, { "tlk_move", "MOVE (TEMPO)" }, { "tlk_follow", "FOLLOW" },
+        { "tlk", "TALK", "the sound says A E I O U", { { "SEND", "SEND" }, { "tlk_vowel", "VOWEL" }, { "tlk_move", "MOVE" }, { "tlk_follow", "FOLLOW" },
                                                     { "tlk_reso", "RESO" }, { "tlk_ret", "RETURN" }, { "tlk_spc", "→ SPACE" } },
           { 0, 50, 30, 60, 75, 10 } },
     };
