@@ -180,7 +180,7 @@ void LookPanel::paint(juce::Graphics& g) {
     auto& ct = cardTable();
     int shown = 0; for (auto& d : ct) shown += cv.host.visibleCards.contains(d.key);
     L("EFFECTS ON THE MAIN WINDOW", 24, 262, 400, 11.0f, Theme::txt(), 2);
-    L(juce::String(shown) + " of " + juce::String((int) ct.size()) + U(" shown  ·  tap to show or hide  ·  more than 18: the main window gets pages  ·  hidden effects keep working with their saved settings"),
+    L(juce::String(shown) + " of " + juce::String((int) ct.size()) + U(" shown  ·  tap to show or hide  ·  on the main window they are sorted into six families (TONE, MOVEMENT, SPACE, ECHOES, TEXTURE, RHYTHM)  ·  hidden effects keep working"),
       24, 290, 720, 8.0f, Theme::sub());
     int nBase = (int) cardTableBase().size();
     for (int i = 0; i < (int) ct.size(); ++i) {

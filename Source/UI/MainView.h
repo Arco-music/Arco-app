@@ -7,6 +7,7 @@
 namespace arco {
 
 class StripView;
+class MasterView;
 class CardView;
 class SetupPanel;
 class SynthPanel;
@@ -55,6 +56,18 @@ public:
     void layoutCards();
     int cardPage = 0, numCardPages = 1; bool inLayout = false;
     std::vector<juce::Component*> pagePills;
+    // 1.6: the effects in six families - the effect map shows them all, one family is open below it
+    static constexpr int NFAM = 6;
+    static int familyOf(const juce::String& key);
+    static const char* familyName(int f);
+    static juce::Colour familyColour(int f);
+    int fxFamily = 0;
+    juce::Array<int> familyCards(int f) const;      // the shown cards (indexes into cardTable) of one family
+    bool fxUsed(const juce::String& key);           // is this effect working now (lit on the map)
+    void showFamily(int f, int page = 0);
+    void showCard(int cardIndex);
+    juce::Rectangle<int> mapR; int cardsPerPage = 4; int shotTracks = 0;   // screenshots: how many tracks to show
+    std::unique_ptr<juce::Component> fxMap;
     void openLook(bool show);
     void openSpatial(bool show);
     void openOutputs();                  // the SPEAKERS & SPACE window on its OUTPUTS page
@@ -65,9 +78,15 @@ public:
     bool portrait = false; int W = 1440, H = 880, stripRows = 1, stripH = 298;
     int visibleCardCount() const;
     void setLayout(bool tall, int w, int h);
-    juce::Rectangle<int> place(juce::Rectangle<int> landscape) const;   // where a top-bar / scene-row control goes now
+    // 1.6: the top bar and the scene row in groups (cards); each control sits in its group, the groups move (landscape / upright)
+    void layoutHeader();
+    juce::Rectangle<int> grpR[9]; int headerBottom = 130;
+    std::unique_ptr<MasterView> masterView;
 private:
-    std::vector<std::pair<juce::Component*, juce::Rectangle<int>>> headerKids;
+    struct HK { juce::Component* c; int grp; juce::Rectangle<int> rel; };
+    std::vector<HK> hk; std::vector<juce::Component*> winBtns;
+    template <typename T, typename... A> T* hadd(int grp, juce::Rectangle<int> r, A&&... a) {
+        auto* c = new T(std::forward<A>(a)...); owned.add(c); addAndMakeVisible(c); hk.push_back({ c, grp, r }); return c; }
     void paintTop(juce::Graphics& g);
     void paintScenes(juce::Graphics& g);
     void timerCallback() override;
@@ -110,10 +129,10 @@ public:
     void openAutoMix();
     void autoMixCompare();
 private:
-    juce::Array<Meter*> meters;
     bool inputSeen = false;
     juce::String songLine;
     friend class StripView;
+    friend class MasterView;
     friend class CardView;
     friend class SynthPanel;
 };

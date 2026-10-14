@@ -104,6 +104,9 @@ public:
         if (cmd.contains("outputs")) { host->engine.grid[0][2].store(1); host->engine.grid[4][3].store(1); host->engine.grid[5][4].store(1); mc->canvas.openOutputs(); }
         if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true); }
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
+        if (cmd.contains("lives=")) host->nLive = cmd.fromFirstOccurrenceOf("lives=", false, false).getIntValue();
+        if (cmd.contains("tracks=")) mc->canvas.shotTracks = cmd.fromFirstOccurrenceOf("tracks=", false, false).getIntValue();
+        if (cmd.contains("fam=")) mc->canvas.showFamily(cmd.fromFirstOccurrenceOf("fam=", false, false).getIntValue());
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("newfx")) { host->visibleCards = juce::StringArray { "pdl", "fbk", "eq", "dly", "rev", "spc" }; mc->canvas.layoutCards(); }
         if (cmd.contains("fx14")) { host->visibleCards = juce::StringArray { "voc", "pit", "spr", "tlk", "dly", "spc" }; mc->canvas.layoutCards(); }

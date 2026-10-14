@@ -210,6 +210,13 @@ Place every sound around the audience, still or moving.
 - Choose a LIVE strip or a track, PLACE IT, and drag it in the circle: direction and distance. WIDTH spreads it.
 - Motion: STILL, CIRCLE, SWING, WANDER, FLY OVER - SPEED and RANGE, or IN TEMPO with the loops.
 - Up to 32 speakers (3rd-order ambisonics, AllRAD). With headphones you hear a stereo version. Exports are always stereo.)" },
+        { "What's new in 1.6", R"(# What's new in ARCO 1.6
+- A new main window: cleaner and easier on the eyes, every button and knob still there. New knobs, buttons and colours in every window.
+- The top bar in cards: PLAY / STOP / UNDO with BAR · BEAT · LOOP; TAP, BPM, BEATS, BARS, COUNT, CLICK; the song with SAVE · AS … · OPEN; the sound on / off.
+- The strips fill the width. Each one shows its state inside the screen, big REC and PLAY / STOP, CLR · 1x · FILE, IN, and a long fader with a dB scale and the exact level above it (double-tap: back to 0 dB; shift-drag on the Mac: finer). M · S · listen · ROOM at the bottom. Tap a strip's name: the effects' SEND knobs edit that strip.
+- MASTER is now a strip beside the tracks: REC SHOW, the time, MASTER, GLUE, IN / OUT and the CPU.
+- EFFECTS in six families - TONE, MOVEMENT, SPACE, ECHOES, TEXTURE, RHYTHM. The effect map under the strips shows every effect you chose; the ones working are lit, with how many per family. Tap a family (or one effect) and its cards open below with big knobs; more than fit: the arrows on the map. Each card has an on / off switch for the selected strip (it remembers the level), its value at the top right, and a little live picture of its sound.
+- LIGHT colours: warm grey instead of near-white, softer for the eyes.)" },
         { "What's new in 1.5", R"(# What's new in ARCO 1.5
 - AUTO MIX, rebuilt: it balances by how loud each part sounds while it plays - every voice heard, nothing pushed far down or up. Tell it what you want in your words ("warm, spacious, track 2 louder"), or with three simple choices. THE BALANCE shows before / after. The master is as loud as it can be without squashing the music.
 - KEYBOARD: search 600+ free instruments (cello, cello section, flute, choir ...) and DOWNLOAD them inside ARCO - no web page, no account. Spitfire LABS, Pianobook and Komplete Start are listed too: GET IT, install, and ARCO finds the plug-in by itself.

@@ -32,10 +32,10 @@ struct Theme {
         auto cLight = [] { return std::array<juce::Colour, 8> { hex(0xd9606a), hex(0x5fae7f), hex(0xe2a84a), hex(0x5f8fcf), hex(0x9077c4), hex(0x4fae9e), hex(0xc99a6e), hex(0x9fb04a) }; };
         static const std::vector<Palette> P = {
             // the 1.1 black, exactly - every effect and track its own clear colour
-            { "Black", false, rgb(0.067f, 0.071f, 0.086f), rgb(0.112f, 0.118f, 0.143f), rgb(0.158f, 0.165f, 0.196f), rgb(0.050f, 0.053f, 0.066f), rgb(0.235f, 0.245f, 0.290f), rgb(0.925f, 0.932f, 0.950f), rgb(0.560f, 0.580f, 0.640f), rgb(0.240f, 0.252f, 0.300f), rgb(0.205f, 0.214f, 0.255f), rgb(0.27f, 0.30f, 0.40f), cDark(), 1 },
+            { "Black", false, hex(0x0e0f12), hex(0x16171b), hex(0x1f2024), hex(0x0a0b0d), hex(0x2a2c31), hex(0xeef0f4), hex(0x9a9da5), hex(0x2c2e34), hex(0x1f2024), hex(0x2b3956), cDark(), 1 },
             { "Storm", false, hex(0x182128), hex(0x202b33), hex(0x2a3741), hex(0x131a20), hex(0x354550), hex(0xeef1f3), hex(0x93a3ad), hex(0x2f3d48), hex(0x2c3a45), hex(0x3d5263), cDark(), 1 },
-            // light: the same colours, softer, on soft grey (no bright white)
-            { "Light", true, hex(0xe6e5e1), hex(0xf3f2ef), hex(0xe9e8e4), hex(0xecebe7), hex(0xd2d0cb), hex(0x26272b), hex(0x6b6c72), hex(0xdcdad5), hex(0xe2e1dd), hex(0x8b93a8), cLight(), 1 },
+            // light: the same colours, softer, on warm mid-light grey (1.6: nothing near white, easy on the eyes)
+            { "Light", true, hex(0xcdcbc5), hex(0xd9d7d1), hex(0xc9c7c0), hex(0xc8c6bf), hex(0xbfbdb6), hex(0x34353a), hex(0x5d5e64), hex(0xc4c2bb), hex(0xcac8c1), hex(0x9aa3b8), cLight(), 1 },
             { "Chambray", true, hex(0xd9e0e4), hex(0xedf1f3), hex(0xe2e8eb), hex(0xe6ecef), hex(0xc1ccd2), hex(0x1f2a32), hex(0x55656f), hex(0xd2dbe0), hex(0xd8e0e4), hex(0x7f93a3), cLight(), 1 },
         };
         return P;
@@ -107,6 +107,11 @@ struct Theme {
     static juce::Colour off()   { return pal().off; }
     static juce::Colour btn()   { return pal().btn; }
     static juce::Colour sel()   { return pal().sel; }
+    // 1.6: the knob face of the new design
+    static juce::Colour knobHi()   { return pal().light ? hex(0xe3e1db) : hex(0x2b2d33); }
+    static juce::Colour knobLo()   { return pal().light ? hex(0xc9c7c0) : hex(0x18191d); }
+    static juce::Colour knobEdge() { return pal().light ? hex(0xbab8b1) : hex(0x33363d); }
+    static juce::Colour knobDot()  { return pal().light ? hex(0x3a3b40) : hex(0xeef0f4); }
     // readable versions, applied where things are drawn: text (4.5:1 on cards and background), marks (3:1)
     static juce::Colour ink(juce::Colour c) { return ensure(ensure(c, pal().card, 4.5f), pal().bg, 4.5f); }
     static juce::Colour arc(juce::Colour c) { float r = (pal().style == 1 && pal().light) ? 2.3f : 3.0f; return ensure(ensure(c, pal().card, r), pal().card2, r); }

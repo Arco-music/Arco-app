@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.5.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" compilerFlagSchemes="nofastmath" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
+<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.6.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" compilerFlagSchemes="nofastmath" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
   <MAINGROUP id="grp000" name="ARCO">
     <GROUP id="f31bbd" name="Source">
       <FILE id="9354fc" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
