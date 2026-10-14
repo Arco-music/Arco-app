@@ -1,4 +1,6 @@
+#include <set>
 #include "Instruments.h"
+#include "InstrumentIndex.h"
 
 namespace arco {
 
@@ -40,6 +42,52 @@ struct InstrumentRack::Download : public juce::URL::DownloadTask::Listener {
     }
 };
 
+// 1.5: the files of one instrument from the index, four at a time; files already here are kept (a stopped download
+// goes on where it stopped; articulations of one library share their samples)
+struct InstrumentRack::IndexDownload : juce::Thread {
+    int entry; juce::File root; std::vector<std::pair<juce::String, juce::File>> todo;
+    std::atomic<int> next { 0 }, done { 0 }, failed { 0 }, state { 0 };   // state 0 running, 2 done, 3 failed
+    std::atomic<juce::int64> bytes { 0 };
+    juce::String error; juce::CriticalSection lock;
+    IndexDownload(int e) : juce::Thread("ARCO instrument download"), entry(e) {
+        auto& X = InstrumentIndex::get(); root = X.folder(e);
+        auto& en = X.entries[(size_t) e]; auto& L = X.libs[(size_t) en.lib];
+        for (int f : en.files) todo.push_back({ X.url(e, f), root.getChildFile(L.files[f]) });
+    }
+    ~IndexDownload() override { stopThread(20000); }
+    bool fetch(const juce::String& url, const juce::File& dest) {
+        if (dest.existsAsFile() && dest.getSize() > 0) return true;
+        if (!dest.getParentDirectory().isDirectory()) dest.getParentDirectory().createDirectory();
+        auto tmp = dest.getSiblingFile(dest.getFileName() + ".part");
+        for (int attempt = 0; attempt < 3 && !threadShouldExit(); ++attempt) {
+            int status = 0;
+            auto in = juce::URL(url).createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(20000).withNumRedirectsToFollow(5).withStatusCode(&status));
+            if (in == nullptr || (status != 0 && status != 200)) { juce::Thread::sleep(400 * (attempt + 1)); continue; }
+            tmp.deleteFile();
+            { juce::FileOutputStream out(tmp); if (!out.openedOk()) { if (attempt < 2) { juce::Thread::sleep(200); continue; } const juce::ScopedLock sl(lock); error = "cannot write to " + dest.getParentDirectory().getFullPathName(); return false; }
+              char buf[65536]; bool ok = true;
+              while (!in->isExhausted()) { if (threadShouldExit()) return false; int n = in->read(buf, sizeof(buf)); if (n < 0) { ok = false; break; } if (n == 0) break; out.write(buf, (size_t) n); bytes += n; }
+              out.flush(); if (!ok) continue; }
+            if (tmp.getSize() > 0 && tmp.moveFileTo(dest)) return true;
+        }
+        tmp.deleteFile();
+        return false;
+    }
+    void run() override {
+        struct W : juce::Thread { IndexDownload& d; W(IndexDownload& x) : juce::Thread("ARCO dl"), d(x) {}
+            void run() override { for (int i; (i = d.next++) < (int) d.todo.size() && !threadShouldExit() && !d.threadShouldExit();) { if (d.fetch(d.todo[(size_t) i].first, d.todo[(size_t) i].second)) ++d.done; else ++d.failed; } } };
+        { std::set<juce::String> dirs; for (auto& t : todo) dirs.insert(t.second.getParentDirectory().getFullPathName());      // the folders first (four threads at once would race)
+          for (auto& d : dirs) { juce::File(d).createDirectory(); if (!juce::File(d).isDirectory()) { const juce::ScopedLock sl(lock); error = "cannot make the folder " + d; state = 3; return; } } }
+        juce::OwnedArray<W> ws; for (int k = 0; k < 4; ++k) { ws.add(new W(*this)); ws.getLast()->startThread(); }
+        for (auto* w : ws) while (w->isThreadRunning()) { if (threadShouldExit()) { for (auto* x : ws) x->signalThreadShouldExit(); } juce::Thread::sleep(30); }
+        if (threadShouldExit()) return;
+        if (failed > 0 || done < (int) todo.size()) { const juce::ScopedLock sl(lock); if (error.isEmpty()) error = juce::String(failed.load()) + " files did not come (check the internet connection) - press DOWNLOAD again to continue"; state = 3; return; }
+        auto f = InstrumentIndex::get().sfz(entry);
+        f.getSiblingFile(f.getFileName() + ".arco-ok").replaceWithText(juce::Time::getCurrentTime().toISO8601(true));
+        state = 2;
+    }
+};
+
 struct SfzLoader : juce::Thread {
     juce::File file; std::shared_ptr<SfzInstrument> inst = std::make_shared<SfzInstrument>(); juce::String error; std::atomic<bool> done { false }, ok { false };
     std::atomic<float>& progress;
@@ -57,7 +105,7 @@ InstrumentRack::~InstrumentRack() {
     stopTimer();
     pluginWindow.reset();
     if (loader) loader->stopThread(10000);
-    download.reset();
+    download.reset(); indexDownload.reset();
     const juce::ScopedLock sl(pluginLock); plugin.reset();
 }
 
@@ -153,6 +201,7 @@ void InstrumentRack::loadSfz(const juce::File& f) {
     samplerLoading = true; samplerProgress = 0; samplerError.clear();
     samplerName = f.getFileNameWithoutExtension(); samplerPath = f.getFullPathName();
     for (auto& i : instrumentCatalogue()) if (installedSfz(i) == f) samplerName = i.name;
+    { auto& X = InstrumentIndex::get(); for (int e = 0; e < (int) X.entries.size(); ++e) if (X.sfz(e) == f) { samplerName = X.title(e); break; } }
     loader = std::make_unique<SfzLoader>(f, samplerProgress);
     loader->startThread();
     if (onChange) onChange();
@@ -169,7 +218,24 @@ void InstrumentRack::startDownload(const InstrumentInfo& i) {
     if (download->task == nullptr) { downloadStatus = "the download could not start"; download.reset(); downloadId.clear(); }
     if (onChange) onChange();
 }
-void InstrumentRack::cancelDownload() { if (!download) return; download.reset(); downloadId.clear(); downloadStatus = "download stopped"; if (onChange) onChange(); }
+void InstrumentRack::cancelDownload() {
+    if (indexDownload) { indexDownload.reset(); indexDownloading = -1; downloadId.clear(); downloadStatus = "download stopped - DOWNLOAD goes on where it stopped"; if (onChange) onChange(); return; }
+    if (!download) return; download.reset(); downloadId.clear(); downloadStatus = "download stopped"; if (onChange) onChange(); }
+
+void InstrumentRack::startIndexDownload(int e) {
+    auto& X = InstrumentIndex::get();
+    if (e < 0 || e >= (int) X.entries.size() || download || indexDownload) return;
+    indexDownload = std::make_unique<IndexDownload>(e);
+    indexDownloading = e; downloadId = "idx:" + juce::String(e); downloadProgress = 0;
+    downloadStatus = "downloading " + X.title(e) + juce::String::fromUTF8(" …");
+    indexDownload->startThread();
+    if (onChange) onChange();
+}
+void InstrumentRack::removeIndexInstrument(int e) {
+    auto& X = InstrumentIndex::get(); auto f = X.sfz(e);
+    f.getSiblingFile(f.getFileName() + ".arco-ok").deleteFile();
+    if (onChange) onChange();
+}
 
 // ------------------------------------------------------------------ PLUG-INS
 juce::Array<juce::PluginDescription> InstrumentRack::instrumentPlugins() const {
@@ -268,13 +334,23 @@ void InstrumentRack::fromVar(const juce::var& v) {
     if (onChange) onChange();
 }
 
-void InstrumentRack::timerCallback() {
+void InstrumentRack::timerCallback() { poll(); }
+void InstrumentRack::poll() {
     if (auto* l = dynamic_cast<SfzLoader*>(loader.get()); l != nullptr && l->done.load()) {
         if (l->ok.load()) { sampler.setInstrument(l->inst); kind.store(KSampler); samplerError.clear(); }
         else samplerError = l->error;
         samplerLoading = false;
         loader->stopThread(1000); loader.reset();
         if (onChange) onChange();
+    }
+    if (indexDownload) {
+        auto& d = *indexDownload; auto& X = InstrumentIndex::get();
+        int n = (int) d.todo.size(), k = d.done.load();
+        downloadProgress = n > 0 ? juce::jlimit(0.0f, 0.99f, (float) k / (float) n) : 0.0f;
+        int st = d.state.load();
+        if (st == 2) { auto f = X.sfz(d.entry); downloadStatus = X.title(d.entry) + juce::String::fromUTF8(" installed ✓"); indexDownload.reset(); indexDownloading = -1; downloadId.clear(); loadSfz(f); }
+        else if (st == 3) { { const juce::ScopedLock sl(d.lock); downloadStatus = d.error; } indexDownload.reset(); indexDownloading = -1; downloadId.clear(); if (onChange) onChange(); }
+        else downloadStatus = "downloading " + X.title(d.entry) + "  ·  " + juce::String(k) + " of " + juce::String(n) + " files  ·  " + juce::String(d.bytes.load() / 1000000) + " MB";
     }
     if (download) {
         int st = download->state.load();

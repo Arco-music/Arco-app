@@ -53,12 +53,13 @@ public:
     void chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs = false);
     void layoutStrips();
     void layoutCards();
-    int cardPage = 0, numCardPages = 1;
+    int cardPage = 0, numCardPages = 1; bool inLayout = false;
     std::vector<juce::Component*> pagePills;
     void openLook(bool show);
     void openSpatial(bool show);
     void openOutputs();                  // the SPEAKERS & SPACE window on its OUTPUTS page
     void openKeyboard(bool show);
+    void keyboardSearch(const juce::String& q);
     void openModular(bool show);
     // 1.3: iPad portrait - the same station, rearranged for a tall screen (logical size W x H)
     bool portrait = false; int W = 1440, H = 880, stripRows = 1, stripH = 298;

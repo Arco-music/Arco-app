@@ -12,10 +12,20 @@ class AudioHost;
 
 struct AutoMixOptions {
     bool levels = true, eq = true, dynamics = true, pan = true, effects = true, timing = true, master = true;
-    float timingAmount = 0.5f;       // 0..1 of the way to the grid
+    float timingAmount = 0.3f;       // 0..1 of the way to the grid
     int style = 1;                   // 0 natural, 1 balanced, 2 punchy
     bool allScenes = false;
+    // 1.5: what you want
+    int focus = 0;                   // 0 TOGETHER (every voice heard), 1 MELODY IN FRONT, 2 GROOVE (bass and drums carry)
+    int space = 1;                   // 0 DRY, 1 ROOM, 2 HALL
+    int tone = 0;                    // -1 warmer, 0, +1 brighter
+    int loud = 0;                    // -1 quieter master, 0, +1 louder
+    int width = 0;                   // -1 narrower, 0, +1 wider
+    std::array<float, 8> trackDb {}; // your nudges per track (dB)
+    std::array<float, 7> roleDb {};  // and per role (bass, drums, rhythm, melody, second melody, chords, texture)
 };
+// "the cello louder, warm and spacious, less reverb": what it understood is listed in 'understood'
+void parseWish(const juce::String& wish, AutoMixOptions& o, juce::StringArray& understood);
 
 struct AutoMixJob {
     AutoMixOptions opt;
@@ -37,6 +47,10 @@ struct AutoMixResult {
     std::vector<Change> changes;
     std::vector<AudioEdit> audio;
     struct Line { juce::String who, role, what; int strip = -1; int scene = 1; };
+    // the balance: how loud each part sounds while it plays (LU, the loudest = 0), before and after
+    struct Level { int scene = 1, track = 0; juce::String role; double before = 0, after = 0; };
+    std::vector<Level> levels;
+    juce::StringArray understood;           // what it understood of your wish
     std::vector<Line> report;
     juce::String headline;
     double lufsBefore = -70, lufsAfter = -70;

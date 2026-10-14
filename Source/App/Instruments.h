@@ -49,6 +49,13 @@ public:
     juce::String downloadId; std::atomic<float> downloadProgress { 0 }; juce::String downloadStatus;
     void startDownload(const InstrumentInfo& i);
     void cancelDownload();
+    // 1.5: an instrument from the search (InstrumentIndex): only its files, straight into ARCO
+    struct IndexDownload;
+    std::unique_ptr<IndexDownload> indexDownload;
+    int indexDownloading = -1;
+    void startIndexDownload(int entry);
+    void removeIndexInstrument(int entry);
+    void poll();                                   // downloads and loading finished? (the timer calls it; tests too)
 
     // ---- PLUG-INS
     juce::AudioPluginFormatManager formats;

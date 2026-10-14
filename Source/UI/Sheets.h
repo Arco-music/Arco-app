@@ -98,24 +98,31 @@ public:
     void showAB(bool after);                  // BEFORE / AFTER
     bool hasResult() const { return result != nullptr && result->ok; }
     bool after = true;
+    void setWish(const juce::String& w) { wish.setText(w, true); }
+    void mixNow() { start(); }
 private:
     void run() override;
     void timerCallback() override;
     void start();
+    void wishChanged();
     AutoMixOptions opt;
     AutoMixJob job;
     std::unique_ptr<AutoMixResult> result, pending;
     std::atomic<float> progress { 0 };
     std::atomic<bool> busy { false }, jobDone { false };
     int timingChoice = 1;
+    juce::StringArray understood;
+    juce::TextEditor wish;
     struct Report : juce::Component { AutoMixResult* r = nullptr; void paint(juce::Graphics& g) override; int heightFor(int w) const; };
     Report report;
     juce::Viewport view;
-    Pill go { "MIX IT", [] { return Theme::sel(); }, 11.0f, 9.0f };
+    Pill go { "MIX IT", [] { return Theme::sel(); }, 13.0f, 10.0f };
     Pill before { "BEFORE", [this] { return hasResult() && !after ? Theme::amber() : Theme::btn(); }, 8.5f, 7.0f };
     Pill afterP { "AFTER", [this] { return hasResult() && after ? Theme::green() : Theme::btn(); }, 8.5f, 7.0f };
     Pill keep { "KEEP", [] { return Theme::btn(); }, 8.5f, 7.0f };
     Pill undo { "UNDO", [] { return Theme::btn(); }, 8.5f, 7.0f };
+    Pill more { juce::String::fromUTF8("DETAILS ▾"), [this] { return showMore ? Theme::sel() : Theme::btn(); }, 7.5f, 6.0f };
+    bool showMore = false;
     juce::OwnedArray<Pill> toggles;
 };
 

@@ -4,6 +4,7 @@
 #include "../Engine/Modular.h"
 #include "PlaySurfaces.h"
 #include "SynthPanel.h"
+#include "../App/InstrumentIndex.h"
 
 namespace arco {
 
@@ -55,8 +56,29 @@ KeyboardPanel::KeyboardPanel(Canvas& c) : cv(c) {
     mp->dynText = [this] { return U8("START FROM:  ") + Modular::patchNames()[modPatch] + U8("   ▾"); };
     mp->textColour = [] { return Theme::txt(); };
     pages[1] = { mp, pill({ 660, 150, 200, 44 }, U8("OPEN MODULAR ▸"), [] { return Theme::violet(); }, [this] { cv.openModular(true); }, 10.0f) };
-    // ---- page SAMPLED
-    pages[2] = { pill({ 1336 - 170, 112, 170, 28 }, U8("ADD SFZ FILE …"), [] { return Theme::btn(); }, [this] { addSfz(); }) };
+    // ---- page SAMPLED: search for an instrument, download it inside ARCO
+    search = std::make_unique<juce::TextEditor>();
+    search->setTextToShowWhenEmpty(U8("Search 600+ free instruments:  cello, cello section, flute, piano, choir, harp, drums …"), Theme::sub());
+    search->setFont(Theme::font(11.0f, 0)); search->setIndents(14, 10);
+    search->setColour(juce::TextEditor::backgroundColourId, Theme::scr()); search->setColour(juce::TextEditor::textColourId, Theme::txt());
+    search->setColour(juce::TextEditor::outlineColourId, Theme::line()); search->setColour(juce::TextEditor::focusedOutlineColourId, Theme::violet());
+    search->onTextChange = [this] { chip = -1; refreshResults(); };
+    search->onEscapeKey = [this] { search->clear(); refreshResults(); };
+    addChildComponent(*search); search->setBounds(box.getX() + 24, box.getY() + 110, 860, 36);
+    pages[2] = { search.get(), pill({ 1336 - 170, 114, 170, 28 }, U8("ADD SFZ FILE …"), [] { return Theme::btn(); }, [this] { addSfz(); }) };
+    {   // shortcuts
+        const char* CH[11] = { "ON THIS DEVICE", "STRINGS", "WOODWINDS", "BRASS", "PIANOS", "KEYS", "VOICES", "PERCUSSION", "DRUMS", "GUITARS & BASSES", "SYNTHS" };
+        int x = 24;
+        for (int i = 0; i < 11; ++i) {
+            int w = i == 0 ? 132 : i == 9 ? 140 : 100;
+            pages[2].push_back(pill({ x, 154, w, 24 }, CH[i], [this, i] { return chip == i ? Theme::violet() : Theme::btn(); }, [this, i] {
+                static const char* Q[11] = { "", "strings", "woodwind", "brass", "piano", "keys", "vocal", "percussion", "drum", "bass guitar", "synth" };
+                search->setText(i == 0 ? juce::String() : juce::String(Q[i]), juce::dontSendNotification); chip = i;
+                if (i == 9) { search->setText("guitar", juce::dontSendNotification); }
+                refreshResults(); }, 7.0f));
+            x += w + 6;
+        }
+    }
     // ---- page PLUG-IN
     pages[3] = { pill({ 1336 - 170, 112, 170, 28 }, U8("FIND PLUG-INS"), [] { return Theme::blue(); }, [this, &r] {
                      scanText = U8("looking for instrument plug-ins …"); repaint();
@@ -101,6 +123,7 @@ KeyboardPanel::~KeyboardPanel() = default;
 void KeyboardPanel::showPage(int p) {
     page = juce::jlimit(0, 3, p);
     for (int k = 0; k < 4; ++k) for (auto* c : pages[k]) c->setVisible(k == page);
+    if (page == 2) refreshResults();
     auto& r = cv.host.rack;
     if (page == 0) r.setKind(InstrumentRack::KSynth);
     else if (page == 1) r.setKind(InstrumentRack::KModular);
@@ -121,13 +144,102 @@ void KeyboardPanel::visibilityChanged() {
     toFront(true); kb->grabKeyboardFocus();
 }
 bool KeyboardPanel::keyPressed(const juce::KeyPress& k) { if (k == juce::KeyPress::escapeKey) { setVisible(false); return true; } return false; }
-void KeyboardPanel::timerCallback() { if (isShowing()) { repaint(); if (held->isVisible()) held->repaint(); } }
+void KeyboardPanel::timerCallback() {
+    if (!isShowing()) return;
+    // back from installing a platform's instrument: look for new plug-ins by itself, and open it
+    if (platformPending.isNotEmpty()) {
+        bool fg = juce::Process::isForegroundProcess();
+        if (fg && !wasForeground) {
+            auto& r = cv.host.rack; juce::String want = platformPending;
+            cv.showMessage(U8("looking for ") + want + U8(" …"));
+            juce::MessageManager::callAsync([this, &r, want] {
+                r.scanPlugins([](const juce::String&) {}); cv.host.saveSetup();
+                for (auto& d : r.instrumentPlugins())
+                    if (d.name.containsIgnoreCase(want)) { platformPending.clear(); showPage(3); cv.showMessage(U8("✓ ") + d.name + U8(" found - press PLAY")); return; }
+                cv.showMessage(want + U8(" is not installed yet - when it is, come back to ARCO (or press FIND PLUG-INS)")); });
+        }
+        wasForeground = fg;
+    }
+    if (cv.host.rack.indexDownloading != lastDownloading) { lastDownloading = cv.host.rack.indexDownloading; if (page == 2) refreshResults(true); }
+    repaint(); if (held->isVisible()) held->repaint();
+}
+
+juce::Rectangle<int> KeyboardPanel::listArea() const { return page == 2 ? juce::Rectangle<int>(24, 186, 1312, 302) : juce::Rectangle<int>(24, 150, 1312, 340); }
+
+void KeyboardPanel::setSearch(const juce::String& q) { showPage(2); search->setText(q, true); }
+
+void KeyboardPanel::refreshResults(bool keepScroll) {
+    auto& X = InstrumentIndex::get();
+    here.assign(X.entries.size(), 0);
+    for (int e = 0; e < (int) X.entries.size(); ++e) here[(size_t) e] = X.installed(e) ? 1 : 0;
+    auto q = search ? search->getText() : juce::String();
+    if (chip == 9) { auto a = X.search("guitar"), b = X.search("bass"); results = a; for (int e : b) if (std::find(results.begin(), results.end(), e) == results.end()) results.push_back(e); }
+    else results = chip == 0 ? std::vector<int>() : X.search(q);
+    if (!keepScroll) sampleScroll = 0;
+    repaint();
+}
+
+// the free instruments that only work in their makers' own player: listed with what to do, the rest is automatic
+void KeyboardPanel::platformRows(std::vector<Row>& rows) const {
+    struct P { const char* name; const char* what; const char* site; const char* url; const char* plugin; };
+    static const P ps[] = {
+        { "Spitfire LABS", "free instruments by Spitfire Audio - strings, pianos, choirs, textures. Free account; their app installs them; ARCO plays them as a PLUG-IN", "labs.spitfireaudio.com", "https://labs.spitfireaudio.com", "LABS" },
+        { "Pianobook", "thousands of free instruments sampled by musicians, played in the free Decent Sampler plug-in. Free account", "pianobook.co.uk", "https://www.pianobook.co.uk", "DecentSampler" },
+        { "Komplete Start (Native Instruments)", "free instruments in the Kontakt Player. Free account; Native Access installs them; ARCO plays them as a PLUG-IN", "native-instruments.com", "https://www.native-instruments.com/en/products/komplete/bundles/komplete-start/", "Kontakt" } };
+    Row h; h.header = true; h.title = U8("ALSO FREE, ON OTHER PLATFORMS  -  their own account and player: GET IT, install, come back - ARCO finds it by itself"); rows.push_back(h);
+    auto plugs = cv.host.rack.instrumentPlugins();
+    for (auto& p : ps) {
+        Row r; r.title = p.name; r.sub = juce::String(p.what) + U8("  ·  ") + p.site;
+        bool have = false; for (auto& d : plugs) if (d.name.containsIgnoreCase(p.plugin)) have = true;
+        if (have) { r.button = U8("PLAY ▸ PLUG-IN"); r.bcol = Theme::green(); r.click = [this] { const_cast<KeyboardPanel*>(this)->showPage(3); }; }
+        else {
+            r.button = platformPending == p.plugin ? U8("WAITING FOR IT …") : U8("GET IT ▸"); r.bcol = platformPending == p.plugin ? Theme::amber() : Theme::violet();
+            juce::String url = p.url, plug = p.plugin, name = p.name;
+            r.click = [this, url, plug, name] { auto* self = const_cast<KeyboardPanel*>(this);
+                self->platformPending = plug; self->pluginsBefore = cv.host.rack.instrumentPlugins().size(); self->wasForeground = false;
+                juce::URL(url).launchInDefaultBrowser();
+                cv.showMessage(name + U8(": install it with their app, then come back - ARCO looks for it by itself")); };
+        }
+        rows.push_back(r);
+    }
+}
 
 std::vector<KeyboardPanel::Row> KeyboardPanel::sampleRows() const {
     auto& r = cv.host.rack;
+    auto& X = InstrumentIndex::get();
     std::vector<Row> rows;
     bool samplerOn = r.kind.load() == InstrumentRack::KSampler;
+    auto header = [&](const juce::String& t) { Row h; h.header = true; h.title = t; rows.push_back(h); };
+    auto indexRow = [&](int e) {
+        auto& en = X.entries[(size_t) e]; auto& L = X.libs[(size_t) en.lib];
+        Row row; row.title = X.title(e);
+        row.sub = X.source(e) + U8("  ·  ") + en.category + U8("  ·  ") + mb(en.sizeMB) + U8("  ·  ") + L.licence;
+        bool inst = e < (int) here.size() && here[(size_t) e];
+        auto f = X.sfz(e);
+        if (r.indexDownloading == e) { row.button = "STOP"; row.bcol = Theme::red(); row.progress = r.downloadProgress.load(); row.sub = r.downloadStatus; row.click = [&r] { r.cancelDownload(); }; }
+        else if (inst && r.samplerLoading.load() && r.samplerPath == f.getFullPathName()) { row.button = "LOADING " + juce::String((int) (r.samplerProgress.load() * 100)) + " %"; row.bcol = Theme::amber(); row.progress = r.samplerProgress.load(); }
+        else if (inst) {
+            row.active = samplerOn && r.samplerPath == f.getFullPathName() && !r.samplerLoading.load();
+            row.button = row.active ? U8("● PLAYING") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
+            row.click = [&r, f, act = row.active] { if (act) return; if (r.samplerPath == f.getFullPathName() && r.sampler.instrument() != nullptr) r.setKind(InstrumentRack::KSampler); else r.loadSfz(f); };
+        } else {
+            row.button = U8("DOWNLOAD  ") + mb(en.sizeMB); row.bcol = Theme::blue();
+            row.click = [this, &r, e] { if (r.indexDownload || r.download) { cv.showMessage("one download at a time - wait for the other one (or STOP it)"); return; } r.startIndexDownload(e); };
+        }
+        rows.push_back(row);
+    };
+    if (chip != 0 && search != nullptr && search->getText().trim().isNotEmpty() ) {
+        for (int e : results) indexRow(e);
+        platformRows(rows);
+        return rows;
+    }
+    if (chip > 0) { for (int e : results) indexRow(e); platformRows(rows); return rows; }
+    // nothing typed: what is on this device, then a few of the best
+    bool any = false;
+    for (int e = 0; e < (int) here.size(); ++e) if (here[(size_t) e]) { if (!any) header("ON THIS DEVICE"); any = true; indexRow(e); }
     for (auto& i : instrumentCatalogue()) {
+        if (!InstrumentRack::installedSfz(i).existsAsFile()) continue;
+        if (!any) header("ON THIS DEVICE"); any = true;
         Row row; row.title = i.name; row.sub = juce::String(i.what) + U8("  ·  ") + i.licence + U8("  ·  ") + mb(i.sizeMB);
         auto f = InstrumentRack::installedSfz(i);
         bool here = f.existsAsFile();
@@ -142,12 +254,17 @@ std::vector<KeyboardPanel::Row> KeyboardPanel::sampleRows() const {
         rows.push_back(row);
     }
     for (auto& p : r.userSfz) {
+        if (!any) header("ON THIS DEVICE"); any = true;
         juce::File f(p); Row row; row.title = f.getFileNameWithoutExtension(); row.sub = f.getParentDirectory().getFullPathName();
         row.active = samplerOn && r.samplerPath == p && !r.samplerLoading.load();
         if (r.samplerLoading.load() && r.samplerPath == p) { row.button = "LOADING " + juce::String((int) (r.samplerProgress.load() * 100)) + " %"; row.bcol = Theme::amber(); }
         else { row.button = row.active ? U8("● PLAYING") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green(); row.click = [&r, f] { r.loadSfz(f); }; }
         rows.push_back(row);
     }
+    if (chip == 0) return rows;
+    header(any ? "SOME OF THE BEST - or search above" : "SOME OF THE BEST - or search above for any instrument");
+    for (int e : X.recommended()) indexRow(e);
+    platformRows(rows);
     return rows;
 }
 
@@ -189,11 +306,12 @@ static void paintRows(juce::Graphics& g, const std::vector<KeyboardPanel::Row>& 
         auto& row = rows[(size_t) i];
         juce::Rectangle<int> r(area.getX() + 6, area.getY() + 6 + (i - scroll) * 48, area.getWidth() - 12, 44);
         if (r.getBottom() > area.getBottom() + 40 || r.getY() < area.getY() - 40) continue;
+        if (row.header) { lab(g, row.title, { r.getX() + 6, r.getY() + 16, r.getWidth() - 12, 24 }, 8.5f, Theme::sub(), 2); continue; }
         g.setColour(row.active ? Theme::violet().withAlpha(0.18f) : Theme::card2()); g.fillRoundedRectangle(r.toFloat(), 6.0f);
-        lab(g, row.title, { r.getX() + 12, r.getY() + 4, r.getWidth() - 160, 18 }, 10.0f, Theme::txt(), 2);
-        lab(g, row.sub, { r.getX() + 12, r.getY() + 22, r.getWidth() - 160, 16 }, 7.5f, Theme::sub());
+        lab(g, row.title, { r.getX() + 12, r.getY() + 4, r.getWidth() - 180, 18 }, 10.0f, Theme::txt(), 2);
+        lab(g, row.sub, { r.getX() + 12, r.getY() + 22, r.getWidth() - 180, 16 }, 7.5f, Theme::sub());
         if (row.button.isNotEmpty()) {
-            juce::Rectangle<int> b(r.getRight() - 132, r.getY() + 9, 124, 26);
+            juce::Rectangle<int> b(r.getRight() - 152, r.getY() + 9, 144, 26);
             g.setColour(row.bcol); g.fillRoundedRectangle(b.toFloat(), 6.0f);
             if (row.progress >= 0) { g.setColour(juce::Colours::white.withAlpha(0.25f)); g.fillRoundedRectangle(b.withWidth((int) (b.getWidth() * juce::jlimit(0.0f, 1.0f, row.progress))).toFloat(), 6.0f); }
             g.setColour(Theme::textOn(row.bcol)); g.setFont(Theme::font(8.0f, 2)); g.drawFittedText(row.button, b, juce::Justification::centred, 1, 0.8f);
@@ -221,8 +339,11 @@ void KeyboardPanel::paint(juce::Graphics& g) {
     } else if (page == 1) {
         lab(g, U8("ARCO's modular synthesizer: modules and cables. Choose where to start here; patch it in the MODULAR window."), { 24, 112, 1000, 28 }, 9.0f, Theme::sub());
     } else if (page == 2) {
-        lab(g, U8("Real instruments, recorded note by note - free, downloaded once, then always here."), { 24, 112, 900, 28 }, 9.0f, Theme::sub());
-        paintRows(g, sampleRows(), list, sampleScroll, "");
+        auto rows = sampleRows();
+        juce::String none = search && search->getText().isNotEmpty() ? U8("nothing found for \"") + search->getText() + U8("\" - try: cello, violin, flute, clarinet, piano, organ, choir, harp, marimba, drums, guitar, bass")
+                                                                    : U8("nothing downloaded yet - search above, or press a shortcut");
+        paintRows(g, rows, listArea(), sampleScroll, none);
+        lab(g, juce::String((int) InstrumentIndex::get().entries.size()) + U8(" free instruments  ·  downloaded inside ARCO - no web page, no account"), { 900, 116, 260, 28 }, 7.0f, Theme::sub());
         juce::String status = r.samplerError.isNotEmpty() ? r.samplerError : r.downloadStatus;
         if (auto si = r.sampler.instrument(); si != nullptr && r.samplerError.isEmpty() && r.downloadId.isEmpty())
             status = r.samplerName + U8(" ready  ·  ") + juce::String(si->memoryBytes() / 1000000) + " MB in memory";
@@ -247,17 +368,33 @@ void KeyboardPanel::paint(juce::Graphics& g) {
 
 void KeyboardPanel::mouseDown(const juce::MouseEvent& e) {
     auto p = e.getPosition() - box.getPosition();
-    auto list = juce::Rectangle<int>(24, 150, 1312, 340);
-    if (!list.contains(p) || page < 2) return;
+    dragging = false; dragY0 = p.y; dragScroll0 = page == 2 ? sampleScroll : pluginScroll;
+    juce::ignoreUnused(p);
+}
+void KeyboardPanel::mouseDrag(const juce::MouseEvent& e) {
+    auto p = e.getPosition() - box.getPosition();
+    if (page < 2 || !listArea().contains(e.getMouseDownPosition() - box.getPosition())) return;
+    if (std::abs(p.y - dragY0) > 8) dragging = true;
+    if (!dragging) return;
+    int n = (int) (page == 2 ? sampleRows().size() : pluginRows().size());
+    int s = juce::jlimit(0, juce::jmax(0, n - 5), dragScroll0 - (int) std::round((p.y - dragY0) / 48.0));
+    (page == 2 ? sampleScroll : pluginScroll) = s; repaint();
+}
+void KeyboardPanel::mouseUp(const juce::MouseEvent& e) {
+    auto p = e.getPosition() - box.getPosition();
+    auto list = listArea();
+    if (dragging || !list.contains(p) || page < 2) { dragging = false; return; }
     auto rows = page == 2 ? sampleRows() : pluginRows(); int scroll = page == 2 ? sampleScroll : pluginScroll;
     int i = (p.y - list.getY() - 6) / 48 + scroll;
-    if (i >= 0 && i < (int) rows.size() && rows[(size_t) i].click) rows[(size_t) i].click();
+    // only the button (or the row of an instrument that is here) acts
+    juce::Rectangle<int> btn(list.getRight() - 6 - 152, 0, 152, 10000);
+    if (i >= 0 && i < (int) rows.size() && rows[(size_t) i].click && (btn.contains(p.x, 1) || rows[(size_t) i].button == "PLAY")) rows[(size_t) i].click();
     repaint();
 }
 
 void KeyboardPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
     int d = w.deltaY < 0 ? 1 : -1; juce::ignoreUnused(e);
-    if (page == 2) sampleScroll = juce::jlimit(0, juce::jmax(0, (int) sampleRows().size() - 6), sampleScroll + d);
+    if (page == 2) sampleScroll = juce::jlimit(0, juce::jmax(0, (int) sampleRows().size() - 5), sampleScroll + d);
     if (page == 3) pluginScroll = juce::jlimit(0, juce::jmax(0, (int) pluginRows().size() - 6), pluginScroll + d);
     repaint();
 }

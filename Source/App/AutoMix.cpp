@@ -49,11 +49,12 @@ struct Track {
     bool poly = false;
     double pitched = 0, f0med = 0, f0lo = 0, f0hi = 0, rangeSt = 0, regular = 1, ioiMed = 0, sustain = 0, decaySec = 0, attackSharp = 0;
     std::vector<double> bands;
-    Role role = Lead; juce::String why;
+    Role role = automix::Lead; juce::String why;
     // what it gets
     MixSettings mix; double vol = 71, pan = 0;
     juce::StringArray did;
-    double procLufs = -70;
+    double procLufs = -70, active = -70, rawActive = -70;     // after its EQ + compressor: integrated, and how loud it is while it plays
+    double gainDb = 0;                         // the fader move it gets
     bool muted = false;
 };
 
@@ -80,6 +81,24 @@ static void pitchTrack(const float* x, long n, double sr, std::vector<double>& f
 
 static double pct(std::vector<double> v, double q) { if (v.empty()) return 0; std::sort(v.begin(), v.end()); return v[(size_t) juce::jlimit(0, (int) v.size() - 1, (int) (q * (v.size() - 1)))]; }
 
+// how loud a part sounds WHILE IT PLAYS (K-weighted, 400 ms blocks, the louder half of the blocks it sounds in).
+// The integrated loudness of a loop counts its rests: a melody with space between its phrases reads quieter than it
+// sounds, a held chord louder - balancing by it pushes melodies up and long notes down. This is what the ear compares.
+static double activeLoudness(const juce::AudioBuffer<float>& b, double sr) {
+    int n = b.getNumSamples(); if (n < (int) (0.4 * sr)) return loud::integrated(b, sr);
+    std::vector<double> sq((size_t) n, 0.0);
+    for (int c = 0; c < b.getNumChannels(); ++c) { loud::Biquad sh, hp; loud::kweight(sr, sh, hp); auto* d = b.getReadPointer(c); for (int i = 0; i < n; ++i) { double y = hp.tick(sh.tick(d[i])); sq[(size_t) i] += y * y; } }
+    int blk = (int) (0.4 * sr), hop = (int) (0.1 * sr);
+    std::vector<double> z; double run = 0; for (int i = 0; i < blk; ++i) run += sq[(size_t) i];
+    for (int st = 0; st + blk <= n; st += hop) { if (st > 0) { for (int i = st - hop; i < st; ++i) run -= sq[(size_t) i]; for (int i = st + blk - hop; i < st + blk; ++i) run += sq[(size_t) i]; } z.push_back(std::max(0.0, run / blk)); }
+    double mx = 0; for (double v : z) mx = std::max(mx, v);
+    if (mx <= 1e-12) return -70.0;
+    std::vector<double> on; for (double v : z) if (v > mx * 0.01) on.push_back(v);          // it sounds: within 20 dB of its loudest
+    std::sort(on.begin(), on.end());
+    double s = 0; int c = 0; for (size_t i = on.size() / 2; i < on.size(); ++i) { s += on[i]; ++c; }
+    return c ? -0.691 + 10.0 * std::log10(s / c) : -70.0;
+}
+
 static void listen(Track& k, double sr) {
     const float* x = k.x->data(); long n = k.len;
     double pk = 0, ss = 0;
@@ -87,6 +106,7 @@ static void listen(Track& k, double sr) {
     k.peakDb = db(pk); k.rmsDb = 10.0 * std::log10(ss / std::max(1L, n) + 1e-14); k.crest = k.peakDb - k.rmsDb;
     juce::AudioBuffer<float> b(1, (int) n); b.copyFrom(0, 0, x, (int) n);
     k.lufs = loud::integrated(b, sr);
+    k.rawActive = activeLoudness(b, sr);
     k.bands = analysis::bands(x, (int) n, sr);
     auto on = analysis::onsets(x, (int) n, sr, 1.0f, true);
     k.density = on.size() / std::max(0.5, n / sr);
@@ -160,7 +180,7 @@ static void decideRoles(std::vector<Track*>& ts, double beatSec) {
         bool shortHits = k->sustain < 0.72 && k->crest > 11 && k->density > 1.2;
         bool perc = (k->pitched < 0.35 && k->density > 1.2 && (k->crest > 10 || k->attackSharp > 0.5 || k->hiFrac > 0.02))
                  || (shortHits && k->hiFrac > 0.004 && (k->pitched < 0.6 || k->rangeSt > 10));
-        if (perc) { k->role = Drums; k->why = "sharp attacks without a steady pitch"; } else rest.push_back(k);
+        if (perc) { k->role = automix::Drums; k->why = "sharp attacks without a steady pitch"; } else rest.push_back(k);
     }
     // the bass: the lowest pitched line
     Track* bass = nullptr;
@@ -168,7 +188,7 @@ static void decideRoles(std::vector<Track*>& ts, double beatSec) {
     if (bass != nullptr) {
         double next = 1e9; for (auto* k : rest) if (k != bass && k->f0med > 0) next = std::min(next, k->f0med);
         bool low = bass->f0med < 165 || (bass->f0med < 230 && next > bass->f0med * 1.8) || (bass->lowFrac > 0.55 && bass->f0med < 260);
-        if (low && rest.size() + (ts.size() - rest.size()) > 1) { bass->role = Bass; bass->why = "the lowest line (" + noteOf(bass->f0lo) + U8("–") + noteOf(bass->f0hi) + ")"; }
+        if (low && rest.size() + (ts.size() - rest.size()) > 1) { bass->role = automix::Bass; bass->why = "the lowest line (" + noteOf(bass->f0lo) + U8("–") + noteOf(bass->f0hi) + ")"; }
         else bass = nullptr;
     }
     std::vector<Track*> mel;
@@ -176,10 +196,10 @@ static void decideRoles(std::vector<Track*>& ts, double beatSec) {
         if (k == bass) continue;
         bool sustained = k->density < 0.9 || (k->sustain > 0.8 && k->density < 1.6);
         if (k->pitched < 0.3 && sustained) { k->role = k->centroid > 2500 || k->hiFrac > 0.08 ? Texture : Pad; k->why = k->role == Pad ? "long chords (several notes at once)" : "a sound surface, no clear notes"; continue; }
-        if (sustained && k->rangeSt < 7) { k->role = Pad; k->why = "long held notes"; continue; }
+        if (sustained && k->rangeSt < 7) { k->role = automix::Pad; k->why = "long held notes"; continue; }
         bool repeated = k->density > 2.0 && k->regular < 0.45 && k->rangeSt < 6;
-        if (repeated) { k->role = Rhythm; k->why = "a repeated figure in time (" + juce::String(k->ioiMed > 0 ? beatSec / k->ioiMed : 0, 1) + " notes a beat)"; continue; }
-        if (k->pitched < 0.3) { k->role = Texture; k->why = "no clear pitch"; continue; }
+        if (repeated) { k->role = automix::Rhythm; k->why = "a repeated figure in time (" + juce::String(k->ioiMed > 0 ? beatSec / k->ioiMed : 0, 1) + " notes a beat)"; continue; }
+        if (k->pitched < 0.3) { k->role = automix::Texture; k->why = "no clear pitch"; continue; }
         mel.push_back(k);
     }
     // the melody: the most singing part - clear pitch, moving, in the middle / top, present
@@ -192,7 +212,7 @@ static void decideRoles(std::vector<Track*>& ts, double beatSec) {
     // every piece needs a focus: with no melody, the most moving pitched part leads
     if (mel.empty() && ts.size() > 1) {
         Track* best = nullptr; for (auto* k : ts) if ((k->role == Rhythm || k->role == Pad) && k->pitched > 0.3 && (best == nullptr || k->rangeSt > best->rangeSt)) best = k;
-        if (best != nullptr && best->rangeSt >= 3) { best->role = Lead; best->why = "leads (the most moving part)"; }
+        if (best != nullptr && best->rangeSt >= 3) { best->role = automix::Lead; best->why = "leads (the most moving part)"; }
     }
     if (ts.size() == 1) { ts[0]->role = ts[0]->role == Drums ? Drums : Lead; ts[0]->why = "on its own"; }
     if (std::getenv("ARCO_DEBUG"))
@@ -306,11 +326,11 @@ static void compress(Track& k, int style, double sr) {
     P p;
     switch (k.role) {
         case Drums: p = { 4.0, 25, 110, 3.0 }; break;          // slow attack: the hits stay sharp
-        case Bass: p = { 4.0, 12, 160, 5.0 }; break;           // an even bass
-        case Lead: p = { 3.0, 8, 130, 4.0 }; break;
-        case Counter: p = { 2.5, 10, 150, 3.0 }; break;
-        case Rhythm: p = { 3.0, 15, 120, 3.0 }; break;
-        default: p = { 1.8, 35, 300, 1.5 }; break;
+        case Bass: p = { 3.5, 15, 160, 4.0 }; break;           // an even bass
+        case Lead: p = { 2.5, 12, 140, 3.0 }; break;           // a singing line keeps its phrasing
+        case Counter: p = { 2.2, 14, 160, 2.5 }; break;
+        case Rhythm: p = { 2.5, 15, 120, 2.5 }; break;
+        default: p = { 1.6, 35, 300, 1.5 }; break;
     }
     if (k.st90 - k.st10 < 4 && k.crest < 9) { k.did.add("no compression needed (already even)"); return; }
     // the detector of the strip's compressor, run over the track: its 90th percentile is the "loud part"
@@ -326,7 +346,7 @@ static void compress(Track& k, int style, double sr) {
 }
 
 // how loud a track is after its EQ and compressor (by running them)
-static double processedLufs(const Track& k, double sr) {
+static double processedLufs(const Track& k, double sr, double* active = nullptr) {
     StripMix sm; sm.init(sr);
     auto& F = mixFields();
     MixSettings ms = k.mix;
@@ -342,6 +362,7 @@ static double processedLufs(const Track& k, double sr) {
         sm.process(ip.data(), op.data(), 64);
         std::copy(tmpOut.begin(), tmpOut.begin() + n, dst + a);
     }
+    if (active) *active = activeLoudness(b, sr);
     return loud::integrated(b, sr);
 }
 
@@ -496,7 +517,8 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
         for (auto* k : ts) {
             if (O.eq) design(*k, ts, O.style, hasBass);
             if (O.dynamics) compress(*k, O.style, sr);
-            k->procLufs = O.eq || O.dynamics ? processedLufs(*k, sr) : k->lufs;
+            if (O.eq || O.dynamics) k->procLufs = processedLufs(*k, sr, &k->active);
+            else { k->procLufs = k->lufs; juce::AudioBuffer<float> b(1, (int) k->len); b.copyFrom(0, 0, k->x->data(), (int) k->len); k->active = activeLoudness(b, sr); }
         }
     }
     if (progress && !progress(0.55f)) return r;
@@ -508,20 +530,49 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
     for (auto& S : j.scenes) {
         std::vector<Track*> ts; for (auto* k : all) if (k->scene == S.index && !k->muted) ts.push_back(k);
         if (ts.empty()) continue;
-        // levels by priority (in LU under the melody), measured after EQ and compression
+        // levels: how loud each part sounds while it plays, measured after its EQ and compressor, balanced like an
+        // engineer balances an ensemble - every voice heard, the focus a little in front (never by 8-10 dB as before).
+        // Then: a part covered by louder parts in its own register comes up a little; your wishes on top.
         if (O.levels) {
-            auto target = [&](Role ro) { switch (ro) { case Lead: return 0.0; case Counter: return -3.5; case Drums: return O.style == 2 ? -0.5 : -1.5; case Bass: return -2.0;
-                                                         case Rhythm: return -5.0; case Pad: return -8.0; default: return -10.5; } };
+            auto target = [&](Role ro) {
+                switch (O.focus) {
+                    case 1:  { static const double T[7] = { -2.0, -2.0, -3.5, 0.0, -2.0, -4.5, -6.0 }; return T[ro]; }   // melody in front
+                    case 2:  { static const double T[7] = { -0.5, 0.0, -2.0, -1.0, -2.5, -4.0, -6.0 }; return T[ro]; }    // groove
+                    default: { static const double T[7] = { -1.0, -1.0, -1.5, 0.0, -0.5, -2.0, -3.5 }; return T[ro]; }    // together
+                } };
             std::map<Track*, double> tgt;
-            for (auto* k : ts) tgt[k] = ts.size() == 1 ? 0.0 : target(k->role);
-            double A = 1e9; for (auto* k : ts) A = std::min(A, k->procLufs - tgt[k]);
+            for (auto* k : ts) tgt[k] = (ts.size() == 1 ? 0.0 : target(k->role)) + O.roleDb[(size_t) k->role] + O.trackDb[(size_t) k->t];
+            // first pass: every part to its target (relative to a common reference)
+            for (auto* k : ts) k->gainDb = tgt[k] - k->active;
+            // masking: of its main band, how much is covered by louder parts? up to +1.5 dB to be heard
             for (auto* k : ts) {
-                double g = juce::jlimit(-30.0, 6.0, (tgt[k] + A) - k->procLufs);     // the loudest planned part at 0 dB on its fader
-                k->vol = dbToVol(g);
+                double mx = *std::max_element(k->bands.begin(), k->bands.end());
+                int main = 0, covered = 0;
+                for (int i = 0; i < analysis::NBANDS; ++i) {
+                    double f = analysis::bandFreq(i); if (f < 150 || f > 6000 || k->bands[(size_t) i] < mx - 6) continue;
+                    ++main; double mine = k->bands[(size_t) i] + k->gainDb;
+                    for (auto* o : ts) if (o != k && o->bands[(size_t) i] + o->gainDb > mine + 3) { ++covered; break; }
+                }
+                if (main > 0 && covered > 0) { double up = 1.5 * covered / main; k->gainDb += up; if (up >= 0.5) k->why << (k->why.isEmpty() ? "" : U8(" · ")) << "partly covered by louder parts: +" << juce::String(up, 1) << " dB"; }
+            }
+            // the reference: the highest fader at 0 dB; if that would pull a part below -24 dB (one recorded far louder
+            // than the others), the faders go up instead, up to +6 dB - the balance itself never changes
+            double top = -1e9, bot = 1e9; for (auto* k : ts) { top = std::max(top, k->gainDb); bot = std::min(bot, k->gainDb); }
+            double ref = top - juce::jlimit(0.0, 6.0, (top - bot) - 24.0);
+            for (auto* k : ts) k->gainDb = juce::jlimit(-30.0, 6.0, k->gainDb - ref);
+            for (auto* k : ts) {
+                k->vol = dbToVol(juce::jlimit(-30.0, 6.0, k->gainDb));
                 double was = cur(S.index, "vol" + std::to_string(k->strip));
                 if (std::abs(k->vol - was) >= 0.5) k->did.insert(0, "level " + sdb(volToDb(k->vol) - volToDb(was)));
                 plan(S.index, "vol" + std::to_string(k->strip), k->vol);
             }
+            {   // the balance, before and after (the loudest = 0)
+                double b0 = -1e9, a0 = -1e9;
+                for (auto* k : ts) { b0 = std::max(b0, k->rawActive + volToDb(cur(S.index, "vol" + std::to_string(k->strip)))); a0 = std::max(a0, k->active + k->gainDb); }
+                for (auto* k : ts) r.levels.push_back({ S.index, k->t, juce::String(roleName(k->role)), k->rawActive + volToDb(cur(S.index, "vol" + std::to_string(k->strip))) - b0, k->active + k->gainDb - a0 });
+            }
+            if (std::getenv("ARCO_DEBUG"))
+                for (auto* k : ts) std::printf("        [level] track %d %-14s active %.1f -> %.1f LU (target %+.1f, fader %+.1f dB)\n", k->t + 1, roleName(k->role), k->active, k->active + k->gainDb, tgt[k], k->gainDb);
         }
         // panning: bass, kick and melody in the centre; the others spread so both sides weigh the same, and the parts
         // that share the most frequencies go to opposite sides
@@ -540,6 +591,7 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
             for (auto* k : side) {
                 double w = k->role == Pad ? 38 : k->role == Texture ? 45 : k->role == Rhythm ? 32 : k->role == Counter ? 25 : 20;
                 if (side.size() == 1) w *= 0.5;                       // alone on a side: not too far (the mix stays balanced)
+                w = std::min(50.0, w * (O.width < 0 ? 0.6 : O.width > 0 ? 1.35 : 1.0));
                 // the side away from the part it clashes with most; otherwise the lighter side
                 Track* clash = nullptr; double cmax = 0; for (auto* o : placed) { double ov = overlap(k, o); if (ov > cmax) { cmax = ov; clash = o; } }
                 int dir = clash != nullptr && std::abs(clash->pan) > 1 ? (clash->pan > 0 ? -1 : 1) : (weightL <= weightR ? -1 : 1);
@@ -581,6 +633,7 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
                 switch (k->role) { case Bass: depth = 0; break; case Drums: depth = 8; break; case Lead: depth = 15; break; case Counter: depth = 20; break;
                                    case Rhythm: depth = 18; break; case Pad: depth = 30; break; default: depth = 34; }
                 depth *= O.style == 0 ? 1.2 : O.style == 2 ? 0.75 : 1.0;
+                depth *= O.space == 0 ? 0.45 : O.space == 2 ? 1.6 : 1.0;
                 juce::String note;
                 // its own reverb (recorded in a room): less of ours, so all of them sound like one room
                 if (k->decaySec > 0 && drySec < 1e8 && k->decaySec > drySec * 1.6 && k->decaySec > 0.8) {
@@ -612,7 +665,7 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
                 plan(S.index == j.scenes[0].index ? 0 : 0, "dly_time", (idx + 0.5) / 8.0 * 100.0);
                 plan(0, "dly_fb", fbWant); plan(0, "dly_tone", 42);
                 plan(S.index, "dly_sp", 35);
-                double send = lead->density > 4 ? 10 : (lead->density > 2 ? 16 : 22);
+                double send = (lead->density > 4 ? 10 : (lead->density > 2 ? 16 : 22)) * (O.space == 0 ? 0.6 : O.space == 2 ? 1.2 : 1.0);
                 auto p = Model::stripParam(lead->strip, "dly");
                 if (!p.empty()) { plan(S.index, p, send); lead->did.add("DELAY " + nm + " (" + juce::String((int) send) + "), echoes fade within " + (ioiB >= 0.45 ? "a bar" : "half a bar") + ", darker, into the room"); }
                 for (auto* k : ts) if (k != lead && k->role != Counter) { auto q = Model::stripParam(k->strip, "dly"); if (!q.empty() && cur(S.index, q) > 12) { plan(S.index, q, 8); k->did.add(U8("DELAY send → 8 (the echoes belong to the melody)")); } }
@@ -676,7 +729,8 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
         bool spcUsed = false; for (auto& kv : planned) if (kv.first.second.rfind("spc", 0) == 0 && kv.second > 0.5) spcUsed = true;
         if (spcUsed || usedAny("spc")) {
             double want = densest > 5 ? beatSec * 2.0 : (densest > 2.5 ? beatSec * 3.0 : barSec);
-            want = juce::jlimit(1.1, 3.6, want);
+            want *= O.space == 0 ? 0.65 : O.space == 2 ? 1.5 : 1.0;
+            want = juce::jlimit(0.9, O.space == 2 ? 4.8 : 3.6, want);
             double knob = 100.0 * std::sqrt(std::max(0.0, (want - 0.4) / 24.0));
             plan(0, "spc_decay", knob);
             double tone = densest > 4 ? 40 : 50;                        // a darker room for busy music: clearer
@@ -689,9 +743,9 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
 
     // 6. the master: tonal balance, glue, loudness - rendered and measured
     if (O.master) {
-        double glue = O.style == 0 ? 20 : O.style == 2 ? 45 : 30;
+        double glue = O.style == 0 ? 15 : O.style == 2 ? 40 : 25;
         plan(0, "glue", glue);
-        double target = O.style == 0 ? -16.0 : O.style == 2 ? -11.0 : -14.0;
+        double target = (O.style == 0 ? -16.0 : O.style == 2 ? -11.5 : -14.0) + O.loud * 2.0;
         auto render = [&](double gain, double lsg, double hsg, bool lim, double from, double to, juce::AudioBuffer<float>& mix, double& rate) {
             RenderSnapshot snap = j.snap;
             juce::var song = juce::JSON::parse(juce::JSON::toString(snap.song));
@@ -718,7 +772,19 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
             auto rel = [&](double f0, double f1) { double ref = bandAvg(bb, 700, 1400); double fc = std::sqrt(f0 * f1); return bandAvg(bb, f0, f1) - ref + 4.5 * std::log2(fc / 1000.0); };
             double lowDev = rel(50, 160), highDev = rel(5000, 12000);
             double lsg = juce::jlimit(-3.0, 3.0, -lowDev * 0.4), hsg = juce::jlimit(-3.0, 3.0, -highDev * 0.4);
+            if (O.tone < 0) { lsg += 1.0; hsg -= 1.5; } else if (O.tone > 0) { lsg -= 0.5; hsg += 1.5; }
+            lsg = juce::jlimit(-3.5, 3.5, lsg); hsg = juce::jlimit(-3.5, 3.5, hsg);
             if (std::abs(lsg) < 0.5) lsg = 0; if (std::abs(hsg) < 0.5) hsg = 0;
+            // how hard the limiter may work: a mastering engineer stops before the music loses its breath.
+            // The loud moments (the top of 10 ms peaks, not single clicks) may be held down by at most 2 / 3.5 / 5.5 dB.
+            double loudPk = -100;
+            { std::vector<double> pk; int w = (int) (0.01 * rate);
+              for (int a = 0; a + w <= mix.getNumSamples(); a += w) { float m2 = 0; for (int c = 0; c < mix.getNumChannels(); ++c) m2 = std::max(m2, mix.getMagnitude(c, a, w)); if (m2 > 1e-6f) pk.push_back(db(m2)); }
+              loudPk = pct(pk, 0.995); }
+            double allowGR = O.style == 0 ? 2.0 : O.style == 2 ? 5.5 : 3.5;
+            double maxGain = -1.0 + allowGR - loudPk;
+            bool held = false;
+            if (target - lu > maxGain) { target = lu + maxGain; held = true; }
             double gain = juce::jlimit(-12.0, 18.0, target - lu);
             // measure again through the limiter and correct (the limiter takes a little loudness)
             double measured = lu + gain;
@@ -731,7 +797,7 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
             }
             plan(0, "ms_gain", gain); plan(0, "ms_lim", 1); plan(0, "ms_ceil", -1.0); plan(0, "ms_lsg", lsg); plan(0, "ms_hsg", hsg);
             r.lufsAfter = measured;
-            juce::String w = juce::String(lu, 1) + U8(" → ") + juce::String(measured, 1) + " LUFS measured (" + (O.style == 0 ? "natural" : O.style == 2 ? "loud" : "streaming") + " level), true peak under "
+            juce::String w = juce::String(lu, 1) + U8(" → ") + juce::String(measured, 1) + " LUFS measured (" + (held ? juce::String("as loud as it can be without squashing it") : juce::String(O.style == 0 ? "natural" : O.style == 2 ? "loud" : "streaming") + " level") + "), peaks under "
                              + U8("−1 dB") + ", glue " + juce::String((int) glue);
             if (lsg != 0) w << ", lows " << sdb(lsg);
             if (hsg != 0) w << ", highs " << sdb(hsg);
@@ -778,4 +844,80 @@ void apply(AudioHost& h, const AutoMixResult& r, bool after) {
 }
 
 } // namespace automix
+
+// ------------------------------------------------------------------ what you want, in your words
+// Simple and predictable: the sentence is split into parts ("warm and spacious, track 2 louder"); each part is either
+// about one track / one kind of part (with louder / quieter), or about the whole mix. English, Portuguese, German.
+void parseWish(const juce::String& wishIn, AutoMixOptions& o, juce::StringArray& understood) {
+    auto U = [](const char* t) { return juce::String::fromUTF8(t); };
+    juce::String w = wishIn.toLowerCase();
+    for (auto pr : { std::pair<const char*, const char*> { "ã", "a" }, { "á", "a" }, { "â", "a" }, { "à", "a" }, { "é", "e" }, { "ê", "e" }, { "í", "i" }, { "ó", "o" }, { "ô", "o" }, { "õ", "o" }, { "ú", "u" }, { "ç", "c" }, { "ä", "a" }, { "ö", "o" }, { "ü", "u" }, { "ß", "ss" } })
+        w = w.replace(U(pr.first), pr.second);
+    for (auto sep : { " and ", " but ", " e ", " und ", " aber ", " mas ", ";", ".", "!", "\n" }) w = w.replace(sep, ",");
+    auto parts = juce::StringArray::fromTokens(w, ",", "");
+    auto has = [](const juce::String& c, std::initializer_list<const char*> ws) { for (auto* x : ws) if ((" " + c + " ").contains(juce::String(" ") + x) ) return true; return false; };
+    static const char* roleWord[7] = { "BASS", "DRUMS", "RHYTHM", "MELODY", "SECOND MELODY", "CHORDS / PADS", "TEXTURE" };
+    for (auto c : parts) {
+        c = c.trim(); if (c.isEmpty()) continue;
+        bool up = has(c, { "louder", "more ", "up", "front", "forward", "boost", "stronger", "bigger", "lauter", "mehr", "vorne", "mais", "alto", "frente", "+" });
+        bool down = has(c, { "quieter", "softer", "less", "down", "back", "behind", "lower", "smaller", "weaker", "leiser", "weniger", "hinten", "menos", "mais baixo", "muito baixo", "atras", "tras", "-" });
+        if (has(c, { "too loud", "zu laut", "muito alto", "demasiado alto" })) { up = false; down = true; }
+        if (has(c, { "too quiet", "too soft", "zu leise", "muito baixo" })) { up = true; down = false; }
+        double amt = has(c, { "a bit", "slightly", "a little", "little", "etwas", "ein bisschen", "um pouco", "pouco" }) ? 1.5 : has(c, { "much", "a lot", "very", "way", "viel", "sehr", "muito" }) ? 4.5 : 3.0;
+        // a track?
+        int trackN = -1;
+        { auto tk = juce::StringArray::fromTokens(c, " ", "");
+          for (int i = 0; i < tk.size(); ++i) {
+              auto t = tk[i];
+              bool word = t.startsWith("track") || t.startsWith("pista") || t.startsWith("spur") || t.startsWith("loop") || t.startsWith("faixa") || t.startsWith("t");
+              int n = t.retainCharacters("0123456789").getIntValue();
+              if (word && n >= 1 && n <= 8) { trackN = n; break; }
+              if (n >= 1 && n <= 8 && t.containsOnly("0123456789") && i > 0 && (tk[i - 1].startsWith("track") || tk[i - 1].startsWith("pista") || tk[i - 1].startsWith("spur") || tk[i - 1].startsWith("faixa") || tk[i - 1].startsWith("loop"))) { trackN = n; break; }
+          } }
+        int role = -1;
+        if (has(c, { "second melody", "counter", "segunda", "gegenstimme" })) role = automix::Counter;
+        else if (has(c, { "bass", "contrabaixo" }) || (has(c, { "baixo" }) && !has(c, { "mais baixo", "muito baixo" }))) role = automix::Bass;
+        else if (has(c, { "drum", "percussion", "beat", "bateria", "percuss", "schlagzeug", "trommel" })) role = automix::Drums;
+        else if (has(c, { "melody", "melodie", "melodia", "lead", "solo", "tune" })) role = automix::Lead;
+        else if (has(c, { "chord", "pad", "harmony", "acorde", "akkord", "harmonie", "harmonia" })) role = automix::Pad;
+        else if (has(c, { "texture", "textur", "textura", "noise" })) role = automix::Texture;
+        else if (has(c, { "rhythm", "ritmo", "rhythmus" }) && (up || down)) role = automix::Rhythm;
+        if ((trackN > 0 || role >= 0) && (up || down)) {
+            double d = (up ? amt : -amt);
+            if (trackN > 0) { o.trackDb[(size_t) trackN - 1] += (float) d; understood.add("TRACK " + juce::String(trackN) + " " + (d > 0 ? "+" : U("−")) + juce::String(std::abs(d), 1) + " dB"); }
+            else { o.roleDb[(size_t) role] += (float) d; understood.add(juce::String(roleWord[role]) + " " + (d > 0 ? "+" : U("−")) + juce::String(std::abs(d), 1) + " dB"); }
+            continue;
+        }
+        if (role == automix::Lead && has(c, { "front", "solo", "vorne", "frente" })) { o.focus = 1; understood.add("MELODY IN FRONT"); continue; }
+        // an instrument by name: ARCO does not know which track it is - ask
+        if ((up || down) && has(c, { "cello", "violin", "viola", "flute", "voice", "vocal", "piano", "guitar", "sax", "trumpet", "clarinet", "oboe", "geige", "flote", "stimme", "klavier", "violino", "flauta", "voz", "violoncelo", "guitarra", "cello" })) {
+            understood.add("? \"" + c + U("\" - which track is it? e.g. 'track 2 louder'")); continue; }
+        bool any = false;
+        auto say = [&](const juce::String& t) { understood.addIfNotAlreadyThere(t); any = true; };
+        if (has(c, { "together", "equal", "balanced", "ensemble", "blend", "every voice", "all voices", "juntos", "igual", "equilibr", "zusammen", "ausgewogen", "gleich" })) { o.focus = 0; say("EVERY VOICE TOGETHER"); }
+        if (has(c, { "melody in front", "solo", "lead in front", "melodia", "melodie vorne" })) { o.focus = 1; say("MELODY IN FRONT"); }
+        if (has(c, { "groove", "dance", "danc", "tanz" })) { o.focus = 2; say("GROOVE"); }
+        if (has(c, { "natural", "acoustic", "classical", "classic", "organic", "naturlich", "akustisch", "klassisch", "acustic", "classico" })) { o.style = 0; say("NATURAL"); }
+        if (has(c, { "punch", "powerful", "energ", "pop", "aggressive", "kraftig", "forte" })) { o.style = 2; say("PUNCHY"); }
+        bool rev = has(c, { "reverb", "space", "room", "hall", "echo", "hall", "raum", "espaco", "sala", "eco" });
+        if (has(c, { "dry", "intimate", "close", "trocken", "seco", "intim" }) || (rev && down) || has(c, { "no reverb", "kein hall", "sem reverb" })) { o.space = 0; say("DRY, CLOSE"); }
+        else if (has(c, { "spacious", "big room", "church", "cathedral", "ambient", "wet", "airy", "kirche", "igreja", "weit" }) || (rev && up)) { o.space = 2; say("MORE SPACE (HALL)"); }
+        else if (rev) { o.space = 1; say("ONE ROOM"); }
+        if (has(c, { "warm", "dark", "mellow", "smooth", "soft", "round", "quente", "suave", "weich", "dunkel" })) { o.tone = -1; say("WARMER"); }
+        if (has(c, { "bright", "clear", "crisp", "air", "brilliant", "sparkl", "hell", "klar", "brilh", "claro", "limpo" })) { o.tone = 1; say("BRIGHTER"); }
+        if (has(c, { "wide", "wider", "broad", "stereo", "breit", "largo", "amplo" })) { o.width = 1; say("WIDER"); }
+        if (has(c, { "narrow", "mono", "centred", "centered", "schmal", "estreito" })) { o.width = -1; say("NARROWER"); }
+        if (has(c, { "tight", "on the beat", "in time", "precise", "exact", "genau", "preciso" })) { o.timing = true; o.timingAmount = 0.6f; say("TIGHTER TIMING"); }
+        if (has(c, { "loose", "human", "leave the timing", "no timing", "don't move", "dont move", "frei", "humano" })) { o.timing = false; say("TIMING AS PLAYED"); }
+        if (!rev && (has(c, { "louder", "loud", "lauter", "mais alto", "volume up" }) && !has(c, { "too loud" }))) { o.loud = 1; say("LOUDER MASTER"); }
+        if (!rev && has(c, { "quieter", "quiet", "softer master", "leiser", "mais baixo", "dynamic", "dynamik", "dinamic", "breath" })) { o.loud = -1; o.style = juce::jmin(o.style, 1); say("MORE DYNAMIC (QUIETER)"); }
+        if (!any) {
+            // an instrument we cannot place
+            if (has(c, { "cello", "violin", "viola", "flute", "voice", "vocal", "piano", "guitar", "sax", "trumpet", "geige", "flote", "stimme", "violino", "flauta", "voz", "violoncelo", "guitarra" }))
+                understood.add("? \"" + c + U("\" - which track is it? e.g. 'track 2 louder'"));
+            else understood.add("? \"" + c + "\"");
+        }
+    }
+}
+
 } // namespace arco

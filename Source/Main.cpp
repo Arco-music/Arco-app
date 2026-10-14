@@ -100,6 +100,7 @@ public:
         if (cmd.contains("look")) mc->canvas.openLook(true);
         if (cmd.contains("kind=")) host->rack.kind.store(cmd.fromFirstOccurrenceOf("kind=", false, false).getIntValue());
         if (cmd.contains("keyboard")) mc->canvas.openKeyboard(true);
+        if (cmd.contains("ksearch=")) mc->canvas.keyboardSearch(cmd.fromFirstOccurrenceOf("ksearch=", false, false).upToFirstOccurrenceOf(" ", false, false).replace("+", " "));
         if (cmd.contains("outputs")) { host->engine.grid[0][2].store(1); host->engine.grid[4][3].store(1); host->engine.grid[5][4].store(1); mc->canvas.openOutputs(); }
         if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true); }
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
@@ -134,16 +135,58 @@ public:
                 juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os); delete sv; quit(); });
             return;
         }
-        if (cmd.contains("automix")) mc->canvas.command(arco::cmdAutoMix);
+        if (cmd.contains("automix")) { mc->canvas.command(arco::cmdAutoMix);
+            if (cmd.contains("amwish") && mc->canvas.autoMixSheet) mc->canvas.autoMixSheet->setWish(juce::String::fromUTF8("warm and spacious, track 2 louder, the cello a bit quieter")); }
         if (cmd.contains("export")) mc->canvas.command(arco::cmdExport);
         if (cmd.contains("help")) mc->canvas.command(arco::cmdHelp);
         if (cmd.contains("about")) mc->canvas.command(arco::cmdAbout);
         if (cmd.contains("learn")) mc->canvas.setMidiLearn(true);
         if (cmd.contains("import=")) mc->canvas.requestImport(juce::File(cmd.fromFirstOccurrenceOf("import=", false, false).upToFirstOccurrenceOf(" ", false, false)), 2);
+        if (cmd.contains("amdemo")) { amDemo(mc, out); return; }
         juce::Timer::callAfterDelay(cmd.contains("import=") ? 4000 : 1500, [this, mc, out] {
             auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
             juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);
             delete mc; quit(); });
+    }
+
+    // for the guide: four string parts recorded at very different levels, then AUTO MIX (the engine is run by hand)
+    struct AmDemo : juce::Timer {
+        arco::AudioHost& h; arco::MainComponent* mc; juce::File out; std::function<void()> done;
+        int step = 0, waitTicks = 0; std::array<juce::AudioBuffer<float>, 4> st;
+        std::vector<float> o[34]; float* outs[34]; std::vector<float> in1;
+        AmDemo(arco::AudioHost& hh, arco::MainComponent* m, juce::File f) : h(hh), mc(m), out(f) {
+            for (auto& v : o) v.assign(512, 0.0f); for (int i = 0; i < 34; ++i) outs[i] = o[i].data(); in1.assign(512, 0.0f);
+            const double sr = h.engine.sr, bl = sr * 0.5; const long L = (long) (bl * 16);
+            for (auto& b : st) { b.setSize(1, (int) L); b.clear(); }
+            auto bow = [&](int k, long a, long len, double f, double amp, double att) { double ph = 0;
+                for (long i = 0; i < len && a + i < L; ++i) { double t = i / sr, env = std::min(1.0, t / att) * std::min(1.0, (len - i) / (0.08 * sr));
+                    ph += 2 * M_PI * f * (1.0 + 0.004 * std::sin(2 * M_PI * 5.5 * t)) / sr; double v = 0; for (int hN = 1; hN <= 10; ++hN) v += std::sin(ph * hN) / hN;
+                    st[(size_t) k].addSample(0, (int) (a + i), (float) (amp * env * v * 0.5)); } };
+            long bar = (long) (bl * 4);
+            const double BASS[4] = { 65.41, 98.0, 110.0, 87.31 }; for (int b = 0; b < 4; ++b) bow(0, b * bar, bar - 200, BASS[b], 0.9, 0.12);
+            const double HAR[8] = { 164.81, 196.0, 220.0, 246.94, 220.0, 196.0, 174.61, 196.0 }; for (int n = 0; n < 8; ++n) bow(1, n * bar / 2, bar / 2 - 200, HAR[n], 0.13, 0.25);
+            const double MEL[6] = { 440.0, 493.88, 523.25, 587.33, 659.25, 587.33 }; for (int ph = 0; ph < 2; ++ph) for (int n = 0; n < 6; ++n) bow(2, ph * 2 * bar + (long) (n * bl * 0.5), (long) (bl * 0.48), MEL[n], 0.45, 0.03);
+            const double PZ[4] = { 146.83, 220.0, 196.0, 220.0 };
+            for (int bt = 0; bt < 16; ++bt) { long a = (long) (bt * bl); double f = PZ[bt % 4]; for (long i = 0; i < (long) (0.35 * sr) && a + i < L; ++i) { double v = 0; for (int hN = 1; hN <= 6; ++hN) v += std::sin(2 * M_PI * f * hN * i / sr) * std::pow(0.5, hN); st[3].addSample(0, (int) (a + i), (float) (0.5 * v * std::exp(-i / (0.09 * sr)))); } }
+            startTimer(5);
+        }
+        void timerCallback() override {
+            const float* ins[4] = { in1.data(), nullptr, nullptr, nullptr };
+            for (int k = 0; k < 8; ++k) { h.engine.process(ins, 4, outs, 34, 512); h.model.tick(); }
+            if (waitTicks > 0) { --waitTicks; return; }
+            if (step < 4) { if (!h.importing()) { h.importBuffer(st[(size_t) step], step + 1, "demo"); ++step; waitTicks = 40; } return; }
+            if (step == 4) { if (h.importing()) return; mc->canvas.command(arco::cmdAutoMix); if (mc->canvas.autoMixSheet) { mc->canvas.autoMixSheet->setWish("warm, one room"); mc->canvas.autoMixSheet->mixNow(); } ++step; waitTicks = 60; return; }
+            if (step == 5) { if (mc->canvas.autoMixSheet && mc->canvas.autoMixSheet->hasResult()) { ++step; waitTicks = 20; } return; }
+            stopTimer(); if (done) done();
+        }
+    };
+    std::unique_ptr<AmDemo> amd;
+    void amDemo(arco::MainComponent* mc, juce::File out) {
+        amd = std::make_unique<AmDemo>(*host, mc, out);
+        amd->done = [this, mc, out] {
+            auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
+            juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);
+            juce::MessageManager::callAsync([this, mc] { amd.reset(); delete mc; quit(); }); };
     }
 
     class MainWindow : public juce::DocumentWindow {

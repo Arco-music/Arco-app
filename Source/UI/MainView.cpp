@@ -374,8 +374,16 @@ Canvas::Canvas(AudioHost& h) : host(h) {
 
 juce::Rectangle<int> Canvas::place(juce::Rectangle<int> r) const {
     if (!portrait) return r;
-    if (r.getY() < 62) return r.getX() >= 770 ? r.translated(16 - 770, 62) : r;           // the top bar: its right half becomes a second row
-    if (r.getY() < 100) return r.getX() >= 776 ? r.translated(16 + (1000 - 32 - 652) / 2 - 776, 104) : r.translated(0, 62);   // the scene row; the window buttons get a row of their own
+    // 1.5: everything of the top bar stays at the top - the transport row, the song / master row under it, then the
+    // window buttons across the whole width; the scene row comes after them
+    if (r.getY() < 62) {
+        if (r.getX() >= 1380) return { W - 16 - r.getWidth(), r.getY(), r.getWidth(), r.getHeight() };   // the power button: top right, as in landscape
+        return r.getX() >= 770 ? r.translated(16 - 770, 62) : r;
+    }
+    if (r.getY() < 100) {
+        if (r.getX() >= 776) { int i = juce::jlimit(0, 6, (r.getX() - 776 + 3) / 94); int w = (W - 32 - 6 * 6) / 7; return { 16 + i * (w + 6), 130, w, 32 }; }
+        return r.translated(0, 104);
+    }
     return r;
 }
 
@@ -560,18 +568,19 @@ void Canvas::layoutStrips() {
     for (int s = 0; s < NSTRIP; ++s) nvis += s < 4 ? (s < host.nLive || (host.synthInto > 0 && s == host.synthInto)) : (s - 4) < ntn;
     stripRows = portrait ? (nvis + 7) / 8 : 1;
     // how tall: the cards take whole rows (238); the strips take the rest (at least 298, at most 298 + 260)
-    int top = portrait ? 210 : 100;
+    int top = portrait ? 214 : 100;
     int cols = portrait ? 6 : 9;
     int need = juce::jmax(1, (visibleCardCount() + cols - 1) / cols);
     int avail = H - top - 10;
     int rows = juce::jlimit(1, juce::jmax(1, need), (avail - stripRows * 304) / 238);
-    stripH = juce::jlimit(298, 298 + 260, (avail - rows * 238) / stripRows - 6);
+    stripH = juce::jlimit(298, 470, (avail - rows * 238) / stripRows - 6);   // never stretched: the effects get the room
     int idx = 0;
     for (int s = 0; s < NSTRIP; ++s) {
         bool vis = s < 4 ? (s < host.nLive || (host.synthInto > 0 && s == host.synthInto)) : (s - 4) < ntn;
         strips[s]->setVisible(vis);
         if (vis) {
-            if (portrait) { int perRow = 8; strips[s]->setBounds(16 + (idx % perRow) * 118, top + (idx / perRow) * (stripH + 6), 112, stripH); }
+            if (portrait) { int perRow = 8, inRow = juce::jmin(perRow, nvis - (idx / perRow) * perRow), x0 = 16 + (W - 32 - (inRow * 118 - 6)) / 2;     // centred
+                            strips[s]->setBounds(x0 + (idx % perRow) * 118, top + (idx / perRow) * (stripH + 6), 112, stripH); }
             else strips[s]->setBounds(16 + idx * 118, top, 112, stripH);
             ++idx;
         }
@@ -580,10 +589,11 @@ void Canvas::layoutStrips() {
 
 // the effect cards chosen in SETUP > EFFECTS: rows of up to 9 (portrait 6), centred, under the strips; more = pages
 void Canvas::layoutCards() {
+    if (!inLayout) { inLayout = true; layoutStrips(); inLayout = false; }      // the strips' height depends on how many cards there are
     auto& ct = cardTable();
     juce::Array<int> vis;
     for (int i = 0; i < (int) ct.size(); ++i) if (host.visibleCards.contains(ct[(size_t) i].key)) vis.add(i);
-    int top = (portrait ? 210 + stripRows * (stripH + 6) : 100 + stripH + 8);
+    int top = (portrait ? 214 + stripRows * (stripH + 6) + 4 : 100 + stripH + 8);
     int maxCols = portrait ? 6 : 9, maxRows = juce::jmax(1, (H - top - 4) / 238);
     int perPage = maxCols * maxRows;
     int pages = juce::jmax(1, (vis.size() + perPage - 1) / perPage);
@@ -593,10 +603,24 @@ void Canvas::layoutCards() {
     for (auto* p : pagePills) p->setVisible(pages > 1);
     int first = cardPage * perPage, n = juce::jmin(perPage, vis.size() - first);
     int rows = juce::jmax(1, juce::jmin(maxRows, (n + maxCols - 1) / maxCols)), cols = juce::jmax(1, (n + rows - 1) / rows);
-    int w = cols * 157 - 6, x0 = 16 + (W - 32 - w) / 2;
+    float sc = 1.0f;
+    if (pages == 1 && n > 0) {
+        // upright: the cards grow to use the room (fewer columns when that makes them bigger), never smaller
+        float availH = (float) (H - top - 8);
+        float best = 1.0f - 0.01f * (float) (cols * rows - n);
+        for (int c2 = maxCols; c2 >= 3; --c2) {
+            int r2 = (n + c2 - 1) / c2;
+            float s2 = juce::jmin((float) (W - 32) / (float) (c2 * 157 - 6), availH / (float) (r2 * 238), 1.3f);
+            float score = s2 - 0.01f * (float) (c2 * r2 - n);              // bigger, and full rows
+            if (s2 >= 1.0f && score > best + 0.005f) { best = score; sc = s2; cols = c2; rows = r2; }
+        }
+    }
+    int w = (int) std::round((cols * 157 - 6) * sc), x0 = 16 + (W - 32 - w) / 2;
     for (int k = 0; k < n; ++k) {
         auto* c = cards[vis[first + k]];
-        c->setBounds(x0 + (k % cols) * 157, top + (k / cols) * 238, 151, 232);
+        float x = (float) x0 + (k % cols) * 157 * sc, y = (float) top + (k / cols) * 238 * sc;
+        c->setBounds(0, 0, 151, 232);
+        c->setTransform(juce::AffineTransform::scale(sc).translated(x, y));
         c->setVisible(true);
     }
     repaint();
@@ -612,6 +636,7 @@ void Canvas::openLook(bool show) { look->setVisible(show); if (show) look->toFro
 void Canvas::openSpatial(bool show) { spatial->setVisible(show); if (show) spatial->toFront(true); }
 void Canvas::openOutputs() { spatial->showTab(0); openSpatial(true); }
 void Canvas::openKeyboard(bool show) { keyboardWin->setVisible(show); if (show) keyboardWin->toFront(true); }
+void Canvas::keyboardSearch(const juce::String& q) { openKeyboard(true); keyboardWin->setSearch(q); }
 void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) modularWin->toFront(true); }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
 void Canvas::synthKeys(int m, bool edit) { synthWin->setKeysMode(m, edit); }
@@ -687,8 +712,8 @@ void Canvas::paint(juce::Graphics& g) {
     if (!portrait) { paintTop(g); paintScenes(g); return; }
     // portrait: the top bar in two rows, the scene row under them (the same drawing, moved)
     { juce::Graphics::ScopedSaveState ss(g); g.reduceClipRegion(0, 0, 770, 62); paintTop(g); }
-    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(16 - 770, 62); g.reduceClipRegion(770, 0, 680, 62); paintTop(g); }
-    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(0, 62); g.reduceClipRegion(0, 62, 726, 40); paintScenes(g); }
+    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(16 - 770, 62); g.reduceClipRegion(770, 0, 618, 62); paintTop(g); }
+    { juce::Graphics::ScopedSaveState ss(g); g.setOrigin(0, 104); g.reduceClipRegion(0, 62, 726, 40); paintScenes(g); }
 }
 void Canvas::paintTop(juce::Graphics& g) {
     auto card = [&](int x, int y, int w, int h) { g.setColour(Theme::card()); g.fillRoundedRectangle((float) x, (float) y, (float) w, (float) h, 12.0f); };

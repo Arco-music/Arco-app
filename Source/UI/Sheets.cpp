@@ -343,42 +343,72 @@ void ImportSheet::paintContent(juce::Graphics& g) {
 }
 
 // ================================================================== AUTO MIX
+// 1.5: say what you want (in words, or with three choices), press MIX IT, listen BEFORE / AFTER. The balance of the
+// parts is drawn before and after; what was done to each part is below (DETAILS).
+static const int AMX = 24, AMR = 690;            // the left column, the right column
 AutoMixSheet::AutoMixSheet(Canvas& c) : Sheet(c, "AUTO MIX", { 170, 40, 1100, 800 }), juce::Thread("ARCO auto mix") {
-    subtitle = juce::String::fromUTF8("ARCO listens to every track, understands what it is, and mixes the piece - levels, EQ, compression, panning, effects in tempo, timing, master. Compare before / after at any time.");
+    subtitle = juce::String::fromUTF8("ARCO listens to every part, balances them like a mixing engineer and masters the piece. Say what you want - or just press MIX IT.");
+    wish.setTextToShowWhenEmpty(juce::String::fromUTF8("e.g.  warm and spacious  ·  every voice together  ·  track 2 louder  ·  less reverb"), Theme::sub());
+    wish.setFont(Theme::font(11.0f, 0));
+    wish.setColour(juce::TextEditor::backgroundColourId, Theme::scr());
+    wish.setColour(juce::TextEditor::textColourId, Theme::txt());
+    wish.setColour(juce::TextEditor::outlineColourId, Theme::line());
+    wish.setColour(juce::TextEditor::focusedOutlineColourId, Theme::sel());
+    wish.setIndents(12, 11);
+    wish.onTextChange = [this] { wishChanged(); };
+    wish.onReturnKey = [this] { start(); };
+    addAndMakeVisible(wish);
+    choices(AMX, 214, { "EVERY VOICE TOGETHER", "MELODY IN FRONT", "GROOVE" }, 196, [this] { return opt.focus; }, [this](int i) { opt.focus = i; });
+    choices(AMX, 276, { "NATURAL", "BALANCED", "PUNCHY" }, 196, [this] { return opt.style; }, [this](int i) { opt.style = i; });
+    choices(AMX, 338, { "DRY", "ONE ROOM", "HALL" }, 196, [this] { return opt.space; }, [this](int i) { opt.space = i; });
+    choices(AMX, 400, { "AS PLAYED", "GENTLE", "TIGHT" }, 128, [this] { return opt.timing ? timingChoice : 0; },
+            [this](int i) { timingChoice = i; opt.timing = i > 0; static const float A[3] = { 0, 0.3f, 0.6f }; opt.timingAmount = A[i]; });
+    choices(AMX + 418, 400, { "THIS SCENE", "ALL SCENES" }, 92, [this] { return opt.allScenes ? 1 : 0; }, [this](int i) { opt.allScenes = i == 1; });
     struct T { const char* name; bool* v; };
-    T ts[7] = { { "LEVELS", &opt.levels }, { "EQ", &opt.eq }, { "COMPRESSION", &opt.dynamics }, { "PANNING", &opt.pan }, { "EFFECTS IN TEMPO", &opt.effects }, { "TIMING", &opt.timing }, { "MASTER", &opt.master } };
+    T ts[7] = { { "LEVELS", &opt.levels }, { "EQ", &opt.eq }, { "COMPRESSION", &opt.dynamics }, { "PANNING", &opt.pan }, { "EFFECTS", &opt.effects }, { "TIMING", &opt.timing }, { "MASTER", &opt.master } };
     for (int i = 0; i < 7; ++i) {
         bool* v = ts[i].v;
-        auto* p = new Pill(ts[i].name, [v] { return *v ? Theme::green() : Theme::btn(); }, 8.0f, 6.0f);
+        auto* p = new Pill(ts[i].name, [v] { return *v ? Theme::green() : Theme::btn(); }, 7.0f, 6.0f);
         p->onClick = [this, v] { *v = !*v; repaint(); };
-        toggles.add(p); addAndMakeVisible(p);
-        p->setBounds(box.getX() + 24 + (i % 4) * 150, box.getY() + 110 + (i / 4) * 34, 142, 28);
+        toggles.add(p); addChildComponent(p);
     }
-    choices(24, 200, { "NATURAL", "BALANCED", "PUNCHY" }, 120, [this] { return opt.style; }, [this](int i) { opt.style = i; });
-    choices(24, 262, { "OFF", "GENTLE", "HALF WAY", "TIGHT" }, 100, [this] { return opt.timing ? timingChoice : 0; },
-            [this](int i) { timingChoice = i; opt.timing = i > 0; static const float A[4] = { 0, 0.3f, 0.5f, 0.8f }; opt.timingAmount = A[i]; });
-    choices(24, 324, { "THIS SCENE", "ALL SCENES" }, 150, [this] { return opt.allScenes ? 1 : 0; }, [this](int i) { opt.allScenes = i == 1; });
     opt.timingAmount = 0.3f;
-    addAndMakeVisible(go); go.setBounds(box.getX() + 680, box.getY() + 120, 380, 64);
-    go.onClick = [this] { start(); };
+    addAndMakeVisible(go); go.onClick = [this] { start(); };
     for (auto* p : { &before, &afterP, &keep, &undo }) addChildComponent(p);
     before.onClick = [this] { showAB(false); };
     afterP.onClick = [this] { showAB(true); };
     keep.onClick = [this] { setVisible(false); };
-    undo.onClick = [this] { if (hasResult()) { automix::apply(cv.host, *result, false); result.reset(); report.r = nullptr; cv.showMessage("AUTO MIX undone"); repaint(); } };
+    undo.onClick = [this] { if (hasResult()) { automix::apply(cv.host, *result, false); result.reset(); report.r = nullptr; cv.showMessage("AUTO MIX undone"); resized(); repaint(); } };
+    addAndMakeVisible(more); more.onClick = [this] { showMore = !showMore; resized(); repaint(); };
     view.setViewedComponent(&report, false); view.setScrollBarsShown(true, false);
-    addAndMakeVisible(view);
+    addChildComponent(view);
     startTimerHz(15);
 }
 AutoMixSheet::~AutoMixSheet() { stopThread(10000); }
 
+void AutoMixSheet::wishChanged() {
+    // the choices follow the words ("natural", "dry", "melody in front" ...); the rest is applied when it mixes
+    AutoMixOptions t = opt; understood.clear();
+    parseWish(wish.getText(), t, understood);
+    opt.focus = t.focus; opt.style = t.style; opt.space = t.space;
+    if (t.timing != opt.timing || std::abs(t.timingAmount - opt.timingAmount) > 0.01f) { opt.timing = t.timing; opt.timingAmount = t.timingAmount; timingChoice = !t.timing ? 0 : (t.timingAmount > 0.45f ? 2 : 1); }
+    repaint();
+}
+
 void AutoMixSheet::resized() {
+    box.setHeight(showMore ? 800 : 520);
     Sheet::resized();
-    before.setBounds(box.getX() + 680, box.getY() + 200, 120, 34);
-    afterP.setBounds(box.getX() + 806, box.getY() + 200, 120, 34);
-    undo.setBounds(box.getX() + 940, box.getY() + 200, 120, 34);
-    keep.setBounds(box.getX() + 940, box.getY() + 244, 120, 34);
-    view.setBounds(box.getX() + 24, box.getY() + 390, box.getWidth() - 48, box.getHeight() - 414);
+    wish.setBounds(box.getX() + AMX, box.getY() + 112, 636, 42);
+    go.setBounds(box.getX() + AMR, box.getY() + 92, 386, 72);
+    before.setBounds(box.getX() + AMR, box.getY() + 184, 124, 34);
+    afterP.setBounds(box.getX() + AMR + 131, box.getY() + 184, 124, 34);
+    undo.setBounds(box.getX() + AMR + 262, box.getY() + 184, 124, 34);
+    keep.setBounds(box.getX() + AMR + 262, box.getY() + 226, 124, 34);
+    more.setBounds(box.getX() + box.getWidth() - 24 - 120, box.getY() + 450, 120, 26);
+    for (int i = 0; i < toggles.size(); ++i) { toggles[i]->setBounds(box.getX() + AMX + i * 90, box.getY() + 492, 84, 24); toggles[i]->setVisible(showMore); }
+    int vy = showMore ? 528 : 492;
+    view.setVisible(showMore);
+    view.setBounds(box.getX() + 24, box.getY() + vy, box.getWidth() - 48, box.getHeight() - vy - 24);
     report.setSize(view.getWidth() - 14, juce::jmax(view.getHeight(), report.heightFor(view.getWidth() - 14)));
 }
 
@@ -386,7 +416,9 @@ void AutoMixSheet::start() {
     if (busy) return;
     if (cv.engine().snap("smask").v.load() < 0.5f) { cv.showMessage("record some loops first"); return; }
     if (hasResult() && !after) automix::apply(cv.host, *result, true);   // start from the mix as it is now
-    job = automix::prepare(cv.host, opt);
+    AutoMixOptions o = opt; understood.clear();
+    parseWish(wish.getText(), o, understood);
+    job = automix::prepare(cv.host, o);
     busy = true; jobDone = false; progress = 0.01f;
     startThread();
 }
@@ -400,16 +432,17 @@ void AutoMixSheet::timerCallback() {
         jobDone = false; busy = false;
         if (pending && pending->ok) {
             result = std::move(pending);
+            result->understood = understood;
             automix::apply(cv.host, *result, true); after = true;
             report.r = result.get();
             cv.showMessage(juce::String::fromUTF8("AUTO MIX ✓ ") + result->headline);
             resized();
-        } else if (pending) { cv.showMessage(pending->error); report.r = pending.get(); }
+        } else if (pending) { cv.showMessage(pending->error); report.r = pending.get(); showMore = true; resized(); }
     }
     bool has = hasResult();
     before.setVisible(has); afterP.setVisible(has); keep.setVisible(has); undo.setVisible(has);
     go.text = busy ? juce::String::fromUTF8("listening …") : (has ? "MIX AGAIN" : "MIX IT");
-    if (isVisible()) repaint();
+    if (isVisible() && (busy || jobDone)) repaint();
 }
 void AutoMixSheet::showAB(bool a) {
     if (!hasResult() || a == after) return;
@@ -417,21 +450,68 @@ void AutoMixSheet::showAB(bool a) {
 }
 
 void AutoMixSheet::paintContent(juce::Graphics& g) {
-    text(g, "MAY CHANGE", 24, 88, 300, 8.5f, Theme::sub(), 2, 1);
-    text(g, "CHARACTER", 24, 180, 300, 8.5f, Theme::sub(), 2, 1);
-    text(g, juce::String::fromUTF8("TIMING - notes pulled towards the beat (the groove and swing stay)"), 24, 242, 600, 8.5f, Theme::sub(), 2, 1);
-    text(g, "WHICH LOOPS", 24, 304, 300, 8.5f, Theme::sub(), 2, 1);
+    text(g, "WHAT DO YOU WANT?", AMX, 90, 400, 9.0f, Theme::txt(), 2, 1);
+    if (!understood.isEmpty()) {
+        int x = AMX; const int y = 162;
+        text(g, juce::String::fromUTF8("understood:"), x, y + 4, 90, 7.5f, Theme::sub(), 1, 1); x += 78;
+        for (auto& u : understood) {
+            bool q = u.startsWith("?");
+            auto f = Theme::font(7.5f, 2); int w = juce::jmin(560 - (x - AMX), (int) juce::GlyphArrangement::getStringWidth(f, u) + 18);
+            if (w < 40) break;
+            auto r = juce::Rectangle<int>(box.getX() + x, box.getY() + y, w, 20);
+            g.setColour(q ? Theme::amber().withAlpha(0.18f) : Theme::green().withAlpha(0.18f)); g.fillRoundedRectangle(r.toFloat(), 10);
+            g.setColour(Theme::ink(q ? Theme::amber() : Theme::green())); g.setFont(f); g.drawFittedText(u, r.reduced(8, 0), juce::Justification::centred, 1, 0.8f);
+            x += w + 6;
+        }
+    }
+    text(g, "BALANCE", AMX, 196, 300, 8.0f, Theme::sub(), 2, 1);
+    text(g, "SOUND", AMX, 258, 300, 8.0f, Theme::sub(), 2, 1);
+    text(g, "SPACE", AMX, 320, 300, 8.0f, Theme::sub(), 2, 1);
+    text(g, "TIMING", AMX, 382, 300, 8.0f, Theme::sub(), 2, 1);
+    text(g, "LOOPS", AMX + 418, 382, 300, 8.0f, Theme::sub(), 2, 1);
+    // the right column: progress, the result, the balance before / after
     if (busy || (progress > 0 && progress < 1)) {
-        auto bar = juce::Rectangle<float>((float) box.getX() + 680, (float) box.getY() + 194, 380, 6);
+        auto bar = juce::Rectangle<float>((float) box.getX() + AMR, (float) box.getY() + 172, 386, 6);
         g.setColour(Theme::card2()); g.fillRoundedRectangle(bar, 3);
         g.setColour(Theme::green()); g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * juce::jlimit(0.0f, 1.0f, progress.load())), 3);
     }
+    auto panel = juce::Rectangle<int>(box.getX() + AMR, box.getY() + 272, 386, 168);
+    g.setColour(Theme::card()); g.fillRoundedRectangle(panel.toFloat(), 10);
     if (hasResult()) {
-        text(g, result->headline, 680, 290, 400, 10.0f, Theme::txt(), 2, 2);
-        text(g, after ? juce::String::fromUTF8("you hear the mix") : juce::String::fromUTF8("you hear it as it was before"), 680, 326, 400, 8.5f, after ? Theme::green() : Theme::amber(), 1, 1);
+        text(g, after ? juce::String::fromUTF8("● you hear the mix") : juce::String::fromUTF8("● you hear it as it was"), AMR, 232, 250, 8.5f, after ? Theme::green() : Theme::amber(), 2, 1);
+        // the balance: one bar per part, how loud it sounds while it plays (the loudest = full)
+        int sceneNow = cv.model().sceneNow;
+        std::vector<const AutoMixResult::Level*> L;
+        for (auto& l : result->levels) if (l.scene == sceneNow) L.push_back(&l);
+        if (L.empty()) for (auto& l : result->levels) if (l.scene == result->levels.front().scene) L.push_back(&l);
+        g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(7.5f, 2));
+        g.drawText("THE BALANCE", panel.getX() + 12, panel.getY() + 8, 200, 14, juce::Justification::centredLeft);
+        g.setFont(Theme::font(6.5f, 1)); g.drawText(juce::String::fromUTF8("grey: before  ·  colour: after"), panel.getRight() - 212, panel.getY() + 8, 200, 14, juce::Justification::centredRight);
+        int n = (int) L.size(), rowH = n > 0 ? juce::jmin(24, (panel.getHeight() - 66) / juce::jmax(1, n)) : 20;
+        for (int i = 0; i < n; ++i) {
+            auto& l = *L[(size_t) i];
+            int y = panel.getY() + 28 + i * rowH;
+            auto col = Theme::strip(4 + l.track);
+            g.setColour(Theme::ink(Theme::txt())); g.setFont(Theme::font(7.5f, 2));
+            g.drawText("T" + juce::String(l.track + 1), panel.getX() + 12, y, 26, rowH - 4, juce::Justification::centredLeft);
+            g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(6.5f, 1));
+            g.drawText(l.role, panel.getX() + 36, y, 86, rowH - 4, juce::Justification::centredLeft);
+            auto bx = juce::Rectangle<float>((float) panel.getX() + 124, (float) y + 2, 250, (float) rowH - 8);
+            auto w = [&](double lu) { return (float) juce::jlimit(0.02, 1.0, (lu + 18.0) / 18.0); };
+            g.setColour(Theme::scr()); g.fillRoundedRectangle(bx, 3);
+            g.setColour(Theme::sub().withAlpha(0.5f)); g.fillRoundedRectangle(bx.withWidth(bx.getWidth() * w(l.before)).withTrimmedBottom(bx.getHeight() * 0.55f), 2);
+            g.setColour(col); g.fillRoundedRectangle(bx.withWidth(bx.getWidth() * w(l.after)).withTrimmedTop(bx.getHeight() * 0.5f), 2);
+        }
+        g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(7.0f, 1));
+        g.drawFittedText(result->headline, panel.getX() + 12, panel.getBottom() - 34, panel.getWidth() - 24, 28, juce::Justification::centredLeft, 2, 0.85f);
+    } else {
+        g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(8.5f, 0));
+        g.drawFittedText(juce::String::fromUTF8("Press MIX IT. ARCO listens to every part, finds what each one is (melody, bass, chords, rhythm …) and balances them so every voice is heard. Then it masters the piece - as loud as it can be without losing its breath.\n\nBEFORE / AFTER compares at any time; UNDO puts everything back."),
+                         panel.reduced(16, 14), juce::Justification::topLeft, 8, 0.9f);
     }
-    g.setColour(Theme::card()); g.fillRoundedRectangle(view.getBounds().toFloat().expanded(8), 10.0f);
-    if (report.r == nullptr) text(g, juce::String::fromUTF8("What AUTO MIX did will be listed here, part by part."), 40, 404, 700, 9.0f, Theme::sub(), 0, 1);
+    if (showMore) { g.setColour(Theme::card()); g.fillRoundedRectangle(view.getBounds().toFloat().expanded(8), 10.0f);
+                    if (report.r == nullptr) text(g, juce::String::fromUTF8("What AUTO MIX did will be listed here, part by part."), 40, 546, 700, 9.0f, Theme::sub(), 0, 1); }
+    else text(g, juce::String::fromUTF8("DETAILS: what it did to each part, and what it may change"), AMX, 454, 600, 8.0f, Theme::sub(), 1, 1);
 }
 
 int AutoMixSheet::Report::heightFor(int w) const {

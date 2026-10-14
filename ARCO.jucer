@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.4.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" compilerFlagSchemes="nofastmath" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
+<JUCERPROJECT id="arco01" name="ARCO" projectType="guiapp" version="1.5.0" bundleIdentifier="com.pacello.arco" companyName="ARCO" cppLanguageStandard="17" displaySplashScreen="0" jucerFormatVersion="1" compilerFlagSchemes="nofastmath" defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0">
   <MAINGROUP id="grp000" name="ARCO">
     <GROUP id="f31bbd" name="Source">
       <FILE id="9354fc" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
@@ -14,6 +14,9 @@
       <FILE id="de30c3" name="FxPresets.h" compile="0" resource="0" file="Source/App/FxPresets.h"/>
       <FILE id="b8689c" name="IOSAudio.h" compile="0" resource="0" file="Source/App/IOSAudio.h"/>
       <FILE id="b6eccb" name="IOSAudio.mm" compile="1" resource="0" file="Source/App/IOSAudio.mm"/>
+      <FILE id="17d7eb" name="InstrumentIndex.cpp" compile="1" resource="0" file="Source/App/InstrumentIndex.cpp"/>
+      <FILE id="5a874b" name="InstrumentIndex.h" compile="0" resource="0" file="Source/App/InstrumentIndex.h"/>
+      <FILE id="afb0d2" name="InstrumentIndexData.cpp" compile="1" resource="0" file="Source/App/InstrumentIndexData.cpp"/>
       <FILE id="b18709" name="Instruments.cpp" compile="1" resource="0" file="Source/App/Instruments.cpp"/>
       <FILE id="255881" name="Instruments.h" compile="0" resource="0" file="Source/App/Instruments.h"/>
       <FILE id="71bae1" name="PhoneLink.cpp" compile="1" resource="0" file="Source/App/PhoneLink.cpp"/>

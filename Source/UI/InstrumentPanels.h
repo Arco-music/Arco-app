@@ -14,11 +14,14 @@ public:
     ~KeyboardPanel() override;
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
     void visibilityChanged() override;
     bool keyPressed(const juce::KeyPress& k) override;
     Canvas& cv;
-    struct Row { juce::String title, sub, button; juce::Colour bcol; std::function<void()> click; bool active = false; float progress = -1; };
+    struct Row { juce::String title, sub, button; juce::Colour bcol; std::function<void()> click; bool active = false, header = false; float progress = -1; };
+    void setSearch(const juce::String& q);           // the instrument search (SAMPLED)
 private:
     void timerCallback() override;
     juce::Rectangle<int> box { 40, 28, 1360, 826 };
@@ -39,6 +42,18 @@ private:
     juce::String scanText;
     void addSfz();
     std::unique_ptr<juce::FileChooser> chooser;
+    // 1.5: the search for instruments
+    std::unique_ptr<juce::TextEditor> search;
+    int chip = -1;
+    std::vector<int> results;
+    std::vector<char> here;                           // installed, per index entry (checked when the list changes)
+    void refreshResults(bool keepScroll = false);
+    int lastDownloading = -1;
+    // other platforms (their own free account and player): GET IT opens their page; back in ARCO the plug-in is found by itself
+    juce::String platformPending; int pluginsBefore = 0; bool wasForeground = true;
+    void platformRows(std::vector<Row>& rows) const;
+    juce::Rectangle<int> listArea() const;
+    bool dragging = false; int dragY0 = 0, dragScroll0 = 0;
 };
 
 class ModularPanel : public juce::Component, private juce::Timer {

@@ -7,6 +7,7 @@
 #include "../UI/LearnOverlay.h"
 #include "Render.h"
 #include "AutoMix.h"
+#include "InstrumentIndex.h"
 #include "Sampler.h"
 #include "../Engine/Modular.h"
 #include <cstdio>
@@ -291,6 +292,51 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         float pk = run(2.0, 0);
         check(!nan && pk > 0.1f && pk < 0.95f, "  the band sounds, below -1 dB", pk);
         automix::apply(h, res, false);
+        m.press("st_looper", "scene", 8, 1);
+        waitFor([&] { return scene() == 1; }, 6.0);
+    }
+    // AUTO MIX 1.5: an ensemble of bowed strings, recorded at very different levels - every voice must end up heard
+    {
+        m.press("st_looper", "scene", 8, 4);
+        waitFor([&] { return scene() == 4; }, 6.0);
+        const double bl = e.snap("sv_bl").v.load(); const int bts = juce::jmax(1, (int) e.snap("sv_bts").v.load());
+        const long L = (long) std::llround(bl * bts * 4);           // 4 bars
+        const double sr = e.sr;
+        std::array<juce::AudioBuffer<float>, 4> st; for (auto& b : st) { b.setSize(1, (int) L); b.clear(); }
+        auto bow = [&](int k, long a, long len, double f, double amp, double att) {        // a bowed note: harmonics, vibrato, a soft bow
+            double ph = 0;
+            for (long i = 0; i < len && a + i < L; ++i) {
+                double t = i / sr, env = std::min(1.0, t / att) * std::min(1.0, (len - i) / (0.08 * sr));
+                ph += 2 * M_PI * f * (1.0 + 0.004 * std::sin(2 * M_PI * 5.5 * t) * std::min(1.0, t / 0.4)) / sr;
+                double v = 0; for (int hN = 1; hN <= 10; ++hN) v += std::sin(ph * hN) / hN * (hN > 4 ? 0.6 : 1.0);
+                st[(size_t) k].addSample(0, (int) (a + i), (float) (amp * env * v * 0.5));
+            } };
+        long bar = (long) (bl * bts);
+        static const double BASS[4] = { 65.41, 98.0, 110.0, 87.31 };
+        for (int b = 0; b < 4; ++b) bow(0, b * bar, bar - 200, BASS[b], 0.9, 0.12);                       // cello bass, recorded loud
+        static const double HAR[8] = { 164.81, 196.0, 220.0, 246.94, 220.0, 196.0, 174.61, 196.0 };
+        for (int n = 0; n < 8; ++n) bow(1, n * bar / 2, bar / 2 - 200, HAR[n], 0.13, 0.25);              // held harmony, recorded quietly
+        static const double MEL[6] = { 440.0, 493.88, 523.25, 587.33, 659.25, 587.33 };
+        for (int ph = 0; ph < 2; ++ph) for (int n = 0; n < 6; ++n) bow(2, ph * 2 * bar + (long) (n * bl * 0.5), (long) (bl * 0.48), MEL[n], 0.45, 0.03);   // a melody in phrases, rests between
+        static const double PZ[4] = { 146.83, 220.0, 196.0, 220.0 };
+        for (int bt = 0; bt < bts * 4; ++bt) { long a = (long) std::llround(bt * bl); double f = PZ[bt % 4];      // pizzicato on every beat
+            for (long i = 0; i < (long) (0.35 * sr) && a + i < L; ++i) { double v = 0; for (int hN = 1; hN <= 6; ++hN) v += std::sin(2 * M_PI * f * hN * i / sr) * std::pow(0.5, hN); st[3].addSample(0, (int) (a + i), (float) (0.5 * v * std::exp(-i / (0.09 * sr)))); } }
+        for (int k = 0; k < 4; ++k) { h.importBuffer(st[(size_t) k], k + 1, "ensemble"); waitFor([&] { return !h.importing(); }, 12.0); }
+        AutoMixOptions ao; auto job = automix::prepare(h, ao); auto res = automix::run(job, nullptr);
+        double mn = 0, lead = -100; std::vector<double> lv;
+        for (auto& l : res.levels) { std::printf("        balance: track %d (%s) %+.1f -> %+.1f LU\n", l.track + 1, l.role.toRawUTF8(), l.before, l.after); mn = std::min(mn, l.after); lv.push_back(l.after); if (l.role == "melody") lead = l.after; }
+        std::sort(lv.begin(), lv.end()); double med = lv.empty() ? 0 : lv[lv.size() / 2];
+        check(res.ok && res.levels.size() == 4 && mn > -4.5, "AUTO MIX ensemble: every voice within 4.5 LU (quietest)", mn);
+        check(lead < -50 || lead - med < 2.5, "  the melody in front, but not on top (LU above the middle)", lead < -50 ? 0.0 : lead - med);
+        automix::apply(h, res, true);
+        float pk = run(2.0, 0);
+        check(!nan && pk > 0.1f && pk < 0.95f, "  the ensemble sounds, below -1 dB", pk);
+        automix::apply(h, res, false);
+        // what you want, in words
+        AutoMixOptions wo; juce::StringArray und;
+        parseWish(juce::String::fromUTF8("warm and spacious, track 2 louder, the melody a bit quieter, mais natural"), wo, und);
+        check(wo.tone < 0 && wo.space == 2 && std::abs(wo.trackDb[1] - 3.0f) < 0.01f && std::abs(wo.roleDb[3] + 1.5f) < 0.01f && wo.style == 0,
+              ("AUTO MIX understands: " + und.joinIntoString(" | ")).toRawUTF8());
         m.press("st_looper", "scene", 8, 1);
         waitFor([&] { return scene() == 1; }, 6.0);
     }
@@ -808,6 +854,38 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         float held = 0; for (int b = 0; b < 60; ++b) { std::fill(L.begin(), L.end(), 0.0f); pl.process(L.data(), R.data(), 480); if (b > 50) for (float x : L) held = std::max(held, std::abs(x)); }
         check(held > 0.002f, "  the sustain pedal holds it", held);
         pl.sustain(false);
+    }
+    // the instrument search: the index, the order of the results, the addresses
+    {
+        auto& X = InstrumentIndex::get();
+        auto r = X.search("cello");
+        check(X.entries.size() > 500 && !r.empty() && X.title(r[0]) == juce::String::fromUTF8("Solo Cello · Sustain"), ("INSTRUMENTS: " + juce::String((int) X.entries.size()) + " in the search; 'cello' finds " + (r.empty() ? juce::String("-") : X.title(r[0]))).toRawUTF8());
+        auto s2 = X.search("cello ensemble"), pt = X.search("violoncelo"), fl = X.search("flute");
+        check(!s2.empty() && X.entries[(size_t) s2[0]].name.startsWith("Celli") && !pt.empty() && !fl.empty() && X.recommended().size() >= 8,
+              ("  'cello ensemble' finds " + (s2.empty() ? juce::String("-") : X.title(s2[0])) + ", 'violoncelo' and 'flute' too").toRawUTF8());
+        int sharp = -1; for (int e = 0; e < (int) X.entries.size() && sharp < 0; ++e) for (int f : X.entries[(size_t) e].files) if (X.libs[(size_t) X.entries[(size_t) e].lib].files[f].contains("#")) { sharp = e; break; }
+        bool urlOk = sharp < 0; if (sharp >= 0) for (int f : X.entries[(size_t) sharp].files) if (X.libs[(size_t) X.entries[(size_t) sharp].lib].files[f].contains("#")) urlOk = X.url(sharp, f).contains("%23") && !X.url(sharp, f).contains("#");
+        check(urlOk, "  file names with # and spaces are sent correctly");
+        if (juce::SystemStats::getEnvironmentVariable("ARCO_NETTEST", "").isNotEmpty()) {
+            auto& rk = h.rack;
+            auto qs = juce::StringArray::fromTokens(juce::SystemStats::getEnvironmentVariable("ARCO_NETTEST", ""), ";", "");
+            if (qs.size() == 1 && qs[0] == "1") qs = juce::StringArray { "solo cello pizzicato" };
+            for (auto& q : qs) { auto found = X.search(q); if (found.empty()) { check(false, ("  nothing for " + q).toRawUTF8()); continue; } int e = found[0];
+            rk.removeIndexInstrument(e); X.folder(e).deleteRecursively();
+            double t0 = juce::Time::getMillisecondCounterHiRes();
+            rk.startIndexDownload(e);
+            while (rk.indexDownloading == e && juce::Time::getMillisecondCounterHiRes() - t0 < 180000) { juce::Thread::sleep(100); rk.poll(); }
+            while (rk.samplerLoading.load() && juce::Time::getMillisecondCounterHiRes() - t0 < 240000) { juce::Thread::sleep(100); rk.poll(); }
+            std::printf("        %s  (%.1f s)\n", rk.downloadStatus.toRawUTF8(), (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0);
+            auto inst = rk.sampler.instrument();
+            check(X.installed(e) && inst != nullptr && inst->regions.size() > 10, ("  DOWNLOAD inside ARCO: " + X.title(e) + " (" + rk.samplerError + ")").toRawUTF8(), inst ? (double) inst->regions.size() : 0.0);
+            if (inst != nullptr) { SfzPlayer pl; pl.prepare(48000); pl.setInstrument(inst); std::vector<float> L(480), R(480); float pk = 0; pl.noteOn(48, 0.8f);
+                for (int b = 0; b < 60; ++b) { std::fill(L.begin(), L.end(), 0.0f); std::fill(R.begin(), R.end(), 0.0f); pl.process(L.data(), R.data(), 480); for (float x : L) pk = std::max(pk, std::abs(x)); }
+                int nt = inst->regions.empty() ? 60 : (inst->regions[inst->regions.size() / 2].lokey + inst->regions[inst->regions.size() / 2].hikey) / 2;
+                pl.noteOff(48); pl.noteOn(nt, 0.8f); for (int b = 0; b < 60; ++b) { std::fill(L.begin(), L.end(), 0.0f); std::fill(R.begin(), R.end(), 0.0f); pl.process(L.data(), R.data(), 480); for (float x : L) pk = std::max(pk, std::abs(x)); }
+                check(pk > 0.01f && pk < 3.0f, "  and it plays", pk); }
+            rk.setKind(InstrumentRack::KSynth); }
+        }
     }
     h.model.loadSetupState(savedSetup); h.speakerLayout = savedLayout; h.setSynthInto(savedSynth); h.applySpeakers();
     std::printf("%d checks, %d failed\n", n, fails);

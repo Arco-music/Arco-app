@@ -51,25 +51,27 @@ A live looping station for your instrument: record loops on the beat, build scen
 - FEEDBACK: one note feeds itself and grows, never louder than safe. CATCH: it blooms and is cut before it gets loud. LISTEN: it waits, picks up a note and brings it up. HOLD: it grows and stays. LET GO releases it.
 - Your own settings: the ▾ next to a card's name saves the knobs as a preset, opens them again, or makes them the start of every new song.)" },
         { "AUTO MIX", R"(# AUTO MIX
-ARCO listens to every recorded track, understands what it is and mixes the piece the way a mixing engineer would.
+ARCO listens to every part, balances them like a mixing engineer and masters the piece. Say what you want - or just press MIX IT.
 
-## Listening
-- It follows the pitch of each part and finds its role: BASS, DRUMS, RHYTHM (chords played in time), LEAD (the melody), COUNTER-MELODY, PAD or TEXTURE.
-- It hears where the parts crowd each other (the same frequencies at the same time) and how much reverb a part already has.
+## What do you want?
+- Type it in your words: "warm and spacious", "every voice together", "track 2 louder", "the bass a bit quieter", "less reverb", "punchy", "natural", "brighter", "wider", "tight timing". English, Portuguese or German. What it understood is shown under the box.
+- Or choose: BALANCE (EVERY VOICE TOGETHER, MELODY IN FRONT, GROOVE), SOUND (NATURAL, BALANCED, PUNCHY), SPACE (DRY, ONE ROOM, HALL), TIMING (AS PLAYED, GENTLE, TIGHT).
+- An instrument by name ("the cello louder"): ARCO asks which track it is - say "track 2 louder".
 
-## What it does
-- LEVELS: by role and by measured loudness - the melody leads, bass and drums carry, pads sit behind.
-- EQ: a high-pass under each part's lowest note; cuts only where two parts mask each other (the less important one gives way); presence for the lead, air on top.
-- COMPRESSION: set for each role to a target amount, not a guess.
-- PANNING: bass, kick and lead in the centre; the others placed where they mask least, both sides equal.
-- ONE ROOM: every part goes into the same SPACE, closer or further by role - a part that is already wet gets less, so all of them sound like one room.
-- DELAY IN TIME: the echo follows the rhythm of the melody (1/4, dotted 1/8, 1/8 ...). The SPACE decay follows the tempo.
-- TIMING: notes are pulled towards the beat - GENTLE, HALF WAY or TIGHT. The groove stays.
-- MASTER: a tonal balance like finished records, then streaming level (-14 LUFS, measured twice), peaks never above -1 dB.
+## How it balances
+- It measures how loud each part sounds WHILE IT PLAYS (not counting its rests), after its EQ and compressor, so a melody with rests is not pushed up and long notes are not pushed down.
+- EVERY VOICE TOGETHER: all parts within a few dB, the melody just in front. MELODY IN FRONT: the melody clearly leads. GROOVE: bass and drums carry.
+- A part covered by louder parts in its own register comes up a little. Faders stay between -30 and +6 dB.
+- THE BALANCE shows every part before (grey) and after (colour).
+
+## What else it does
+- EQ: a high-pass under each part's lowest note; cuts only where parts cover each other; presence for the melody.
+- COMPRESSION: gentle, set for each kind of part. PANNING: bass and melody in the centre, the others spread evenly.
+- ONE ROOM: every part in the same SPACE, closer or further. DELAY in the melody's rhythm.
+- MASTER: tonal balance, then as loud as streaming wants (-14 LUFS; NATURAL -16, PUNCHY -11.5) - but never squashed: if the music would lose its breath, it stays a little quieter.
 
 ## Compare and undo
-- BEFORE / AFTER switches between the two at any time (also Edit → Compare). UNDO goes back completely.
-- CHARACTER: NATURAL, BALANCED or PUNCHY.)" },
+- BEFORE / AFTER at any time; UNDO puts everything back. DETAILS lists what it did to each part, and lets you leave LEVELS, EQ, COMPRESSION ... alone.)" },
         { "STUDIO", R"(# STUDIO
 Turn what you played into a song - arrange, record, mix, export. It always plays at the right speed, whatever the sound card's rate.
 
@@ -163,9 +165,11 @@ A big keyboard and the instrument it plays - KEYS (top right) or View → KEYBOA
 
 ## The instrument
 - SYNTH 2: ARCO's synthesizer. MODULAR: ARCO's modular synthesizer (patch it yourself).
-- SAMPLED: real instruments recorded note by note. The list has free ones of very good quality - Splendid Grand Piano, Salamander Grand Piano, a Rhodes, double basses, an acoustic drum kit. DOWNLOAD once (it is kept on this device), then PLAY.
-- ADD SFZ FILE: any instrument in the SFZ format (thousands are free on the internet).
-- PLUG-IN: FIND PLUG-INS finds the instrument plug-ins on this device (Audio Units and VST3 on the Mac, AUv3 on the iPad). PLAY loads one; SHOW PLUG-IN WINDOW opens its own controls.
+- SAMPLED: real instruments recorded note by note. SEARCH: type what you want - cello, cello section, flute, piano, choir, harp, drums (also violoncelo, Flöte ...). 600+ free instruments: the Sonatina Symphonic Orchestra (solo and section strings, woodwinds, brass, choir, harp, percussion, piano, organ), Karoryfer Samples, Versilian, Salamander, Splendid and more.
+- Each result shows its name, where it comes from, its size and licence. DOWNLOAD fetches only that instrument's files, inside ARCO - no web page, no account - then it plays. A stopped download goes on where it stopped.
+- The shortcuts (STRINGS, WOODWINDS, PIANOS, DRUMS ...) list a family; ON THIS DEVICE lists what you have.
+- ALSO FREE, ON OTHER PLATFORMS: Spitfire LABS, Pianobook, Komplete Start need their own free account and player. GET IT opens their page; install it, come back to ARCO - it finds the new plug-in by itself and opens it.
+- ADD SFZ FILE: any SFZ instrument you have. PLUG-IN: your AU / VST3 (Mac) or AUv3 (iPad) instruments.
 
 ## Playing
 - Tabs on top: SYNTH 2, MODULAR, SAMPLED, PLUG-IN - choose one and it plays.
@@ -206,6 +210,11 @@ Place every sound around the audience, still or moving.
 - Choose a LIVE strip or a track, PLACE IT, and drag it in the circle: direction and distance. WIDTH spreads it.
 - Motion: STILL, CIRCLE, SWING, WANDER, FLY OVER - SPEED and RANGE, or IN TEMPO with the loops.
 - Up to 32 speakers (3rd-order ambisonics, AllRAD). With headphones you hear a stereo version. Exports are always stereo.)" },
+        { "What's new in 1.5", R"(# What's new in ARCO 1.5
+- AUTO MIX, rebuilt: it balances by how loud each part sounds while it plays - every voice heard, nothing pushed far down or up. Tell it what you want in your words ("warm, spacious, track 2 louder"), or with three simple choices. THE BALANCE shows before / after. The master is as loud as it can be without squashing the music.
+- KEYBOARD: search 600+ free instruments (cello, cello section, flute, choir ...) and DOWNLOAD them inside ARCO - no web page, no account. Spitfire LABS, Pianobook and Komplete Start are listed too: GET IT, install, and ARCO finds the plug-in by itself.
+- The lists scroll with a finger on the iPad.
+- iPad upright: everything of the top bar stays at the top, the window buttons across the whole width; the strips are not stretched any more and the effects grow into the room (also in landscape).)" },
         { "What's new in 1.4", R"(# What's new in ARCO 1.4
 - iPad: CHOOSE OUTPUT ▸ sends the sound to Bluetooth headphones, AirPlay or a cable; Bluetooth headphones get the full-quality connection. Adding a file to a track no longer crashes.
 - HOLD: tap a note, then more on top - they all keep sounding; with the arpeggiator every tap joins the arpeggio.
