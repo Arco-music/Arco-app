@@ -44,10 +44,10 @@ struct Theme {
             { "Light", true, hex(0xcdcbc5), hex(0xd9d7d1), hex(0xc9c7c0), hex(0xc8c6bf), hex(0xbfbdb6), hex(0x34353a), hex(0x5d5e64), hex(0xc4c2bb), hex(0xcac8c1), hex(0x9aa3b8), cLight(), 1 },
             { "Chambray", true, hex(0xd9e0e4), hex(0xedf1f3), hex(0xe2e8eb), hex(0xe6ecef), hex(0xc1ccd2), hex(0x1f2a32), hex(0x55656f), hex(0xd2dbe0), hex(0xd8e0e4), hex(0x7f93a3), cLight(), 1 },
             // 2.0: black and glass. NOIR: cool, quiet colours; NOIR GOLD: the same with champagne
-            { "Noir", false, hex(0x101117), wa(0.075f), wa(0.11f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.30f), wa(0.10f), hex(0xf6f6f8), hex(0x9a9aa6), wa(0.06f), wa(0.08f), wa(0.20f),
-              std::array<juce::Colour, 8> { hex(0xff6b72), hex(0x4fd6a0), hex(0xf2c46d), hex(0x7ea8ff), hex(0xb79cff), hex(0x62e3d1), hex(0xe7b98d), hex(0xc6d36c) }, 0, true, hex(0x1e1f25), hex(0x26272e), 0 },
-            { "Noir Gold", false, hex(0x13110e), wa(0.075f), wa(0.11f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.30f), wa(0.10f), hex(0xf8f5f0), hex(0xa39b90), wa(0.06f), wa(0.08f), wa(0.20f),
-              std::array<juce::Colour, 8> { hex(0xf07a6a), hex(0x8fd1a2), hex(0xe2bf7e), hex(0xb9c7e6), hex(0xcbb5e8), hex(0x9cd8cc), hex(0xd9b48a), hex(0xd2cd8a) }, 0, true, hex(0x211e1a), hex(0x2a2621), 1 },
+            { "Noir", false, hex(0x222329), wa(0.08f), wa(0.12f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.26f), wa(0.12f), hex(0xffffff), hex(0xb6b7c0), wa(0.07f), wa(0.09f), wa(0.22f),
+              std::array<juce::Colour, 8> { hex(0xff6b72), hex(0x4fd6a0), hex(0xf2c46d), hex(0x7ea8ff), hex(0xb79cff), hex(0x62e3d1), hex(0xe7b98d), hex(0xc6d36c) }, 0, true, hex(0x343539), hex(0x3c3d42), 0 },
+            { "Noir Gold", false, hex(0x25221e), wa(0.08f), wa(0.12f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.26f), wa(0.12f), hex(0xfffcf7), hex(0xbdb5a9), wa(0.07f), wa(0.09f), wa(0.22f),
+              std::array<juce::Colour, 8> { hex(0xf07a6a), hex(0x8fd1a2), hex(0xe2bf7e), hex(0xb9c7e6), hex(0xcbb5e8), hex(0x9cd8cc), hex(0xd9b48a), hex(0xd2cd8a) }, 0, true, hex(0x37342f), hex(0x3f3c37), 1 },
         };
         return P;
     }
@@ -92,17 +92,10 @@ struct Theme {
     static void backdrop(juce::Graphics& g, juce::Rectangle<int> r) {
         g.setColour(pal().bg); g.fillRect(r);
         if (!glass()) return;
-        auto rf = r.toFloat(); float w = rf.getWidth(), h = rf.getHeight();
-        bool warm = pal().glow == 1;
-        auto c1 = warm ? juce::Colour(0xffb08a4a) : juce::Colour(0xff3d5bd9), c2 = warm ? juce::Colour(0xff6d4b2a) : juce::Colour(0xff7a3fd0), c3 = warm ? juce::Colour(0xff3a3328) : juce::Colour(0xff127a74);
-        auto glowAt = [&](juce::Colour c, float x, float y, float rad, float a) {
-            juce::ColourGradient gr(c.withAlpha(a), rf.getX() + x * w, rf.getY() + y * h, c.withAlpha(0.0f), rf.getX() + x * w + rad * w, rf.getY() + y * h, true);
-            gr.addColour(0.45, c.withAlpha(a * 0.45f)); g.setGradientFill(gr); g.fillRect(rf); };
-        glowAt(c1, 0.10f, 0.00f, 0.75f, 0.42f);
-        glowAt(c2, 0.95f, 0.15f, 0.60f, 0.30f);
-        glowAt(c3, 0.65f, 1.10f, 0.80f, 0.30f);
-        // a little light from above, like a room
-        g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.035f), 0, rf.getY(), juce::Colours::transparentWhite, 0, rf.getY() + h * 0.45f, false)); g.fillRect(rf);
+        // 2.1: clean - no haze, just a light from above fading into the graphite
+        auto rf = r.toFloat();
+        g.setGradientFill(juce::ColourGradient(pal().bg.brighter(0.18f), 0, rf.getY(), pal().bg.darker(0.12f), 0, rf.getBottom(), false));
+        g.fillRect(rf);
     }
     static juce::Colour textOn(juce::Colour bgc) {
         bgc = flat(bgc);

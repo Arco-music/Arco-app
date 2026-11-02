@@ -98,15 +98,13 @@ public:
 // 1.6: a panel of the new design (soft shade, hairline)
 // 2.0: a sheet of frosted glass - a faint white body brighter at the top, a hairline that catches the light above
 inline void drawGlass(juce::Graphics& g, juce::Rectangle<float> r, float radius, float strength = 1.0f) {
-    g.setColour(juce::Colours::black.withAlpha(0.28f * strength)); g.fillRoundedRectangle(r.translated(0, 8.0f).expanded(3.0f), radius + 3);
-    g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.13f * strength), 0, r.getY(), juce::Colours::white.withAlpha(0.055f * strength), 0, r.getBottom(), false));
+    // 2.1: crisp glass - a tight shadow, an even pane, a hairline edge and a thin light on the top edge (no haze)
+    g.setColour(juce::Colours::black.withAlpha(0.22f * strength)); g.fillRoundedRectangle(r.translated(0, 3.0f).expanded(0.5f), radius + 0.5f);
+    g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.105f * strength), 0, r.getY(), juce::Colours::white.withAlpha(0.075f * strength), 0, r.getBottom(), false));
     g.fillRoundedRectangle(r, radius);
-    // the light on the glass: a bright rim at the top, fading down the sides
-    juce::ColourGradient edge(juce::Colours::white.withAlpha(0.42f * strength), 0, r.getY(), juce::Colours::white.withAlpha(0.06f * strength), 0, r.getY() + juce::jmin(r.getHeight(), 120.0f), false);
-    g.setGradientFill(edge); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.2f);
-    auto sheen = r.withHeight(juce::jmin(r.getHeight() * 0.5f, 60.0f));
-    g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.05f * strength), 0, sheen.getY(), juce::Colours::transparentWhite, 0, sheen.getBottom(), false));
-    g.fillRoundedRectangle(sheen.reduced(1.0f), radius);
+    g.setColour(juce::Colours::white.withAlpha(0.13f * strength)); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
+    juce::ColourGradient edge(juce::Colours::white.withAlpha(0.30f * strength), 0, r.getY(), juce::Colours::white.withAlpha(0.0f), 0, r.getY() + juce::jmin(r.getHeight(), 24.0f), false);
+    g.setGradientFill(edge); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
 }
 inline void drawPanel(juce::Graphics& g, juce::Rectangle<float> r, float radius = 16.0f) {
     if (Theme::glass()) { drawGlass(g, r, radius + 2.0f); return; }

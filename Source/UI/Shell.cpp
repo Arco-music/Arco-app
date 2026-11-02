@@ -436,7 +436,7 @@ void HomeScreen::paint(juce::Graphics& g) {
         g.drawFittedText(cards[(size_t) i].sub, juce::Rectangle<float>(r.getX() + 32 * s, ty + 44 * s, r.getWidth() - 64 * s, 60 * s).toNearestInt(),
                          juce::Justification::topLeft, 3, 0.9f);
         // dim the ones aside
-        if (d > 0.05f) { g.setColour(Theme::bg().withAlpha(juce::jmin(0.62f, d * 0.42f))); g.fillRoundedRectangle(r, 28.0f); }
+        if (d > 0.05f) { g.setColour(Theme::bg().withAlpha(juce::jmin(0.45f, d * 0.30f))); g.fillRoundedRectangle(r, 28.0f); }
     }
     // dots
     float dw = 8, gap = 10, total = cards.size() * dw + (cards.size() - 1) * gap, x = (getWidth() - total) * 0.5f, y = (float) dockR.getY() - 34;
