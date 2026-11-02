@@ -13,6 +13,10 @@
 #include "StripMix.h"
 #include "Synth2.h"
 #include "Ambisonics.h"
+#include "Clock.h"
+#include "DrumMachine.h"
+#include "Phrase.h"
+#include "LoopGrid.h"
 
 namespace arco {
 
@@ -76,6 +80,15 @@ struct Synth2Mod : IModule {
     double* data(const std::string&) override { return nullptr; }
 };
 
+// 2.0: modules that live as long as the engine (their patterns / takes survive a new sample rate)
+template <typename T> struct RefMod : IModule {
+    T* t = nullptr;
+    int paramIndex(const std::string& n) override { return t->paramIndex(n); }
+    void setp(int i, double v) override { t->setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
+};
+
 // a single-producer single-consumer queue of parameter changes / commands
 struct Cmd { int module; int index; double value; };
 class CmdQueue {
@@ -126,6 +139,11 @@ public:
     float peak(const std::string& bus);       // peak since last call
     Ring& ring(const std::string& bus);
     std::atomic<float> cpu { 0 };
+    // 2.0: the clock everything in tempo follows, the DRUM MACHINE, PHRASE
+    Clock clock;
+    DrumMachine drumMachine;
+    Phrase phrase;
+    LoopGrid loopGrid;
     std::atomic<int> selStrip { 0 };
     StripMix* stripMix = nullptr;             // for the meters (gain reduction)
     MasterMix* masterMix = nullptr;
@@ -134,6 +152,13 @@ public:
     double sr = 48000.0;
     // show recording: called with the main mix (L, R) of every sub-block (audio thread)
     std::function<void(const float*, const float*, int)> recorder;
+    // 2.0: the station's main mix (stereo, before the speakers), for STUDIO to record - the device outputs are not it
+    // (with more speakers, or headphones on outputs 1-2, they carry other things: the click, the CUE)
+    int pullMainMix(float* l, float* r, int n) {
+        int got = 0;
+        while (got < n && tapRd != tapWr) { l[got] = tapL[tapRd]; r[got] = tapR[tapRd]; tapRd = (tapRd + 1) % TAPN; ++got; }
+        for (int i = got; i < n; ++i) { l[i] = 0; r[i] = 0; }
+        return got; }
 
 private:
     std::vector<std::unique_ptr<IModule>> mods;
@@ -166,6 +191,8 @@ private:
     std::vector<float> beatPrev;
     double tuneAmt = 0;
     void runSub(const float* const* in, int numIn, float* const* out, int numOut, int off, int n);
+    static constexpr int TAPN = 16384;
+    std::array<float, TAPN> tapL {}, tapR {}; int tapRd = 0, tapWr = 0;
 };
 
 } // namespace arco

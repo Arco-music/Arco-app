@@ -106,6 +106,18 @@ void StudioView::resized() {
     std::map<juce::String, int> W = { { "home", 46 }, { "play", 58 }, { "rec", 58 }, { "loop", 62 }, { "metro", 62 }, { "count", 82 },
                                       { "undo", 44 }, { "redo", 44 }, { "arrange", 96 }, { "mixer", 86 }, { "export", 88 }, { "save", 70 }, { "close", 44 } };
     auto put = [&](const juce::String& id, int x) { for (auto* k : kids) if (k->getComponentID() == "studio:" + id) k->setBounds(x, 10, W[id], 40); return x + W[id] + 6; };
+    if (embedded) {         // the shell's bar plays, records and shows the position: here only the tools, smaller
+        auto put2 = [&](const juce::String& id, int x) { for (auto* k : kids) if (k->getComponentID() == "studio:" + id) { k->setVisible(true); k->setBounds(x, 8, W[id], 36); } return x + W[id] + 6; };
+        for (auto* k : kids) if (k->getComponentID().startsWith("studio:")) k->setVisible(false);
+        int x2 = 16;
+        x2 = put2("loop", x2); x2 += 14;          // (CLICK and COUNT-IN are on the bar above)
+        x2 = put2("undo", x2); x2 = put2("redo", x2);
+        int r2 = getWidth() - 12;
+        for (auto& id : juce::StringArray { "export", "save" }) { r2 -= W[id]; put2(id, r2); r2 -= 6; }
+        r2 -= 14;
+        for (auto& id : juce::StringArray { "mixer", "arrange" }) { r2 -= W[id]; put2(id, r2); r2 -= 6; }
+        builtFor = -2; rebuildDetail(); return;
+    }
     int x = 124;
     x = put("home", x); x = put("play", x); x = put("rec", x);
     displayX = x + 4; x = displayX + 240 + 10;               // the position / tempo display
@@ -159,6 +171,16 @@ void StudioView::paint(juce::Graphics& g) {
 void StudioView::paintTop(juce::Graphics& g) {
     auto& S = studio.song;
     g.setColour(Theme::card()); g.fillRect(0, 0, getWidth(), (int) topH);
+    if (embedded) {
+        g.setColour(Theme::line()); g.fillRect(0, (int) topH - 1, getWidth(), 1);
+        juce::String line = report.isNotEmpty() ? report : hint;
+        if (line.isNotEmpty()) txt(g, line, { 560, 8, juce::jmax(100, getWidth() - 560 - 420), 36 }, 7.5f, report.isNotEmpty() ? Theme::green() : Theme::sub(), 1, juce::Justification::centred);
+        if (isThreadRunning() || (progress > 0 && progress < 1)) {
+            auto barR = juce::Rectangle<float>(0, topH - 3, (float) getWidth(), 3);
+            g.setColour(Theme::card2()); g.fillRect(barR); g.setColour(Theme::green()); g.fillRect(barR.withWidth(barR.getWidth() * juce::jlimit(0.0f, 1.0f, progress.load())));
+        }
+        return;
+    }
     txt(g, "STUDIO", { 16, 10, 100, 40 }, 17.0f, Theme::txt(), 2);
     int x0 = displayX;
     auto box = juce::Rectangle<int>(x0, 10, 240, 40);

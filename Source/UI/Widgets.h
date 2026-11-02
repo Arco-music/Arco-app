@@ -75,6 +75,7 @@ public:
         else if (k == 7) { g.drawLine(x + w * 0.2f, y + h * 0.2f, x + w * 0.8f, y + h * 0.8f, st.getStrokeThickness()); g.drawLine(x + w * 0.8f, y + h * 0.2f, x + w * 0.2f, y + h * 0.8f, st.getStrokeThickness()); }
         else if (k == 8) { juce::Path p; p.addCentredArc(x + w * 0.5f, y + h * 0.55f, w * 0.38f, h * 0.38f, 0, juce::MathConstants<float>::pi * 0.2f, juce::MathConstants<float>::pi * 1.8f, true);
                            g.strokePath(p, st); g.drawLine(x + w * 0.5f, y + h * 0.05f, x + w * 0.5f, y + h * 0.5f, st.getStrokeThickness()); }
+        else if (k == 10) { float s = (w - w * 0.22f) / 2; for (int i = 0; i < 4; ++i) g.fillRoundedRectangle(x + (i % 2) * (s + w * 0.22f), y + (i / 2) * (s + h * 0.22f), s, s, s * 0.25f); }   // 2.0: HOME
         else if (k == 9) { juce::Path p; p.addTriangle(x, y + h * 0.18f, x, y + h * 0.82f, x + w * 0.5f, y + h * 0.5f); g.fillPath(p); g.fillRoundedRectangle(x + w * 0.6f, y + h * 0.26f, w * 0.4f, h * 0.48f, 1.5f); }
     }
     void mouseEnter(const juce::MouseEvent&) override { repaint(); }

@@ -2,7 +2,10 @@
 #include <JuceHeader.h>
 #include "App/AudioHost.h"
 #include "UI/MainView.h"
+#include "UI/Shell.h"
+#include "UI/ShellViews.h"
 #include "App/SelfTest.h"
+#include "App/Probe.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 #include "UI/StudioView.h"
@@ -15,7 +18,7 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -42,6 +45,7 @@ public:
                 std::fflush(stdout); quit(); };
             if (cmd.contains("--install")) { updater->onProgress = [](const juce::String& m) { std::printf("  %s\n", m.toRawUTF8()); std::fflush(stdout); }; updater->install(); } else updater->check(); return;
         }
+        if (cmd.contains("--probe")) { int f = arco::runProbe(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--selftest")) {
             auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("ARCO selftest");
             dir.createDirectory();
@@ -94,6 +98,18 @@ public:
         if (cmd.contains("portrait")) mc->setSize(820, 1180);               // an iPad held upright
         if (cmd.contains("size=")) { auto sz = cmd.fromFirstOccurrenceOf("size=", false, false).upToFirstOccurrenceOf(" ", false, false);
             mc->setSize(sz.upToFirstOccurrenceOf("x", false, false).getIntValue(), sz.fromFirstOccurrenceOf("x", false, false).getIntValue()); }
+        {   // 2.0: which screen of the shell (screen=home|workstation|loops|studio|drums|synth|keys|phrase|modular|speakers)
+            using arco::Screen; Screen sc = Screen::Home;
+            for (auto w : { "setup", "look", "keyboard", "ksearch=", "outputs", "modular", "spatial", "automix", "export", "help", "about", "learn", "import=", "amdemo", "fam=", "allfx", "newfx", "fx14", "fewfx", "tracks=", "lives=" })
+                if (cmd.contains(w)) sc = Screen::Workstation;
+            if (cmd.contains("synth")) sc = Screen::Synth;
+            auto nm = cmd.fromFirstOccurrenceOf("screen=", false, false).upToFirstOccurrenceOf(" ", false, false);
+            const std::pair<const char*, Screen> S[] = { { "home", Screen::Home }, { "workstation", Screen::Workstation }, { "loops", Screen::Loops }, { "studio", Screen::Studio },
+                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers } };
+            for (auto& p : S) if (nm == p.first) sc = p.second;
+            mc->shell.show(sc);
+            if (cmd.contains("demo2")) demo2(mc, sc);
+        }
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
         if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue());
             if (cmd.contains("skeys=")) mc->canvas.synthKeys(cmd.fromFirstOccurrenceOf("skeys=", false, false).getIntValue(), cmd.contains("sedit")); }
@@ -150,6 +166,66 @@ public:
             auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
             juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);
             delete mc; quit(); });
+    }
+
+    // 2.0 screenshots: something on every new screen (a groove, a recorded phrase, loops in the grid, a song in STUDIO)
+    void demo2(arco::MainComponent* mc, arco::Screen sc) {
+        auto& h = *host; auto& e = h.engine; auto& m = h.model;
+        for (int k = 0; k < 300 && e.drumMachine.bank.load() == nullptr; ++k) juce::Thread::sleep(20);
+        const int N = 512; std::vector<float> in1(N, 0.0f), o[34]; for (auto& v : o) v.assign(N, 0.0f);
+        float* outs[34]; for (int i = 0; i < 34; ++i) outs[i] = o[i].data();
+        const float* ins[4] = { in1.data(), nullptr, nullptr, nullptr };
+        e.inputChannel[0].store(0);
+        auto runFor = [&](double sec, std::function<float(double)> sig) { double t = 0;
+            for (int b = 0; b < (int) (sec * e.sr / N); ++b) { for (int i = 0; i < N; ++i) { in1[(size_t) i] = sig ? sig(t) : 0.0f; t += 1.0 / e.sr; } e.process(ins, 4, outs, 34, N); m.tick(); } };
+        m.set("bpm", 96);
+        // a groove on the drum machine
+        auto& D = e.drumMachine; using St = arco::DrumMachine::Step;
+        for (int s : { 0, 6, 8, 11 }) D.setStep(0, 0, s, St { s == 0 ? 120 : 100, 100, 1, 0 });
+        for (int s : { 4, 12 }) D.setStep(0, 1, s, St { 118, 100, 1, 0 });
+        D.setStep(0, 1, 15, St { 60, 60, 2, 0 });
+        for (int s = 0; s < 16; s += 2) D.setStep(0, 4, s, St { s % 4 == 0 ? 100 : 72, s == 14 ? 70 : 100, 1, 0 });
+        D.setStep(0, 6, 14, St { 90, 100, 1, 0 }); D.setStep(0, 9, 0, St { 80, 100, 1, 0 }); D.setStep(0, 3, 12, St { 70, 100, 1, 0 });
+        for (int s : { 0, 3, 8, 10 }) D.setStep(1, 0, s, St { 110, 100, 1, 0 });
+        for (int s : { 4, 12 }) D.setStep(1, 1, s, St { 115, 100, 1, 0 });
+        m.set("dm_swing", 56); m.set("dm_kit", 0);
+        if (sc == arco::Screen::Drums) { m.set("dm_run", 1); runFor(1.37, nullptr); }
+        if (sc == arco::Screen::Phrase) {        // four notes played into LIVE 1
+            m.set("phr_rate", 3); m.set("phr_order", 2); m.set("phr_oct", 1); m.set("phr_src", 1);
+            m.press("st_phr", "phr_rec");
+            const double F[4] = { 196, 246.9, 293.7, 392 }; double t0 = -1, ph = 0;
+            runFor(6.0, [&](double) { int st = e.phrase.stateOut.load(); if (st == 2 && t0 < 0) t0 = 0; if (t0 < 0) return 0.0f;
+                double tt = t0; t0 += 1.0 / e.sr; int note = (int) (tt / 0.625); if (note > 3) return 0.0f; double inN = tt - note * 0.625;
+                ph += 2 * M_PI * F[note] / e.sr; return (float) (0.45 * std::exp(-inN * 3.0) * std::min(1.0, inN / 0.004) * (std::sin(ph) + 0.3 * std::sin(2 * ph) + 0.1 * std::sin(3 * ph))); });
+            m.press("st_phr", "phr_bgo"); runFor(1.1, nullptr);
+        }
+        if (sc == arco::Screen::Loops) {         // loops in the grid, some playing
+            auto mk = [&](int row, int col, double f, double bars, int kind) {
+                auto c = std::make_shared<arco::LoopClip>(); double bl = 60.0 / 96.0 * 4 * e.sr; c->len = (long) (bl * bars); c->beats = bars * 4;
+                c->l.resize((size_t) c->len); c->r.resize((size_t) c->len); double ph = 0;
+                for (long i = 0; i < c->len; ++i) { double t = i / e.sr, beat = std::fmod(t * 96.0 / 60.0, 1.0);
+                    double env = kind == 0 ? std::exp(-beat * 6.0) : (kind == 1 ? 0.6 + 0.4 * std::sin(t * 0.7) : std::exp(-std::fmod(t * 96.0 / 30.0, 1.0) * 3.0));
+                    ph += 2 * M_PI * f * (1 + 0.002 * std::sin(t * 5)) / e.sr; float v = (float) (0.5 * env * std::sin(ph)); c->l[(size_t) i] = v; c->r[(size_t) i] = v; }
+                mc->shell.loops->setClip(row, col, c); };
+            mk(0, 0, 110, 2, 0); mk(0, 1, 98, 2, 0); mk(0, 2, 123, 4, 0); mk(1, 0, 220, 2, 1); mk(1, 1, 247, 2, 1); mk(1, 3, 196, 4, 1);
+            mk(2, 1, 440, 1, 2); mk(2, 2, 523, 2, 2); mk(4, 0, 60, 1, 0); mk(4, 1, 60, 1, 0); mk(4, 2, 65, 2, 0); mk(5, 2, 330, 4, 1);
+            mc->shell.loops->names[0][0] = "BASS A"; mc->shell.loops->names[1][0] = "CELLO PAD"; mc->shell.loops->names[4][0] = "DRUMS";
+            auto& L = e.loopGrid; L.launch(0, 1); L.launch(1, 1); L.launch(2, 1); L.launch(4, 1); runFor(2.6, nullptr); L.launch(0, 2);
+            L.record(3, 2); runFor(2.6, nullptr);
+            mc->shell.loops->selRow = 3; mc->shell.loops->selCol = 2;
+        }
+        if (sc == arco::Screen::Studio) {
+            auto& S = h.studio; const juce::ScopedLock sl(S.lock); S.song = arco::StudioSong(); S.song.sr = e.sr; S.song.bpm = 96;
+            const char* nm[4] = { "CELLO", "PIANO", "DRUMS", "VOICE" };
+            for (int t = 0; t < 4; ++t) {
+                arco::StudioLane L; L.name = nm[t]; L.colour = 4 + t; L.vol = -2.0f * t; S.song.lanes.push_back(L);
+                std::vector<float> l((size_t) (e.sr * 10));
+                for (size_t i = 0; i < l.size(); ++i) { double tt = i / e.sr; double env = std::exp(-std::fmod(tt, 0.625 * (t + 1)) * 3.0); l[i] = (float) (0.6 * env * std::sin(2 * M_PI * (110.0 * (t + 1)) * tt)); }
+                S.song.sources.push_back(S.makeSource(nm[t], std::move(l)));
+                arco::StudioClip c; c.lane = t; c.source = t; c.start = (long) (t == 3 ? e.sr * 10 : 0); c.length = (long) (e.sr * (t == 3 ? 20 : 40)); c.fadeIn = 2000; S.song.clips.push_back(c);
+            }
+            S.ensureReturns(); S.pos = (long) (e.sr * 12);
+        }
     }
 
     // for the guide: four string parts recorded at very different levels, then AUTO MIX (the engine is run by hand)

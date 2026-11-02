@@ -5,3 +5,4 @@ JUCE/
 Builds/iOS/build/
 Builds/iOS/ARCO.xcodeproj/project.xcworkspace/
 Builds/iOS/ARCO.xcodeproj/xcuserdata/
+build-dev/

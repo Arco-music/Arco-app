@@ -1,4 +1,5 @@
 #include "MainView.h"
+#include "Shell.h"
 #include "Panels.h"
 #include "SynthPanel.h"
 #include "Sheets.h"
@@ -736,6 +737,21 @@ void Canvas::doRecShow() {
 static const int GW[9] = { 132, 400, 530, 266, 48, 385, 250, 684, 150 };
 void Canvas::layoutHeader() {
     const int topH = 60, navH = 44;
+    if (inShell) {          // 2.0: only the scene row (scenes, tracks, the window buttons left) - the rest is in the shell's bar
+        for (auto& k : hk) k.c->setVisible(k.grp >= 5);
+        for (auto* b : winBtns) { auto id = b->getComponentID(); b->setVisible(id != "t:synth" && id != "t:keys" && id != "t:studio"); }
+        int nb = 0; for (auto* b : winBtns) nb += b->isVisible();
+        int ww = juce::jmin(GW[7], 120 * nb + 10);
+        if (!portrait) { grpR[5] = { 18, 10, GW[5], navH }; grpR[6] = { 411, 10, GW[6], navH }; grpR[8] = { 669, 10, GW[8], navH }; grpR[7] = { W - 16 - ww, 10, ww, navH }; headerBottom = 62; }
+        else { grpR[5] = { 18, 10, GW[5], navH }; grpR[6] = { 411, 10, GW[6], navH }; grpR[8] = { 669, 10, juce::jmin(GW[8], W - 16 - 669), navH }; grpR[7] = { 18, 62, W - 34, navH }; headerBottom = 114; }
+        for (int k = 0; k <= 4; ++k) grpR[k] = {};
+        for (auto& k : hk) if (k.grp >= 5) k.c->setBounds(k.rel.translated(grpR[k.grp].getX(), grpR[k.grp].getY()));
+        std::vector<juce::Component*> vis; for (auto* b : winBtns) if (b->isVisible()) vis.push_back(b);
+        int n = (int) vis.size(), pad = 5, gap = 3;
+        float bw = (grpR[7].getWidth() - 2 * pad - (n - 1) * gap) / (float) juce::jmax(1, n);
+        for (int i = 0; i < n; ++i) vis[(size_t) i]->setBounds(grpR[7].getX() + pad + (int) (i * (bw + gap)), grpR[7].getY() + pad, (int) bw, navH - 2 * pad);
+        return;
+    }
     if (!portrait) {
         grpR[0] = { 18, 8, GW[0], topH }; grpR[1] = { 156, 8, GW[1], topH }; grpR[2] = { 564, 8, GW[2], topH };
         grpR[3] = { W - 16 - 48 - 8 - GW[3], 8, GW[3], topH }; grpR[4] = { W - 16 - 48, 8, 48, topH };
@@ -763,7 +779,9 @@ void Canvas::setLayout(bool tall, int w, int h) {
     float s = (float) W / 1440.0f;
     auto fit = [&](juce::Component* c) { if (c == nullptr) return;
         c->setBounds(0, 0, 1440, portrait ? (int) std::ceil(H / s) : 880);              // the whole screen is dimmed behind it
-        c->setTransform(portrait ? juce::AffineTransform::scale(s).translated(0.0f, 60.0f) : juce::AffineTransform()); };
+        c->setTransform(portrait ? juce::AffineTransform::scale(s).translated(0.0f, 60.0f) : juce::AffineTransform());
+        if (!portrait && H < 880) {        // (in the shell the station is a little shorter: the window shrinks to fit, centred)
+            float k = H / 880.0f; c->setTransform(juce::AffineTransform::scale(k).translated((W - 1440 * k) * 0.5f, 0.0f)); } };
     for (juce::Component* c : { (juce::Component*) setup.get(), (juce::Component*) look.get(), (juce::Component*) exportSheet.get(), (juce::Component*) helpSheet.get(),
                                 (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get(), (juce::Component*) spatial.get(),
                                 (juce::Component*) keyboardWin.get(), (juce::Component*) modularWin.get() }) fit(c);
@@ -876,6 +894,7 @@ int Canvas::visibleCardCount() const { int n = 0; for (auto& d : cardTable()) n 
 
 static const int MAP_H = 60, MAP_H2 = 110;
 void Canvas::layoutStrips() {
+    if (!stationShown) return;
     int ntn = juce::jlimit(1, 8, (int) snap("ntn")); if (snap("ntn") < 1) ntn = 4;
     if (shotTracks > 0) ntn = shotTracks;
     int nvis = 0;
@@ -920,6 +939,7 @@ void Canvas::layoutStrips() {
 
 // the open family's cards: as many as fit at a good size (knobs for fingers), more = pages (the arrows on the map)
 void Canvas::layoutCards() {
+    if (!stationShown) return;
     if (!inLayout) { inLayout = true; layoutStrips(); inLayout = false; }
     for (auto* p : pagePills) p->setVisible(false);
     auto vis = familyCards(fxFamily);
@@ -978,6 +998,22 @@ void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->ke
 void Canvas::synthKeys(int m, bool edit) { synthWin->setKeysMode(m, edit); }
 void Canvas::synthPreset(int i) { synthWin->loadPreset(i); }
 int Canvas::synthPresetIndex() const { return synthWin->presetIndex; }
+void Canvas::showStation(bool on) {
+    if (stationShown == on) return;
+    stationShown = on;
+    for (auto& k : hk) k.c->setVisible(on && k.grp >= 5);
+    for (auto* b : winBtns) { auto id = b->getComponentID(); b->setVisible(on && id != "t:synth" && id != "t:keys" && id != "t:studio"); }
+    for (auto* s : strips) s->setVisible(on);
+    if (masterView) masterView->setVisible(on);
+    if (fxMap) fxMap->setVisible(on);
+    for (auto* c : cards) c->setVisible(false);
+    if (on) { layoutHeader(); layoutStrips(); layoutCards(); }
+    repaint();
+}
+bool Canvas::synthOpen() const { return synthWin && synthWin->isVisible(); }
+bool Canvas::keyboardOpen() const { return keyboardWin && keyboardWin->isVisible(); }
+bool Canvas::modularOpen() const { return modularWin && modularWin->isVisible(); }
+bool Canvas::spatialOpen() const { return spatial && spatial->isVisible(); }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
 void Canvas::doSave(bool askName) {
@@ -1030,6 +1066,7 @@ void Canvas::timerCallback() {
     if (!isVisible()) return;                                        // the phone view is showing
     if (++menuTick % 30 == 0 && menu) menu->menuItemsChanged();      // the Mac menu bar follows (recent songs, ticks)
     if (host.sigSettle > 0 && --host.sigSettle == 0) host.savedSignature = host.loopsSignature();
+    if (!stationShown) return;
     layoutStrips();
     for (auto* s : strips) if (s->isVisible()) s->update();
     if (masterView) masterView->update();
@@ -1049,7 +1086,8 @@ void Canvas::paint(juce::Graphics& g) {
     // a soft light from the top (the new design)
     g.setGradientFill(juce::ColourGradient(Theme::bg().brighter(Theme::lightMode() ? 0.025f : 0.10f), W * 0.5f, 0.0f, Theme::bg(), W * 0.5f, H * 0.75f, true));
     g.fillRect(getLocalBounds());
-    paintTop(g);
+    if (!stationShown) return;
+    if (!inShell) paintTop(g);
     paintScenes(g);
 }
 void Canvas::paintTop(juce::Graphics& g) {

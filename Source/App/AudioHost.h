@@ -12,6 +12,7 @@
 #include "Analysis.h"
 #include "Studio.h"
 #include "Instruments.h"
+#include "DrumKits.h"
 
 namespace arco {
 
@@ -41,6 +42,16 @@ public:
     double testPhase = 0; juce::Random rnd; float pinkS = 0;
     void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
     int synthInto = 0;
+    // 2.0: the SYNTH (or the KEYBOARD's instrument) plays through a LIVE strip that is not an input in use:
+    // LIVE 2 when only LIVE 1 is used, LIVE 3 when two are used ... (before, it always took LIVE 2 - and a second
+    // instrument plugged into LIVE 2 went silent at the first note)
+    int freeSynthStrip() {
+        for (int v = juce::jmax(1, nLive); v <= 3; ++v) if (phoneOnLive(v + 1).isEmpty()) return v;
+        return 3; }
+    void synthNeedsStrip() {
+        if (synthInto > 0 && (synthInto >= nLive || nLive >= 4)) return;     // it has one (that is not a used input)
+        int v = freeSynthStrip(); setSynthInto(v);
+        status = (nLive >= 4 ? juce::String("all four LIVE inputs are used - the SYNTH plays through LIVE 4") : "the SYNTH plays through LIVE " + juce::String(v + 1)); }
 
     // phones (1.2): the station finds iPhones running ARCO - each one a microphone (on a LIVE input) and a remote control
     Studio studio { *this };                 // STUDIO: the song as a timeline (plays into outputs 1-2 and the headphones)
@@ -65,17 +76,20 @@ public:
     void recordSynthOn(int track);            // REC on that track, listening to the synth
     std::atomic<bool> studioKeys { false };    // STUDIO is open with an instrument lane: the keys play it (and record into it)
     InstrumentRack rack;                       // 1.3: the KEYBOARD's instrument (MODULAR, a sampled instrument, a plug-in) - or the SYNTH
+    std::atomic<bool> drumKeys { false };      // 2.0: the DRUM MACHINE is open: MIDI notes play its pads (General MIDI drum notes)
     void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override {
+        if (drumKeys.load()) { int p = DrumKits::padForNote(note); if (p < 0) p = ((note % 12) + 12) % 12; engine.drumMachine.play(p, vel); return; }
         if (studioKeys.load()) { studio.midiNote(note, vel, true); return; }
         if (latch) {                                    // HOLD: a touch turns a note on, the next touch turns it off
             if (latched.count(note)) { latched.erase(note); playOff(note); } else { latched.insert(note); playOn(note, vel); }
             return; }
         playOn(note, vel); }
     void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override {
+        if (drumKeys.load()) return;
         if (studioKeys.load()) { studio.midiNote(note, 0, false); return; }
         if (latch) return;
         playOff(note); }
-    void playOn(int note, float vel) { if (rack.takesNotes()) { if (synthInto == 0) setSynthInto(1); rack.noteOn(note, vel); } else synth.noteOn(note, vel); }
+    void playOn(int note, float vel) { if (rack.takesNotes()) { synthNeedsStrip(); rack.noteOn(note, vel); } else synth.noteOn(note, vel); }
     void playOff(int note) { rack.noteOff(note); synth.noteOff(note); }
     // 1.4: HOLD - notes stay on until touched again (easy chords on a screen; with the arpeggiator every touched note joins it)
     bool latch = false;
@@ -123,6 +137,9 @@ public:
     int sigSettle = 0;             // ... as they were at the last SAVE / OPEN
     bool unsavedLoops() { return engine.snap("smask").v.load() > 0.5f && loopsSignature() != savedSignature; }
     bool openSong(const juce::File& settingsOrFolder);
+    void saveDrums(const juce::File& folder);
+    void loadDrums(const juce::File& folder);
+    std::function<void(const juce::File&)> onSaveExtra, onOpenExtra;     // 2.0: the shell's screens save with the song (LIVE LOOPS)
     // import an audio file into a track (1-8)
     bool importFile(const juce::File& f, int track);
     // ... or audio already at the engine rate (the smart import: fitted to the piece)
@@ -164,6 +181,7 @@ private:
     double lastRate = 0;
     juce::AudioIODevice* rawDone = nullptr;
     std::vector<float> phoneBuf[4];
+    std::vector<float> mixTapL, mixTapR;     // the station's main mix, for STUDIO
     int ccLast[16][128] = {};
     juce::File setupFile() const;
 };

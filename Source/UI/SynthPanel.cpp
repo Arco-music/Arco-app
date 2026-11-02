@@ -338,7 +338,7 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     auto* mo = add<Pill>(0, { 740, 512, 70, 24 }, "MONO", [&m] { return m.get("mono") > 0.5 ? cVoi() : Theme::btn(); }, 8.0f, 6.0f);
     mo->onClick = [this, &m] { m.set("mono", m.get("mono") > 0.5 ? 0 : 1); cv.host.synth.allOff(); };
     auto* fo = add<Pill>(0, { 820, 512, 82, 24 }, "FOLLOW", [&m] { return m.get("follow") > 0.5 ? Theme::green() : Theme::btn(); }, 8.0f, 6.0f);
-    fo->onClick = [this, &m] { m.set("follow", m.get("follow") > 0.5 ? 0 : 1); if (m.get("follow") > 0.5 && cv.host.synthInto == 0) cv.host.setSynthInto(1); };
+    fo->onClick = [this, &m] { m.set("follow", m.get("follow") > 0.5 ? 0 : 1); if (m.get("follow") > 0.5) cv.host.synthNeedsStrip(); };
     auto* fov = add<ValueBox>(0, { 910, 512, 64, 24 }, [&m] { return m.get("f_oct"); }, [&m](double v) { m.set("f_oct", std::round(v)); }, -24, 24, 0, [] { return Theme::green(); });
     fov->fsize = 11.0f;
 
@@ -364,6 +364,14 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     ao->onClick = [this, &m] { cv.host.keys.allNotesOff(0); cv.host.synth.allOff(); m.set("arp_on", m.get("arp_on") > 0.5 ? 0 : 1); };
     auto* ah = add<Pill>(2, { 172, 170, 90, 34 }, "HOLD", [&m] { return m.get("arp_hold") > 0.5 ? Theme::amber() : Theme::btn(); }, 9.0f, 8.0f);
     ah->onClick = [&m] { m.set("arp_hold", m.get("arp_hold") > 0.5 ? 0 : 1); };
+    // 2.0: what the arpeggiator follows - the metronome's beat (the station), STUDIO's when it plays, or the tempo alone
+    auto* sy = add<Pill>(2, { 270, 170, 330, 34 }, "", [this] { double b = cv.host.engine.clock.beatNow.load(); float f = (float) (b - std::floor(b));
+                                                               return f < 0.12f ? Theme::violet() : Theme::btn(); }, 8.5f, 8.0f);
+    sy->tint = true; sy->onFn = [] { return true; };
+    sy->dynText = [this] { int src = cv.host.engine.clock.source.load(); double bpm = src == 2 ? cv.host.studio.song.bpm : (double) cv.host.engine.snap("ebpm").v.load();
+        if (bpm < 20) bpm = cv.host.model.get("bpm");
+        return juce::String::fromUTF8("IN TEMPO · ") + juce::String(bpm, 1) + " BPM · " + (src == 2 ? "STUDIO" : src == 1 ? "THE STATION PLAYING" : "THE METRONOME"); };
+    sy->setTooltip("the arpeggiator steps on the metronome's beat: the station's when it plays, STUDIO's when STUDIO plays");
     const char* AM[6] = { "UP", "DOWN", U8("UP-DOWN").toRawUTF8(), "RANDOM", "AS PLAYED", "CHORD" };
     juce::String amn[6] = { "UP", "DOWN", "UP-DOWN", "RANDOM", "AS PLAYED", "CHORD" }; juce::ignoreUnused(AM);
     for (int i = 0; i < 6; ++i) { auto* p = add<Pill>(2, { 44 + i * 100, 246, 94, 28 }, amn[i], [&m, i] { return (int) m.get("arp_mode") == i ? Theme::violet() : Theme::btn(); }, 8.0f, 6.0f); p->onClick = [&m, i] { m.set("arp_mode", i); }; }
@@ -540,7 +548,7 @@ void SynthPanel::paint(juce::Graphics& g) {
         L("MACROS", 944, 456, 100, 9.0f, Theme::txt(), 2);
     } else {
         card(24, 126, 620, 460, "ARPEGGIATOR", Theme::violet());
-        L(U8("hold a chord - it plays the notes one after the other, in the loop's tempo"), 44, 140, 560, 8.0f, Theme::sub());
+        L(U8("hold a chord - it plays the notes one after the other, on the metronome"), 200, 135, 420, 8.0f, Theme::sub());
         L("PATTERN", 44, 226, 200, 8.5f, Theme::txt(), 2); L("SPEED", 44, 298, 200, 8.5f, Theme::txt(), 2); L("RANGE", 44, 370, 200, 8.5f, Theme::txt(), 2);
         L(U8("HOLD: the notes keep playing after you let go - a new chord replaces them"), 44, 460, 560, 8.0f, Theme::sub());
         card(656, 126, 680, 460, "WAYS TO PLAY", Theme::blue());

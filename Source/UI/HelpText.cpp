@@ -210,6 +210,15 @@ Place every sound around the audience, still or moving.
 - Choose a LIVE strip or a track, PLACE IT, and drag it in the circle: direction and distance. WIDTH spreads it.
 - Motion: STILL, CIRCLE, SWING, WANDER, FLY OVER - SPEED and RANGE, or IN TEMPO with the loops.
 - Up to 32 speakers (3rd-order ambisonics, AllRAD). With headphones you hear a stereo version. Exports are always stereo.)" },
+        { "What's new in 2.0", R"(# What's new in ARCO 2.0
+- HOME: everything ARCO plays as big cards - drag them sideways, tap the one in the middle. WORKSTATION (the station), LIVE LOOPS, STUDIO, DRUM MACHINE, SYNTH, PHRASE, KEYBOARD, MODULAR, SPEAKERS.
+- One bar on top of every screen: HOME, the transport, where you are, the tempo (drag or double-click), the bars' beats, CLICK, COUNT-IN, IN / OUT, UNDO, SAVE, SETUP. It plays what the screen is about: STUDIO's song in STUDIO, the pattern in DRUM MACHINE, the phrase in PHRASE, the cells in LIVE LOOPS.
+- LIVE inputs: the SYNTH (and the KEYBOARD's instrument) no longer takes LIVE 2 at the first note - it plays through a LIVE strip that is not an input you use (LIVE 3 when you play into LIVE 1 and 2 ...).
+- One clock for everything in tempo: the arpeggiator, the drum machine, PHRASE and LIVE LOOPS follow the metronome of the station, STUDIO's when STUDIO plays, or the tempo alone.
+- DRUM MACHINE: twelve pads. JAZZ is a real kit (recorded close, overheads and room - Virtuosity Drums, CC0), 808, 909 and TRAP are modelled the way those machines make their sounds, LO-FI is the jazz kit on old tape. Each pad: level, pan, tune, decay, tone, space, mute / solo, its own kit. Eight patterns of up to 64 steps; every step: velocity, chance, repeats, nudge. Swing, humanise, drive, glue. Play the pads with the mouse, the keys (Z X C V / A S D F / Q W E R) or a MIDI keyboard; with REC they are written into the pattern.
+- PHRASE: play a short phrase into it. It finds the notes and plays them back in tempo - faster or slower, in another order, higher, reversed, through a filter that opens with every note, spread left and right - and BUILD makes it grow over a few bars, then drop back.
+- LIVE LOOPS: eight rows of cells. Tap an empty cell: it records from the next bar line (1, 2, 4, 8 bars or free); tap a loop to start or stop it, a scene to start a whole column. Drop audio files on a cell (fitted to the tempo), drag the station's loops in, send a loop to STUDIO.
+- STUDIO lives inside the app now (its tools under the bar). Recording "the station" takes the real stereo mix (not the speaker outputs, which can carry the click).)" },
         { "What's new in 1.6", R"(# What's new in ARCO 1.6
 - A new main window: cleaner and easier on the eyes, every button and knob still there. New knobs, buttons and colours in every window.
 - The top bar in cards: PLAY / STOP / UNDO with BAR · BEAT · LOOP; TAP, BPM, BEATS, BARS, COUNT, CLICK; the song with SAVE · AS … · OPEN; the sound on / off.

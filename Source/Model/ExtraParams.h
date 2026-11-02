@@ -152,9 +152,45 @@ inline const std::vector<ParamDef>& ambiParams() {
     return p;
 }
 
+// 2.0: the DRUM MACHINE ("st_dm") and PHRASE ("st_phr") - saved with the song
+inline const std::vector<ParamDef>& drumParams() {
+    static std::deque<std::string> names;
+    static const std::vector<ParamDef> p = [] {
+        std::vector<ParamDef> v;
+        auto add = [&](const std::string& id, double def, double lo, double hi, int kind) { names.push_back(id); v.push_back({ names.back().c_str(), { "st_dm" }, def, lo, hi, 1, kind }); };
+        add("dm_on", 1, 0, 1, 1); add("dm_kit", 0, 0, 4, 2); add("dm_pat", 0, 0, 7, 2); add("dm_swing", 50, 50, 75, 0); add("dm_vol", 75, 0, 100, 0);
+        add("dm_drive", 0, 0, 100, 0); add("dm_glue", 20, 0, 100, 0); add("dm_human", 0, 0, 100, 0); add("dm_space", 0, 0, 100, 0);
+        add("dm_chain", 0, 0, 1, 1); add("dm_follow", 1, 0, 1, 1);
+        names.push_back("dm_run"); v.push_back({ names.back().c_str(), { "st_dm" }, 0, 0, 1, 3, 1 });       // its own PLAY (not saved)
+        names.push_back("dm_rec"); v.push_back({ names.back().c_str(), { "st_dm" }, 0, 0, 1, 3, 1 });       // pads write into the pattern
+        for (int i = 0; i < 12; ++i) {
+            auto n = "dm" + std::to_string(i) + "_";
+            add(n + "lvl", 80, 0, 100, 0); add(n + "pan", 0, -50, 50, 0); add(n + "tune", 0, -12, 12, 0); add(n + "dec", 100, 0, 100, 0); add(n + "tone", 50, 0, 100, 0);
+            add(n + "mute", 0, 0, 1, 1); add(n + "solo", 0, 0, 1, 1); add(n + "kit", -1, -1, 4, 2); add(n + "spc", 0, 0, 100, 0);
+        }
+        return v;
+    }();
+    return p;
+}
+inline const std::vector<ParamDef>& phraseParams() {
+    static std::deque<std::string> names;
+    static const std::vector<ParamDef> p = [] {
+        std::vector<ParamDef> v;
+        auto add = [&](const std::string& id, double def, double lo, double hi, int kind) { names.push_back(id); v.push_back({ names.back().c_str(), { "st_phr" }, def, lo, hi, 1, kind }); };
+        add("phr_on", 1, 0, 1, 1); add("phr_src", 1, 1, 4, 2); add("phr_len", 1, 0, 3, 2); add("phr_rate", 3, 0, 6, 2); add("phr_order", 0, 0, 5, 2);
+        add("phr_gate", 85, 5, 100, 0); add("phr_pitch", 0, -24, 24, 2); add("phr_oct", 0, 0, 3, 2); add("phr_rev", 0, 0, 100, 0); add("phr_swing", 50, 50, 75, 0);
+        add("phr_cut", 100, 0, 100, 0); add("phr_res", 15, 0, 100, 0); add("phr_env", 30, 0, 100, 0); add("phr_spread", 30, 0, 100, 0); add("phr_space", 20, 0, 100, 0);
+        add("phr_vol", 80, 0, 100, 0); add("phr_build", 60, 0, 100, 0); add("phr_blen", 4, 1, 16, 2); add("phr_steps", 0, 0, 16, 2);
+        return v;
+    }();
+    return p;
+}
+
 inline const std::vector<ParamDef>& paramTable() {
     static const std::vector<ParamDef> t = [] { auto v = paramTableBase(); for (auto& d : extraParams()) v.push_back(d); for (auto& d : mixParams()) v.push_back(d); for (auto& d : synthParams()) v.push_back(d);
-                                                for (auto& d : ambiParams()) v.push_back(d); return v; }();
+                                                for (auto& d : ambiParams()) v.push_back(d); for (auto& d : drumParams()) v.push_back(d); for (auto& d : phraseParams()) v.push_back(d);
+                                                for (auto& d : v) if (std::string(d.id) == "beats") d.dests.push_back("st_phr");      // PHRASE records whole bars
+                                                return v; }();
     return t;
 }
 

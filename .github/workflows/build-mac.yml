@@ -49,6 +49,7 @@ jobs:
           APP=$(find build -name "ARCO.app" -path "*Release*" | head -1)
           "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screen-main.png" || true
           "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screen-synth.png" synth || true
+          for s in workstation drums phrase loops studio; do "$APP/Contents/MacOS/ARCO" --screenshot "$PWD/dist/screen-$s.png" screen=$s demo2 || true; done
       - uses: actions/upload-artifact@v4
         with:
           name: ARCO-mac

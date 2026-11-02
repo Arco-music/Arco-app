@@ -601,13 +601,13 @@ ModularPanel::ModularPanel(Canvas& c) : cv(c) {
     pill({ 1360 - 104, 14, 88, 26 }, U8("✕ CLOSE"), [] { return Theme::btn(); }, [this] { setVisible(false); });
     auto* use = pill({ 1360 - 300, 14, 186, 26 }, "", [&r] { return r.kind.load() == InstrumentRack::KModular ? Theme::violet() : Theme::btn(); }, [this, &r, &h] {
         r.setKind(r.kind.load() == InstrumentRack::KModular ? InstrumentRack::KSynth : InstrumentRack::KModular);
-        if (r.kind.load() == InstrumentRack::KModular && h.synthInto == 0) h.setSynthInto(1); });
+        if (r.kind.load() == InstrumentRack::KModular) h.synthNeedsStrip(); });
     use->dynText = [&r] { return r.kind.load() == InstrumentRack::KModular ? U8("● THE KEYS PLAY MODULAR") : juce::String("PLAY MODULAR"); };
     auto* patch = pill({ 24, 52, 230, 24 }, "", [] { return Theme::card2(); }, [this, &r] {
         juce::PopupMenu pm; auto names = Modular::patchNames();
         for (int i = 0; i < names.size(); ++i) pm.addItem(i + 1, names[i]);
         pm.showMenuAsync(juce::PopupMenu::Options(), [this, &r](int x) { if (x <= 0) return; patchIndex = x - 1; r.modular.setPatch(Modular::defaultPatch(patchIndex)); rebuild();
-            if (r.kind.load() != InstrumentRack::KModular) r.setKind(InstrumentRack::KModular); if (cv.host.synthInto == 0) cv.host.setSynthInto(1); }); });
+            if (r.kind.load() != InstrumentRack::KModular) r.setKind(InstrumentRack::KModular); cv.host.synthNeedsStrip(); }); });
     patch->dynText = [this] { return U8("PATCH: ") + Modular::patchNames()[patchIndex] + U8("  ▾"); };
     patch->textColour = [] { return Theme::txt(); };
     pill({ 262, 52, 140, 24 }, U8("+ MODULE  ▾"), [] { return Theme::blue(); }, [this, &r] {

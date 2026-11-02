@@ -11,11 +11,13 @@ namespace arco {
 AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     keys.addListener(this);
     synth.setParamSource([this](const char* n) { return model.get(n); });
-    synth.onFirstNote = [this] { if (synthInto == 0) { setSynthInto(1); status = U("the SYNTH plays into LIVE 2"); } };
+    synth.onFirstNote = [this] { synthNeedsStrip(); };
     formats.registerBasicFormats();
     writerThread.startThread();
     engine.prepare(48000.0);
     rack.prepare(48000.0); engine.ext.store(&rack);
+    // 2.0: the DRUM MACHINE's kits are made in the background (the samples decoded, the classic machines modelled)
+    juce::Thread::launch([this] { auto* b = DrumKits::bank(); engine.drumMachine.bank.store(b); });
     model.sendAll();
     loadSetup(openDevice);
     if (openDevice) fxpresets::applyDefaults(model);
@@ -131,6 +133,7 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     double r = d->getCurrentSampleRate();
     studio.recordLatency = d->getInputLatencyInSamples() + d->getOutputLatencyInSamples();
     for (auto& b : phoneBuf) b.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f);
+    mixTapL.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f); mixTapR = mixTapL;
     if (r != lastRate) {                     // a new sample rate: the engine starts again (loops are kept only at the same rate)
         lastRate = r;
         engine.prepare(r);
@@ -172,11 +175,20 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
             else engine.phoneData[j] = nullptr;
         }
     }
+    {   // the clock: STUDIO's position and tempo (it runs on top of the station, the arpeggiator / drums follow it)
+        bool sp = studio.playing.load();
+        engine.clock.studioRun.store(sp);
+        if (sp) { double bl = 60.0 / juce::jmax(20.0, studio.song.bpm) * juce::jmax(8000.0, studio.song.sr);
+                  engine.clock.studioBeat.store((double) studio.pos.load() / bl); engine.clock.studioBpm.store(studio.song.bpm); engine.clock.studioSeq.fetch_add(1); }
+    }
     engine.process(in, numIn, out, numOut, n);
     {   // STUDIO: what it can record (the station's inputs, the sound card's inputs, the station's mix), then it plays on top
         const float* live[4] = {};
-        for (int j = 0; j < 4; ++j) { int ch = inputCh[j] - 1; live[j] = engine.phoneData[j] != nullptr ? engine.phoneData[j] : (ch >= 0 && ch < numIn ? in[ch] : nullptr); }
-        studio.input(in, numIn, live, numOut > 0 ? out[0] : nullptr, numOut > 1 ? out[1] : nullptr, n);
+        for (int j = 0; j < 4; ++j) { int ch = engine.inputChannel[j].load(); if (ch < 0) ch = inputCh[j] - 1;
+            live[j] = engine.phoneData[j] != nullptr ? engine.phoneData[j] : (ch >= 0 && ch < numIn ? in[ch] : nullptr); }
+        if ((int) mixTapL.size() < n) { mixTapL.resize((size_t) n); mixTapR.resize((size_t) n); }      // (sized in audioDeviceAboutToStart; never here in practice)
+        engine.pullMainMix(mixTapL.data(), mixTapR.data(), n);
+        studio.input(in, numIn, live, mixTapL.data(), mixTapR.data(), n);
     }
     if (numOut >= 2 && out[0] != nullptr && out[1] != nullptr) {     // STUDIO plays on top
         bool rendered = studio.renderBlock(out[0], out[1], n);
@@ -295,7 +307,7 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
 
 void AudioHost::recordSynthOn(int track) {
     if (track < 1 || track > 8) return;
-    if (synthInto == 0) setSynthInto(1);
+    synthNeedsStrip();
     model.set("src" + std::to_string(track), synthInto + 1);   // that track listens to the LIVE input the synth plays into
     model.press("st_looper", "rec" + std::to_string(track));
     status = "TRACK " + juce::String(track) + U(" records the SYNTH");
@@ -320,6 +332,7 @@ void AudioHost::applyRouting() {
     phonesShared = devices.getCurrentAudioDevice() != nullptr && pf + 1 >= nOut;
     if (phonesShared) pf = 0;                 // a laptop / 2-output card: headphones = outputs 1-2
     engine.phonesFirst.store(pf);
+    if (synthInto > 0 && synthInto < nLive) synthNeedsStrip();      // that strip is an input now: the synth moves on
 }
 
 void AudioHost::openAllChannels() {
@@ -404,6 +417,8 @@ void AudioHost::newSong() {
     model.resetSong();
     rack.fromVar({});
     fxpresets::applyDefaults(model);          // the effects as you like them for new songs
+    loadDrums(juce::File());                  // 2.0: empty patterns, empty LIVE LOOPS
+    if (onOpenExtra) onOpenExtra(juce::File());
     songFolder = juce::File();
     sigSettle = 20;
     status = "new song";
@@ -419,6 +434,8 @@ juce::String AudioHost::loopsSignature() {
 bool AudioHost::saveSong(const juce::File& folder) {
     if (!folder.createDirectory()) { status = "could not make the folder"; return false; }
     if (!studio.song.clips.empty()) studio.save(folder);           // STUDIO's arrangement goes with the song
+    saveDrums(folder);                                             // 2.0: the drum machine's patterns
+    if (onSaveExtra) onSaveExtra(folder);                          // ... and LIVE LOOPS
     auto name = folder.getFileName();
     auto root = model.songState();
     root.getDynamicObject()->setProperty("instrument", rack.toVar());   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
@@ -472,6 +489,8 @@ bool AudioHost::openSong(const juce::File& sel) {
     }
     model.loadSongState(v);
     rack.fromVar(v["instrument"]);
+    loadDrums(folder);
+    if (onOpenExtra) onOpenExtra(folder);
     auto s = v["session"];
     static const char* RS[15] = { "rs_bl", "rs_bts", "rs_len0", "rs_len1", "rs_len2", "rs_len3", "rs_mask0", "rs_mask1", "rs_mask2", "rs_mask3",
                                   "rs_spd0", "rs_spd1", "rs_spd2", "rs_spd3", "rs_ntr" };
@@ -605,6 +624,39 @@ bool AudioHost::startRecording(const juce::File& f) {
 void AudioHost::stopRecording() {
     const juce::ScopedLock sl(recLock);
     if (threaded != nullptr) { threaded.reset(); status = U("show recording saved ✓"); }
+}
+
+// ------------------------------------------------------------------ 2.0: the drum machine's patterns (drums.json in the song)
+void AudioHost::saveDrums(const juce::File& folder) {
+    auto& D = engine.drumMachine;
+    auto* o = new juce::DynamicObject(); juce::Array<juce::var> pats;
+    bool any = false;
+    for (int p = 0; p < DrumMachine::NPAT; ++p) {
+        auto* po = new juce::DynamicObject(); po->setProperty("len", D.patLen[p].load()); po->setProperty("res", D.patRes[p].load());
+        juce::Array<juce::var> rows;
+        for (int pd = 0; pd < DrumMachine::NPAD; ++pd) { juce::String r; for (int s = 0; s < DrumMachine::NSTEP; ++s) { auto w = D.steps[p][pd][s].load(); any |= w != 0; r << juce::String::toHexString((juce::int64) w) << (s + 1 < DrumMachine::NSTEP ? "," : ""); } rows.add(r); }
+        po->setProperty("steps", rows); pats.add(juce::var(po));
+    }
+    auto f = folder.getChildFile("drums.json");
+    if (!any) { f.deleteFile(); return; }
+    o->setProperty("patterns", pats);
+    f.replaceWithText(juce::JSON::toString(juce::var(o)));
+}
+void AudioHost::loadDrums(const juce::File& folder) {
+    auto& D = engine.drumMachine;
+    for (auto& a : D.steps) for (auto& b : a) for (auto& c : b) c.store(0);
+    for (int p = 0; p < DrumMachine::NPAT; ++p) { D.patLen[p].store(16); D.patRes[p].store(1); }
+    auto v = juce::JSON::parse(folder.getChildFile("drums.json"));
+    if (auto* pats = v["patterns"].getArray())
+        for (int p = 0; p < juce::jmin(DrumMachine::NPAT, pats->size()); ++p) {
+            juce::var po = (*pats)[p];
+            D.patLen[p].store(juce::jlimit(1, DrumMachine::NSTEP, (int) po.getProperty("len", 16))); D.patRes[p].store(juce::jlimit(0, 3, (int) po.getProperty("res", 1)));
+            if (auto* rows = po["steps"].getArray())
+                for (int pd = 0; pd < juce::jmin(DrumMachine::NPAD, rows->size()); ++pd) {
+                    auto t = juce::StringArray::fromTokens((*rows)[pd].toString(), ",", "");
+                    for (int s = 0; s < juce::jmin(DrumMachine::NSTEP, t.size()); ++s) D.steps[p][pd][s].store((uint32_t) t[s].getHexValue64());
+                }
+        }
 }
 
 // ------------------------------------------------------------------ this computer

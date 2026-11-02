@@ -29,6 +29,12 @@ public:
     bool isInterestedInFileDrag(const juce::StringArray&) override { return true; }
     void filesDropped(const juce::StringArray& files, int x, int y) override;
     std::function<void()> onClose;
+    // 2.0: inside the app shell - its top bar has the transport, the position and the tempo; here: the tools
+    bool embedded = false;
+    void setEmbedded(bool e) { embedded = e; topH = e ? 52.0f : 60.0f; resized(); repaint(); }
+    void togglePlay();
+    void toggleRecord();
+    void rewind() { studio.pos = studio.song.loopOn ? studio.song.loopStart : 0; scrollSec = 0; repaint(); }
     Studio& studio;
 private:
     Canvas& cv;
@@ -92,8 +98,6 @@ private:
     double rollX(double t, juce::Rectangle<int> r) const;
     double rollT(float x, juce::Rectangle<int> r) const;
     // ---- actions
-    void togglePlay();
-    void toggleRecord();
     void split();
     void duplicate();
     void removeClip();
