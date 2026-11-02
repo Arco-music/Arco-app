@@ -145,7 +145,7 @@ const std::vector<float>& StudioView::peaksOf(const StudioSource* s) {
 void StudioView::paint(juce::Graphics& g) {
     hits.clear(); dynLabels.clear();
     rebuildDetail();
-    g.fillAll(Theme::bg());
+    Theme::backdrop(g, getLocalBounds());
     const juce::ScopedLock sl(studio.lock);
     paintTop(g);
     if (showBrowser) paintBrowser(g);
@@ -162,7 +162,7 @@ void StudioView::paint(juce::Graphics& g) {
     if (drag == Browser && dragItem >= 0 && dragItem < (int) browserItems.size()) {
         auto& it = browserItems[(size_t) dragItem];
         auto r = juce::Rectangle<float>(dragNow.x - 6, dragNow.y - 12, 150, 24);
-        g.setColour(Theme::sel().withAlpha(0.9f)); g.fillRoundedRectangle(r, 6);
+        g.setColour(Theme::sel().withMultipliedAlpha(0.9f)); g.fillRoundedRectangle(r, 6);
         txt(g, it.text, r.toNearestInt().reduced(6, 0), 8.5f, Theme::textOn(Theme::sel()), 2);
         if (clipArea().contains(dragNow.toInt())) { float x = xAt(snapTo(sampleAt(dragNow.x), false) / studio.song.sr); g.setColour(Theme::sel()); g.fillRect(x - 1, (float) clipArea().getY(), 2.0f, (float) clipArea().getHeight()); }
     }
@@ -310,8 +310,8 @@ void StudioView::paintLanes(juce::Graphics& g) {
         int every = pxPerSec * barSec < 26 ? (pxPerSec * barSec < 8 ? 16 : 4) : 1;
         for (int b = juce::jmax(0, (int) std::floor(scrollSec / barSec)); ; ++b) {
             float x = xAt(b * barSec); if (x > getWidth()) break;
-            g.setColour(Theme::line().withAlpha(b % every == 0 ? 0.9f : 0.35f)); g.fillRect(x, (float) ca.getY(), 1.0f, (float) ca.getHeight());
-            if (pxPerSec * barSec > 160) for (int k = 1; k < S.beats; ++k) { float xb = xAt(b * barSec + k * barSec / S.beats); g.setColour(Theme::line().withAlpha(0.18f)); g.fillRect(xb, (float) ca.getY(), 1.0f, (float) ca.getHeight()); }
+            g.setColour(Theme::line().withMultipliedAlpha(b % every == 0 ? 0.9f : 0.35f)); g.fillRect(x, (float) ca.getY(), 1.0f, (float) ca.getHeight());
+            if (pxPerSec * barSec > 160) for (int k = 1; k < S.beats; ++k) { float xb = xAt(b * barSec + k * barSec / S.beats); g.setColour(Theme::line().withMultipliedAlpha(0.18f)); g.fillRect(xb, (float) ca.getY(), 1.0f, (float) ca.getHeight()); }
         }
         if (S.loopOn && S.loopEnd > S.loopStart) { float a = xAt(S.loopStart / S.sr), b = xAt(S.loopEnd / S.sr); g.setColour(Theme::amber().withAlpha(0.05f)); g.fillRect(a, (float) ca.getY(), b - a, (float) ca.getHeight()); }
     }
@@ -451,7 +451,7 @@ void StudioView::paintAuto(juce::Graphics& g, int li, juce::Rectangle<float> r) 
     auto ps = autoParams(L);
     if (L.showAuto >= (int) ps.size()) return;
     auto& P = ps[(size_t) L.showAuto];
-    g.setColour(Theme::scr().withAlpha(0.6f)); g.fillRect(r);
+    g.setColour(Theme::scr().withMultipliedAlpha(0.6f)); g.fillRect(r);
     const StudioAuto* A = nullptr; for (auto& a : L.autos) if (a.param == P.id) A = &a;
     float fallback = P.id == "vol" ? L.vol : P.id == "pan" ? L.pan : P.id == "sendA" ? L.sendA : P.id == "sendB" ? L.sendB : 0.0f;
     if (P.id.size() > 2 && P.id[0] == 'd') { int di = std::atoi(P.id.c_str() + 1); int pk = std::atoi(P.id.c_str() + P.id.find('p') + 1); if (di < (int) L.devices.size()) fallback = L.devices[(size_t) di].p[(size_t) pk]; }
@@ -486,7 +486,7 @@ void StudioView::paintMixer(juce::Graphics& g) {
         const auto& devs = master ? S.master : L->devices;
         for (int d = 0; d < (int) devs.size() && d < 5; ++d) {
             auto dr = juce::Rectangle<int>(r.getX() + 6, y, r.getWidth() - 12, 16);
-            g.setColour(devs[(size_t) d].on ? Theme::sel().withAlpha(0.6f) : Theme::btn()); g.fillRoundedRectangle(dr.toFloat(), 4);
+            g.setColour(devs[(size_t) d].on ? Theme::sel().withMultipliedAlpha(0.6f) : Theme::btn()); g.fillRoundedRectangle(dr.toFloat(), 4);
             txt(g, devInfo()[(size_t) devs[(size_t) d].type].name, dr, 7.0f, Theme::txt(), 1, juce::Justification::centred);
             y += 18;
         }
@@ -563,7 +563,7 @@ void StudioView::paintPianoRoll(juce::Graphics& g, juce::Rectangle<int> r) {
     double step = bl / (grid >= 4 ? 4 : grid == 3 ? 2 : 1);
     for (double t = 0; t <= c.midiLen && step > 1; t += step) {
         float x = (float) rollX(t, r); bool bar = std::fmod(t, S.barLen()) < 1;
-        g.setColour(Theme::line().withAlpha(bar ? 0.9f : 0.3f)); g.fillRect(x, (float) r.getY(), 1.0f, (float) r.getHeight());
+        g.setColour(Theme::line().withMultipliedAlpha(bar ? 0.9f : 0.3f)); g.fillRect(x, (float) r.getY(), 1.0f, (float) r.getHeight());
     }
     auto col = Theme::strip(S.lanes[(size_t) c.lane].colour % 12);
     for (int i = 0; i < (int) c.notes.size(); ++i) {

@@ -47,7 +47,7 @@ public:
         }
         // the banner
         auto b = juce::Rectangle<float>(getWidth() / 2.0f - 430, 6, 860, 46);
-        g.setColour(Theme::card().withAlpha(0.97f)); g.fillRoundedRectangle(b, 12.0f);
+        g.setColour(Theme::cardS().withAlpha(0.97f)); g.fillRoundedRectangle(b, 12.0f);
         g.setColour(accent); g.drawRoundedRectangle(b, 12.0f, 1.5f);
         g.setColour(Theme::ink(accent)); g.setFont(Theme::font(13.0f, 2));
         g.drawText("MIDI LEARN", b.withTrimmedLeft(18).withWidth(140), juce::Justification::centredLeft);

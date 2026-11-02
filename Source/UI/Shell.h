@@ -69,6 +69,7 @@ private:
     AppShell& shell;
     void timerCallback() override;
     juce::Rectangle<float> cardRect(int i) const;
+    juce::Rectangle<int> dockR;
     void drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juce::Colour c);
     float downX = 0, downPos = 0, lastX = 0; double lastT = 0; bool dragged = false;
     juce::OwnedArray<juce::Component> owned;
@@ -92,7 +93,7 @@ public:
     Screen screen = Screen::Home;
     void show(Screen s);
     void setLayout(bool tall, int w, int h);
-    void paint(juce::Graphics& g) override { g.fillAll(Theme::bg()); }
+    void paint(juce::Graphics& g) override { Theme::backdrop(g, getLocalBounds()); }
     int W = 1440, H = 880; bool portrait = false;
     static constexpr int TOPH = 64;
     juce::Rectangle<int> content() const { return { 0, TOPH, W, H - TOPH }; }
@@ -126,7 +127,7 @@ public:
         setSize(1440, 880);
         if (AudioHost::isPhone()) { phone.showBack = false; showMic(true); }      // an iPhone is a phone: microphone + remote
     }
-    void paint(juce::Graphics& g) override { g.fillAll(Theme::bg()); }
+    void paint(juce::Graphics& g) override { Theme::backdrop(g, getLocalBounds()); }
     void resized() override {
         auto area = getLocalBounds();
        #if JUCE_IOS

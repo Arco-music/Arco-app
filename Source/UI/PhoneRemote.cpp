@@ -118,7 +118,7 @@ static const char* STATE[11] = { "empty", "waiting", "recording", "playing", "ar
 
 void PhoneRemote::paint(juce::Graphics& g) {
     ctls.clear();
-    g.fillAll(Theme::bg());
+    Theme::backdrop(g, getLocalBounds());
     auto area = getLocalBounds().toFloat();
    #if JUCE_IOS
     if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) area = d->safeAreaInsets.subtractedFrom(getLocalBounds()).toFloat();

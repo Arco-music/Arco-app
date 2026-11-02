@@ -79,7 +79,7 @@ const std::vector<float>& LoopsView::peaksOf(const LoopClip* c) {
 }
 
 void LoopsView::paint(juce::Graphics& g) {
-    g.fillAll(Theme::bg());
+    Theme::backdrop(g, getLocalBounds());
     auto& L = lg();
     // column headers: start a whole column
     for (int c = 0; c < LoopGrid::COLS; ++c) {
@@ -171,7 +171,7 @@ void LoopsView::paint(juce::Graphics& g) {
     }
     if (dragItem >= 0 && dragItem < (int) bitems.size()) {
         auto r = juce::Rectangle<float>((float) dragNow.x - 10, (float) dragNow.y - 14, 150, 28);
-        g.setColour(Theme::sel().withAlpha(0.92f)); g.fillRoundedRectangle(r, 8.0f);
+        g.setColour(Theme::sel().withMultipliedAlpha(0.92f)); g.fillRoundedRectangle(r, 8.0f);
         say(g, juce::String::charToString((juce::juce_wchar) ('A' + bitems[(size_t) dragItem].scene)) + " · TRACK " + juce::String(bitems[(size_t) dragItem].track + 1), r.toNearestInt().reduced(10, 0), 8.5f, Theme::textOn(Theme::sel()), 2);
     }
     // the bottom bar

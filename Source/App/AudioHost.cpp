@@ -676,6 +676,7 @@ void AudioHost::saveSetup() {
     o->setProperty("listenVol", listenVol.load());
     o->setProperty("layout", speakerLayout);
     o->setProperty("palette", Theme::pal().name);
+    o->setProperty("look2", true);
     o->setProperty("lastDark", Theme::palettes()[(size_t) Theme::lastDark()].name);
     o->setProperty("lastLight", Theme::palettes()[(size_t) Theme::lastLight()].name);
     juce::Array<juce::var> g;
@@ -712,10 +713,11 @@ void AudioHost::loadSetup(bool openDevice) {
        #endif
         listenVol.store((float) v.getProperty("listenVol", 0.8));
         speakerLayout = (int) v.getProperty("layout", 0);
-        Theme::lastDark() = juce::jmin(1, Theme::paletteByName(v.getProperty("lastDark", "Black").toString()));
-        Theme::lastLight() = juce::jmax(2, Theme::paletteByName(v.getProperty("lastLight", "Light").toString()));
+        { int d = Theme::paletteByName(v.getProperty("lastDark", "Noir").toString()); Theme::lastDark() = Theme::palettes()[(size_t) d].light ? 4 : d; }
+        { int l = Theme::paletteByName(v.getProperty("lastLight", "Light").toString()); Theme::lastLight() = Theme::palettes()[(size_t) l].light ? l : 2; }
         if (v.hasProperty("palette")) Theme::setPalette(Theme::paletteByName(v["palette"].toString()));
-        else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 0);
+        else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 4);
+        if (!v.hasProperty("look2")) Theme::setPalette(4);           // 2.0: everyone starts in NOIR (another palette stays a choice in VIEW)
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
         if (auto* ph = v["phones"].getArray()) for (auto& x : *ph) phones.remembered[x["name"].toString()] = juce::jlimit(0, 4, (int) x["live"]);
         if (auto* pm = v["phoneAddresses"].getArray()) for (auto& a : *pm) phones.addAddress(a.toString());

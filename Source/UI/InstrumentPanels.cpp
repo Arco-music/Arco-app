@@ -429,8 +429,8 @@ struct ModularPanel::Rack : public juce::Component {
     void paint(juce::Graphics& g) override {               // a rack: rails top and bottom of every row
         g.fillAll(Theme::scr());
         for (int y = 8; y < getHeight(); y += 310) {
-            g.setColour(Theme::card().withAlpha(0.6f)); g.fillRect(0, y - 6, getWidth(), 5); g.fillRect(0, y + 301, getWidth(), 5);
-            g.setColour(Theme::line().withAlpha(0.5f)); for (int x = 12; x < getWidth(); x += 24) { g.fillEllipse((float) x, (float) y - 5, 3, 3); g.fillEllipse((float) x, (float) y + 302, 3, 3); }
+            g.setColour(Theme::cardS().withAlpha(0.6f)); g.fillRect(0, y - 6, getWidth(), 5); g.fillRect(0, y + 301, getWidth(), 5);
+            g.setColour(Theme::line().withMultipliedAlpha(0.5f)); for (int x = 12; x < getWidth(); x += 24) { g.fillEllipse((float) x, (float) y - 5, 3, 3); g.fillEllipse((float) x, (float) y + 302, 3, 3); }
         }
     }
     void beginDrag(int id, bool out, int port, juce::Point<float> at) {
@@ -532,7 +532,7 @@ struct ModularPanel::Rack::ModView : public juce::Component {
         lab(g, U8("✕"), { getWidth() - 24, 6, 18, 18 }, 9.0f, Theme::sub(), 2, juce::Justification::centred);
         // ports
         g.setColour(Theme::line()); g.drawHorizontalLine(192, 8.0f, getWidth() - 8.0f);
-        g.setColour(Theme::scr().withAlpha(0.55f)); g.fillRoundedRectangle(4.0f, 244.0f, getWidth() - 8.0f, 50.0f, 6.0f);    // the outputs sit on a darker plate
+        g.setColour(Theme::scr().withMultipliedAlpha(0.55f)); g.fillRoundedRectangle(4.0f, 244.0f, getWidth() - 8.0f, 50.0f, 6.0f);    // the outputs sit on a darker plate
         for (int o = 0; o < 2; ++o) {
             int n = (int) (o ? D.outs.size() : D.ins.size());
             for (int k = 0; k < n; ++k) {

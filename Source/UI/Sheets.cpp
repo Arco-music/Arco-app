@@ -309,7 +309,7 @@ void ImportSheet::paintContent(juce::Graphics& g) {
     text(g, pl, 130, 212, 640, 10.5f, Theme::txt(), 2, 1);
     // the two choices
     auto card = [&](juce::Rectangle<int> r, bool on, const juce::String& head, const juce::StringArray& lines) {
-        g.setColour(on ? Theme::sel().withAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
+        g.setColour(on ? Theme::sel().withMultipliedAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
         g.setColour(on ? Theme::ink(Theme::sel()) : Theme::line()); g.drawRoundedRectangle(r.toFloat().reduced(0.5f), 14.0f, on ? 2.2f : 1.0f);
         g.setColour(Theme::ink(Theme::txt())); g.setFont(Theme::font(13.0f, 2));
         g.drawText((on ? juce::String::fromUTF8("●  ") : juce::String::fromUTF8("○  ")) + head, r.getX() + 18, r.getY() + 14, r.getWidth() - 30, 24, juce::Justification::centredLeft);

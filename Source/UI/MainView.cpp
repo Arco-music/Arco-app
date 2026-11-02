@@ -493,7 +493,7 @@ public:
     }
     void paintOverChildren(juce::Graphics& g) override {      // switched off: the knobs a little quieter
         if (isOn() || juce::String(def.key) == "drm") return;
-        g.setColour(Theme::card().withAlpha(0.32f)); for (auto* k : knobs) g.fillEllipse(k->getBounds().toFloat());
+        g.setColour(Theme::cardS().withAlpha(0.32f)); for (auto* k : knobs) g.fillEllipse(k->getBounds().toFloat());
     }
 private:
     Canvas& c; const CardDef& def;
@@ -1082,10 +1082,13 @@ void Canvas::timerCallback() {
 void Canvas::resized() {}
 
 void Canvas::paint(juce::Graphics& g) {
-    g.fillAll(Theme::bg());
-    // a soft light from the top (the new design)
-    g.setGradientFill(juce::ColourGradient(Theme::bg().brighter(Theme::lightMode() ? 0.025f : 0.10f), W * 0.5f, 0.0f, Theme::bg(), W * 0.5f, H * 0.75f, true));
-    g.fillRect(getLocalBounds());
+    if (Theme::glass()) Theme::backdrop(g, getLocalBounds());
+    else {
+        g.fillAll(Theme::bg());
+        // a soft light from the top (the new design)
+        g.setGradientFill(juce::ColourGradient(Theme::bg().brighter(Theme::lightMode() ? 0.025f : 0.10f), W * 0.5f, 0.0f, Theme::bg(), W * 0.5f, H * 0.75f, true));
+        g.fillRect(getLocalBounds());
+    }
     if (!stationShown) return;
     if (!inShell) paintTop(g);
     paintScenes(g);

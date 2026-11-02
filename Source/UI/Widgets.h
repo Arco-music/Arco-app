@@ -36,7 +36,18 @@ public:
         if (isMouseOver()) fill = fill.brighter(Theme::lightMode() ? 0.05f : 0.10f);
         if (isMouseButtonDown()) fill = fill.darker(0.12f);
         float rr = seg == 0 ? radius : juce::jmin(10.0f, r.getHeight() * 0.32f);
-        if (seg == 0 || seg == 4) { g.setColour(fill); g.fillRoundedRectangle(r, rr); }
+        if (Theme::glass()) rr = juce::jmin(r.getHeight() * 0.5f, juce::jmax(rr, 10.0f));
+        if (Theme::glass() && (seg == 0 || seg == 4)) {       // glass: a pill of light; "on" glows in its colour, solid is the colour itself
+            bool solid = !tint ? (fill.isOpaque() && fill != Theme::btn()) : (solidFn && solidFn());
+            if (solid) { g.setGradientFill(juce::ColourGradient(fill.brighter(0.12f), 0, r.getY(), fill.darker(0.08f), 0, r.getBottom(), false)); g.fillRoundedRectangle(r, rr);
+                         g.setColour(juce::Colours::white.withAlpha(0.25f)); g.drawRoundedRectangle(r.reduced(0.5f), rr, 1.0f); }
+            else {
+                g.setColour(on && tint ? c.withAlpha(isMouseOver() ? 0.24f : 0.17f) : juce::Colours::white.withAlpha(isMouseOver() ? 0.10f : (fill.getAlpha() == 0 ? 0.0f : 0.06f)));
+                g.fillRoundedRectangle(r, rr);
+                g.setColour(on && tint ? c.withAlpha(0.45f) : juce::Colours::white.withAlpha(fill.getAlpha() == 0 && !isMouseOver() ? 0.0f : 0.10f)); g.drawRoundedRectangle(r.reduced(0.5f), rr, 1.0f);
+            }
+        }
+        else if (seg == 0 || seg == 4) { g.setColour(fill); g.fillRoundedRectangle(r, rr); }
         else {
             juce::Path p; bool L = seg == 1, R = seg == 3;
             p.addRoundedRectangle(r.getX(), r.getY(), r.getWidth(), r.getHeight(), rr, rr, L, R, L, R);
@@ -85,7 +96,20 @@ public:
 };
 
 // 1.6: a panel of the new design (soft shade, hairline)
+// 2.0: a sheet of frosted glass - a faint white body brighter at the top, a hairline that catches the light above
+inline void drawGlass(juce::Graphics& g, juce::Rectangle<float> r, float radius, float strength = 1.0f) {
+    g.setColour(juce::Colours::black.withAlpha(0.28f * strength)); g.fillRoundedRectangle(r.translated(0, 8.0f).expanded(3.0f), radius + 3);
+    g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.13f * strength), 0, r.getY(), juce::Colours::white.withAlpha(0.055f * strength), 0, r.getBottom(), false));
+    g.fillRoundedRectangle(r, radius);
+    // the light on the glass: a bright rim at the top, fading down the sides
+    juce::ColourGradient edge(juce::Colours::white.withAlpha(0.42f * strength), 0, r.getY(), juce::Colours::white.withAlpha(0.06f * strength), 0, r.getY() + juce::jmin(r.getHeight(), 120.0f), false);
+    g.setGradientFill(edge); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.2f);
+    auto sheen = r.withHeight(juce::jmin(r.getHeight() * 0.5f, 60.0f));
+    g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.05f * strength), 0, sheen.getY(), juce::Colours::transparentWhite, 0, sheen.getBottom(), false));
+    g.fillRoundedRectangle(sheen.reduced(1.0f), radius);
+}
 inline void drawPanel(juce::Graphics& g, juce::Rectangle<float> r, float radius = 16.0f) {
+    if (Theme::glass()) { drawGlass(g, r, radius + 2.0f); return; }
     if (Theme::lightMode()) { g.setColour(juce::Colour::fromRGBA(60, 50, 30, 16)); g.fillRoundedRectangle(r.translated(0, 2.5f).expanded(1.0f), radius); }
     else { g.setColour(juce::Colours::black.withAlpha(0.32f)); g.fillRoundedRectangle(r.translated(0, 4.0f).expanded(1.0f), radius); }
     g.setGradientFill(juce::ColourGradient(Theme::card().brighter(Theme::lightMode() ? 0.01f : 0.025f), 0, r.getY(), Theme::card(), 0, r.getBottom(), false));
@@ -117,12 +141,14 @@ public:
         // 1.6: the track ring, the value arc, a shaded face and a dot (as the new design)
         float sw = juce::jmax(2.2f, d * 0.065f), ring = rad - sw * 0.5f;
         juce::Path tr; tr.addCentredArc(c.x, c.y, ring, ring, 0, a0, a1, true);
-        g.setColour(Theme::line()); g.strokePath(tr, juce::PathStrokeType(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (Theme::glass()) sw = juce::jmax(2.0f, d * 0.05f);
+        g.setColour(Theme::glass() ? juce::Colours::white.withAlpha(0.10f) : Theme::line()); g.strokePath(tr, juce::PathStrokeType(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         float start = lo < 0 && hi > 0 ? (float) ((0 - lo) / (hi - lo)) : 0.0f;
         float ta = a0 + (a1 - a0) * juce::jmin(start, t), tb = a0 + (a1 - a0) * juce::jmax(start, t);
         auto cc = enabled ? Theme::arc(col ? col() : Theme::txt()) : Theme::line();
         if (tb - ta > 0.001f) {
             juce::Path va; va.addCentredArc(c.x, c.y, ring, ring, 0, ta, tb, true);
+            if (Theme::glass()) { g.setColour(cc.withAlpha(0.22f)); g.strokePath(va, juce::PathStrokeType(sw * 3.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }   // a soft glow
             g.setColour(cc); g.strokePath(va, juce::PathStrokeType(sw * 1.08f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
         float fr = ring - sw * 0.5f - juce::jmax(2.0f, d * 0.07f);
@@ -194,7 +220,7 @@ public:
         const char* names[7] = { "+6", "0", "-6", "-12", "-24", "-48", "" };
         for (int i = 0; i < 7; ++i) {
             float y = i == 6 ? bot : yOf(juce::jlimit(lo, hi, dbToVol(marks[i])));
-            gr.setColour(Theme::line().withAlpha(i == 1 ? 1.0f : 0.75f));
+            gr.setColour(Theme::line().withMultipliedAlpha(i == 1 ? 1.0f : 0.75f));
             gr.fillRect(cx - cw * 0.5f - 3, y - 0.5f, cw + 6, i == 1 ? 1.5f : 1.0f);
             if (labels && i < 6) { gr.setColour(Theme::sub()); gr.setFont(Theme::font(7.0f, i == 1 ? 2 : 0));
                 gr.drawText(names[i], juce::Rectangle<float>(0, y - 6, lx - 2, 12), juce::Justification::centredRight); }
@@ -208,9 +234,10 @@ public:
         auto cap = juce::Rectangle<float>(cx - cw * 0.5f, y - ch * 0.5f, cw, ch);
         gr.setColour(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.16f : 0.45f)); gr.fillRoundedRectangle(cap.translated(0, 2.5f).expanded(0.5f), 9.0f);
         auto top1 = Theme::lightMode() ? juce::Colour(0xffefeee9) : juce::Colour(0xffe6e8ec), bot1 = Theme::lightMode() ? juce::Colour(0xffd6d4cd) : juce::Colour(0xffb9bcc4);
+        if (Theme::glass()) { top1 = juce::Colour(0xff3a3a40); bot1 = juce::Colour(0xff1b1b1f); }
         gr.setGradientFill(juce::ColourGradient(top1, cap.getX(), cap.getY(), bot1, cap.getX(), cap.getBottom(), false));
         gr.fillRoundedRectangle(cap, 9.0f);
-        gr.setColour(juce::Colour(0xff8a8e97).withAlpha(0.7f)); gr.drawRoundedRectangle(cap.reduced(0.5f), 9.0f, 1.0f);
+        gr.setColour(Theme::glass() ? juce::Colours::white.withAlpha(0.28f) : juce::Colour(0xff8a8e97).withAlpha(0.7f)); gr.drawRoundedRectangle(cap.reduced(0.5f), 9.0f, 1.0f);
         gr.setColour(juce::Colour(0xff6b6f78)); gr.fillRect(cap.getCentreX() - cw * 0.28f, cap.getCentreY() - ch * 0.2f, cw * 0.56f, 1.3f);
         gr.fillRect(cap.getCentreX() - cw * 0.28f, cap.getCentreY() + ch * 0.2f - 1.3f, cw * 0.56f, 1.3f);
         gr.setColour(c); gr.fillRect(cap.getCentreX() - cw * 0.34f, cap.getCentreY() - 1.0f, cw * 0.68f, 2.0f);

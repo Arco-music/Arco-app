@@ -98,7 +98,7 @@ void SpatialPanel::paint(juce::Graphics& g) {
     auto c = juce::Point<float>(box.getX() + centre.x, box.getY() + centre.y);
     g.setColour(Theme::scr()); g.fillEllipse(c.x - radius, c.y - radius, radius * 2, radius * 2);
     float rm = roomM();
-    for (int k = 1; k <= (int) rm; ++k) { float r = k / rm * radius; g.setColour(Theme::line().withAlpha(k % 5 == 0 ? 0.8f : 0.35f)); g.drawEllipse(c.x - r, c.y - r, r * 2, r * 2, 1.0f); }
+    for (int k = 1; k <= (int) rm; ++k) { float r = k / rm * radius; g.setColour(Theme::line().withMultipliedAlpha(k % 5 == 0 ? 0.8f : 0.35f)); g.drawEllipse(c.x - r, c.y - r, r * 2, r * 2, 1.0f); }
     g.setColour(Theme::line()); g.drawLine(c.x, c.y - radius, c.x, c.y + radius, 0.6f); g.drawLine(c.x - radius, c.y, c.x + radius, c.y, 0.6f);
     lab(g, "FRONT", { (int) c.x - 40, (int) (c.y - radius) - 20, 80, 16 }, 8.0f, Theme::sub(), 2, juce::Justification::centred);
     lab(g, "BACK", { (int) c.x - 40, (int) (c.y + radius) + 4, 80, 16 }, 8.0f, Theme::sub(), 2, juce::Justification::centred);
@@ -302,7 +302,7 @@ void RoutingView::paint(juce::Graphics& g) {
     for (int s = 0; s < NSRC; ++s) {
         bool used = s < 4 ? (s < cv.host.nLive || (cv.host.synthInto > 0 && s == cv.host.synthInto)) : (s < 12 ? (s - 4) < ntn : true);
         auto rr = roomCell(s); auto row = juce::Rectangle<float>(0, rr.getY(), (float) getWidth(), rr.getHeight());
-        if (s % 2 == 0) { g.setColour(Theme::card2().withAlpha(0.35f)); g.fillRect(row); }
+        if (s % 2 == 0) { g.setColour(Theme::card2S().withAlpha(0.35f)); g.fillRect(row); }
         g.setColour(s < 12 ? Theme::strip(s) : Theme::fx(s == 12 ? "drm" : "halo")); g.fillEllipse(6, rr.getCentreY() - 4, 8, 8);
         lab(g, sourceName(s), { 22, (int) rr.getY(), (int) NAMEW - 24, (int) rr.getHeight() }, 9.0f, used ? Theme::txt() : Theme::sub(), used ? 2 : 0);
         // ROOM

@@ -36,14 +36,21 @@ Segments::Segments(juce::StringArray it, std::function<int()> g, std::function<v
     setMouseCursor(juce::MouseCursor::PointingHandCursor); }
 void Segments::paint(juce::Graphics& g) {
     auto r = getLocalBounds().toFloat();
-    g.setColour(Theme::btn()); g.fillRoundedRectangle(r, juce::jmin(10.0f, r.getHeight() * 0.32f));
+    if (Theme::glass()) { g.setColour(juce::Colours::black.withAlpha(0.30f)); g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
+                          g.setColour(juce::Colours::white.withAlpha(0.07f)); g.drawRoundedRectangle(r.reduced(0.5f), r.getHeight() * 0.5f, 1.0f); }
+    else { g.setColour(Theme::btn()); g.fillRoundedRectangle(r, juce::jmin(10.0f, r.getHeight() * 0.32f)); }
     int n = juce::jmax(1, items.size()), on = get ? get() : -1;
     float w = r.getWidth() / n;
     for (int i = 0; i < n; ++i) {
         auto c = juce::Rectangle<float>(r.getX() + i * w, r.getY(), w, r.getHeight());
-        if (i == on) { auto cc = col ? col() : Theme::blue(); g.setColour(cc); g.fillRoundedRectangle(c.reduced(2.5f), juce::jmin(8.0f, c.getHeight() * 0.28f));
-                       say(g, items[i], c.toNearestInt(), fsize, Theme::textOn(cc), 2, juce::Justification::centred); }
-        else { if (i > 0 && i - 1 != on) { g.setColour(Theme::line()); g.fillRect(c.getX(), c.getY() + c.getHeight() * 0.25f, 1.0f, c.getHeight() * 0.5f); }
+        if (i == on) { auto cc = col ? col() : Theme::blue();
+                       if (Theme::glass()) { auto k = c.reduced(3.0f); g.setColour(juce::Colours::white.withAlpha(0.16f)); g.fillRoundedRectangle(k, k.getHeight() * 0.5f);
+                                             g.setColour(juce::Colours::white.withAlpha(0.22f)); g.drawRoundedRectangle(k.reduced(0.5f), k.getHeight() * 0.5f, 1.0f);
+                                             g.setColour(cc); g.fillEllipse(k.getX() + 10, k.getCentreY() - 3, 6, 6);
+                                             say(g, items[i], c.toNearestInt().withTrimmedLeft(10), fsize, Theme::txt(), 2, juce::Justification::centred); }
+                       else { g.setColour(cc); g.fillRoundedRectangle(c.reduced(2.5f), juce::jmin(8.0f, c.getHeight() * 0.28f));
+                              say(g, items[i], c.toNearestInt(), fsize, Theme::textOn(cc), 2, juce::Justification::centred); } }
+        else { if (i > 0 && i - 1 != on && !Theme::glass()) { g.setColour(Theme::line()); g.fillRect(c.getX(), c.getY() + c.getHeight() * 0.25f, 1.0f, c.getHeight() * 0.5f); }
                say(g, items[i], c.toNearestInt(), fsize, Theme::sub(), 2, juce::Justification::centred); }
     }
 }
@@ -79,7 +86,7 @@ void AppShell::setLayout(bool tall, int w, int h) {
     canvas.setLayout(tall, c.getWidth(), c.getHeight());
     canvas.layoutHeader(); canvas.layoutStrips(); canvas.layoutCards();
     canvas.setBounds(c);
-    homeScreen.setBounds(c);
+    homeScreen.setBounds(0, 0, W, H);                // HOME has no bar on top: the whole screen
     for (juce::Component* v : { (juce::Component*) drums.get(), (juce::Component*) phrase.get(), (juce::Component*) loops.get() }) if (v) v->setBounds(c);
     if (auto* sv = studioView()) if (sv->getParentComponent() == this) sv->setBounds(c);
 }
@@ -90,6 +97,7 @@ void AppShell::show(Screen s) {
     if (screen == Screen::Studio && s != Screen::Studio) { if (auto* sv = studioView()) sv->setVisible(false); }
     screen = s;
     homeScreen.setVisible(s == Screen::Home);
+    top.setVisible(s != Screen::Home);
     drums->setVisible(s == Screen::Drums);
     phrase->setVisible(s == Screen::Phrase);
     loops->setVisible(s == Screen::Loops);
@@ -251,7 +259,7 @@ TopBar::TopBar(AppShell& s) : shell(s) {
 void TopBar::resized() {
     int h = getHeight(), y = 10, bh = h - 20;
     home->setBounds(14, y, 52, bh);
-    titleR = { 78, 6, 250, h - 12 };
+    titleR = { 78, 6, 210, h - 12 };
     if (shell.portrait) {          // an iPad upright: the same bar, tighter
         titleR = { 74, 6, 170, h - 12 };
         int x = 250;
@@ -282,8 +290,20 @@ void TopBar::resized() {
 
 void TopBar::paint(juce::Graphics& g) {
     auto b = getLocalBounds().toFloat();
-    g.setColour(Theme::card()); g.fillRect(b);
-    g.setColour(Theme::line()); g.fillRect(0.0f, b.getBottom() - 1, b.getWidth(), 1.0f);
+    if (Theme::glass()) {          // three floating capsules of glass: where you are, the transport, the tools
+        Theme::backdrop(g, getLocalBounds());
+        auto cap = [&](juce::Rectangle<int> r) { if (!r.isEmpty()) drawGlass(g, r.toFloat(), r.getHeight() * 0.5f, 1.0f); };
+        cap(home->getBounds().getUnion(titleR).expanded(6, 4).withTrimmedRight(-10));
+        auto mid = rew->getBounds().getUnion(sigR).getUnion(click->getBounds()); if (count->isVisible()) mid = mid.getUnion(count->getBounds());
+        cap(mid.expanded(6, 4));
+        auto right = undo->getBounds().getUnion(setup->getBounds()); if (!meterR.isEmpty()) right = right.getUnion(meterR.withTrimmedLeft(-30));
+        cap(right.expanded(6, 4));
+    } else {
+        g.setColour(Theme::card()); g.fillRect(b);
+        g.setColour(Theme::line()); g.fillRect(0.0f, b.getBottom() - 1, b.getWidth(), 1.0f);
+    }
+    auto screenBox = [&](juce::Rectangle<int> r) { g.setColour(Theme::scr()); g.fillRoundedRectangle(r.toFloat(), Theme::glass() ? r.getHeight() * 0.5f : 10.0f);
+        if (Theme::glass()) { g.setColour(juce::Colours::white.withAlpha(0.08f)); g.drawRoundedRectangle(r.toFloat().reduced(0.5f), r.getHeight() * 0.5f, 1.0f); } };
 
     // where we are
     say(g, screenTitle(shell.screen), titleR.withHeight(titleR.getHeight() / 2 + 6).translated(0, 2), shell.portrait ? 12.0f : 15.0f, Theme::txt(), 2);
@@ -291,13 +311,13 @@ void TopBar::paint(juce::Graphics& g) {
     bool running = shell.host.devices.getCurrentAudioDevice() != nullptr;
     say(g, song + (running ? juce::String() : juce::String::fromUTF8("  ·  sound off")), titleR.withTrimmedTop(titleR.getHeight() / 2 + 4), 8.5f, running ? Theme::sub() : Theme::ink(Theme::amber()), 1);
     // the position
-    g.setColour(Theme::scr()); g.fillRoundedRectangle(posR.toFloat(), 10.0f);
+    screenBox(posR);
     say(g, shell.positionText(), posR.reduced(10, 0), 18.0f, shell.isRecording() ? Theme::ink(Theme::red()) : Theme::txt(), 2, juce::Justification::centred);
     // the tempo (drag up / down, double-click to type)
-    g.setColour(Theme::scr()); g.fillRoundedRectangle(bpmR.toFloat(), 10.0f);
+    screenBox(bpmR);
     say(g, juce::String(shell.tempo(), 1), bpmR.withTrimmedRight(40).withTrimmedLeft(10), 18.0f, Theme::txt(), 2, juce::Justification::centredRight);
     say(g, "BPM", bpmR.withTrimmedLeft(bpmR.getWidth() - 36), 8.0f, Theme::sub(), 2);
-    g.setColour(Theme::scr()); g.fillRoundedRectangle(sigR.toFloat(), 10.0f);
+    screenBox(sigR);
     say(g, juce::String(shell.beatsPerBar()) + "/4", sigR, 14.0f, Theme::txt(), 2, juce::Justification::centred);
     // a beat light in the position screen: the downbeat brighter
     { double bt = shell.host.engine.clock.beatNow.load(); float f = (float) (bt - std::floor(bt));
@@ -357,25 +377,35 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
     mk("NEW SONG", [this] { shell.canvas.command(cmdNewSong); });
     mk("OPEN SONG", [this] { shell.canvas.doOpen(); });
     mk("SAVE", [this] { shell.canvas.doSave(false); });
+    mk("SETUP", [this] { shell.show(Screen::Workstation); shell.canvas.openSetup(true); });
     mk("HELP", [this] { shell.show(Screen::Workstation); shell.canvas.command(cmdHelp); });
     startTimerHz(60);
 }
 void HomeScreen::resized() {
-    int n = owned.size(), bw = 128, gap = 10, x = (getWidth() - n * bw - (n - 1) * gap) / 2;
-    for (auto* c : owned) { c->setBounds(x, getHeight() - 70, bw, 42); x += bw + gap; }
+    // a floating dock at the bottom
+    int n = owned.size(), bw = 124, gap = 6;
+    dockR = juce::Rectangle<int>(0, 0, n * bw + (n - 1) * gap + 20, 64).withCentre({ getWidth() / 2, getHeight() - 52 });
+    int x = dockR.getX() + 10;
+    for (auto* c : owned) { c->setBounds(x, dockR.getY() + 10, bw, 44); x += bw + gap; }
 }
 juce::Rectangle<float> HomeScreen::cardRect(int i) const {
     float d = (float) i - pos;
-    float cw = juce::jmin(470.0f, getWidth() * 0.36f), ch = juce::jmin(cw * 1.08f, getHeight() - 190.0f);
+    float cw = juce::jmin(500.0f, getWidth() * 0.37f), ch = juce::jmin(cw * 1.10f, getHeight() - 250.0f);
     float scale = 1.0f - juce::jmin(1.0f, std::abs(d)) * 0.16f - juce::jmax(0.0f, std::abs(d) - 1.0f) * 0.08f;
     float spacing = cw * 0.92f;
     float cx = getWidth() * 0.5f + d * spacing - (d > 0 ? 1 : -1) * juce::jmax(0.0f, std::abs(d) - 1.0f) * spacing * 0.18f;
-    float cy = 64.0f + (getHeight() - 190.0f) * 0.5f + (1.0f - scale) * 20.0f;
+    float cy = 110.0f + (getHeight() - 250.0f) * 0.5f + (1.0f - scale) * 20.0f;
     return { cx - cw * scale * 0.5f, cy - ch * scale * 0.5f, cw * scale, ch * scale };
 }
 void HomeScreen::paint(juce::Graphics& g) {
-    g.fillAll(Theme::bg());
-    say(g, "Choose what to play", { 0, 14, getWidth(), 30 }, 16.0f, Theme::txt(), 2, juce::Justification::centred);
+    Theme::backdrop(g, getLocalBounds());
+    // the name, the song - and nothing else on top
+    g.setColour(Theme::txt()); g.setFont(Theme::font(26.0f, 2).withExtraKerningFactor(0.18f)); g.drawText("ARCO", 44, 34, 300, 40, juce::Justification::centredLeft);
+    auto song = shell.host.songFolder.isDirectory() ? shell.host.songFolder.getFileName() : juce::String("new song");
+    say(g, song, { 46, 76, 400, 20 }, 10.0f, Theme::sub(), 1);
+    say(g, "Choose what to play", { getWidth() - 444, 44, 400, 24 }, 11.0f, Theme::sub(), 1, juce::Justification::centredRight);
+    if (Theme::glass()) drawGlass(g, dockR.toFloat(), dockR.getHeight() * 0.5f, 1.1f);
+    else drawPanel(g, dockR.toFloat(), 22.0f);
     // far cards first, the one in the middle on top
     std::vector<int> order(cards.size()); for (size_t i = 0; i < cards.size(); ++i) order[i] = (int) i;
     std::sort(order.begin(), order.end(), [this](int a, int b) { return std::abs(a - pos) > std::abs(b - pos); });
@@ -385,11 +415,18 @@ void HomeScreen::paint(juce::Graphics& g) {
         float d = std::abs((float) i - pos);
         auto acc = Theme::pal().acc[(size_t) cards[(size_t) i].accent];
         // shadow, body (a soft wash of its colour), border
-        g.setColour(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.12f : 0.40f)); g.fillRoundedRectangle(r.translated(0, 10).expanded(2), 30.0f);
-        auto top = Theme::card().interpolatedWith(acc, Theme::lightMode() ? 0.30f : 0.26f), bot = Theme::card().interpolatedWith(acc, 0.06f);
-        g.setGradientFill(juce::ColourGradient(top, r.getX(), r.getY(), bot, r.getX(), r.getBottom(), false));
-        g.fillRoundedRectangle(r, 28.0f);
-        g.setColour(acc.withAlpha(d < 0.5f ? 0.9f : 0.25f)); g.drawRoundedRectangle(r.reduced(1.0f), 28.0f, d < 0.5f ? 2.0f : 1.0f);
+        if (Theme::glass()) {          // a slab of glass, its colour only as a glow inside
+            drawGlass(g, r, 30.0f, 1.2f);
+            juce::ColourGradient tint(acc.withAlpha(0.20f), r.getX(), r.getY(), acc.withAlpha(0.0f), r.getX() + r.getWidth() * 0.7f, r.getY() + r.getHeight() * 0.6f, false);
+            g.setGradientFill(tint); g.fillRoundedRectangle(r, 30.0f);
+            if (d < 0.5f) { g.setColour(juce::Colours::white.withAlpha(0.30f)); g.drawRoundedRectangle(r.reduced(0.5f), 30.0f, 1.2f); }
+        } else {
+            g.setColour(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.12f : 0.40f)); g.fillRoundedRectangle(r.translated(0, 10).expanded(2), 30.0f);
+            auto top = Theme::card().interpolatedWith(acc, Theme::lightMode() ? 0.30f : 0.26f), bot = Theme::card().interpolatedWith(acc, 0.06f);
+            g.setGradientFill(juce::ColourGradient(top, r.getX(), r.getY(), bot, r.getX(), r.getBottom(), false));
+            g.fillRoundedRectangle(r, 28.0f);
+            g.setColour(acc.withAlpha(d < 0.5f ? 0.9f : 0.25f)); g.drawRoundedRectangle(r.reduced(1.0f), 28.0f, d < 0.5f ? 2.0f : 1.0f);
+        }
         float s = r.getWidth() / 470.0f;
         auto art = juce::Rectangle<float>(r.getX() + 30 * s, r.getY() + 30 * s, r.getWidth() - 60 * s, r.getHeight() * 0.60f);
         drawArt(g, i, art, acc);
@@ -399,16 +436,17 @@ void HomeScreen::paint(juce::Graphics& g) {
         g.drawFittedText(cards[(size_t) i].sub, juce::Rectangle<float>(r.getX() + 32 * s, ty + 44 * s, r.getWidth() - 64 * s, 60 * s).toNearestInt(),
                          juce::Justification::topLeft, 3, 0.9f);
         // dim the ones aside
-        if (d > 0.05f) { g.setColour(Theme::bg().withAlpha(juce::jmin(0.55f, d * 0.38f))); g.fillRoundedRectangle(r, 28.0f); }
+        if (d > 0.05f) { g.setColour(Theme::bg().withAlpha(juce::jmin(0.62f, d * 0.42f))); g.fillRoundedRectangle(r, 28.0f); }
     }
     // dots
-    float dw = 9, gap = 9, total = cards.size() * dw + (cards.size() - 1) * gap, x = (getWidth() - total) * 0.5f, y = (float) getHeight() - 96;
+    float dw = 8, gap = 10, total = cards.size() * dw + (cards.size() - 1) * gap, x = (getWidth() - total) * 0.5f, y = (float) dockR.getY() - 34;
     for (size_t i = 0; i < cards.size(); ++i) { bool on = std::abs((float) i - pos) < 0.5f;
         g.setColour(on ? Theme::txt() : Theme::line()); g.fillEllipse(x + i * (dw + gap), y, dw, dw); }
 }
 void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juce::Colour c) {
-    auto sc = Theme::scr().withAlpha(Theme::lightMode() ? 0.55f : 0.75f);
+    auto sc = Theme::glass() ? juce::Colours::black.withAlpha(0.38f) : Theme::scr().withMultipliedAlpha(Theme::lightMode() ? 0.55f : 0.75f);
     g.setColour(sc); g.fillRoundedRectangle(r, 18.0f);
+    if (Theme::glass()) { g.setColour(juce::Colours::white.withAlpha(0.06f)); g.drawRoundedRectangle(r.reduced(0.5f), 18.0f, 1.0f); }
     auto in = r.reduced(r.getWidth() * 0.08f, r.getHeight() * 0.12f);
     auto line = Theme::line();
     auto acc = [](int k) { return Theme::pal().acc[(size_t) (k % 8)]; };
@@ -416,7 +454,7 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
         case Screen::Workstation: {     // strips with faders
             int n = 6; float w = in.getWidth() / n;
             for (int k = 0; k < n; ++k) { auto col = juce::Rectangle<float>(in.getX() + k * w + w * 0.18f, in.getY(), w * 0.64f, in.getHeight());
-                g.setColour(Theme::card().withAlpha(0.9f)); g.fillRoundedRectangle(col, 8.0f);
+                g.setColour(Theme::cardS().withAlpha(0.9f)); g.fillRoundedRectangle(col, 8.0f);
                 float fy = col.getY() + col.getHeight() * (0.25f + 0.45f * std::abs(std::sin(k * 1.7f)));
                 g.setColour(line); g.fillRect(col.getCentreX() - 1.5f, col.getY() + 14, 3.0f, col.getHeight() - 28);
                 g.setColour(k < 2 ? c : acc(k + 1)); g.fillRoundedRectangle(col.getCentreX() - w * 0.24f, fy, w * 0.48f, 14.0f, 4.0f); }
@@ -426,7 +464,7 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
             for (int y2 = 0; y2 < rows; ++y2) for (int x2 = 0; x2 < cols; ++x2) {
                 auto cell = juce::Rectangle<float>(in.getX() + x2 * w, in.getY() + y2 * h, w, h).reduced(5);
                 bool on = ((x2 * 3 + y2 * 5) % 4) != 0;
-                g.setColour(on ? acc(y2 + 1).withAlpha(x2 == 2 ? 1.0f : 0.55f) : Theme::card().withAlpha(0.7f)); g.fillRoundedRectangle(cell, 8.0f);
+                g.setColour(on ? acc(y2 + 1).withAlpha(x2 == 2 ? 1.0f : 0.55f) : Theme::cardS().withAlpha(0.7f)); g.fillRoundedRectangle(cell, 8.0f);
                 if (on && x2 == 2) { g.setColour(Theme::textOn(acc(y2 + 1))); juce::Path p; p.addTriangle(cell.getCentreX() - 6, cell.getCentreY() - 8, cell.getCentreX() - 6, cell.getCentreY() + 8, cell.getCentreX() + 8, cell.getCentreY()); g.fillPath(p); }
             }
             break; }
@@ -434,7 +472,7 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
             int rows = 4; float h = in.getHeight() / rows;
             for (int y2 = 0; y2 < rows; ++y2) {
                 auto lane = juce::Rectangle<float>(in.getX(), in.getY() + y2 * h, in.getWidth(), h).reduced(0, 5);
-                g.setColour(Theme::card().withAlpha(0.6f)); g.fillRoundedRectangle(lane, 6.0f);
+                g.setColour(Theme::cardS().withAlpha(0.6f)); g.fillRoundedRectangle(lane, 6.0f);
                 float x0 = lane.getX() + (y2 % 2) * lane.getWidth() * 0.2f, len = lane.getWidth() * (0.45f + 0.1f * y2);
                 auto clip = juce::Rectangle<float>(x0, lane.getY(), juce::jmin(len, lane.getRight() - x0), lane.getHeight());
                 g.setColour(acc(y2).withAlpha(0.8f)); g.fillRoundedRectangle(clip, 6.0f);
@@ -448,7 +486,7 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
             for (int y2 = 0; y2 < rows; ++y2) for (int x2 = 0; x2 < cols; ++x2) {
                 auto pad = juce::Rectangle<float>(in.getX() + x2 * w, in.getY() + y2 * h, w, h).reduced(6);
                 bool lit = (x2 + y2 * 2) % 5 == 0;
-                g.setColour(lit ? c : Theme::card().withAlpha(0.95f)); g.fillRoundedRectangle(pad, 10.0f);
+                g.setColour(lit ? c : Theme::cardS().withAlpha(0.95f)); g.fillRoundedRectangle(pad, 10.0f);
                 g.setColour(lit ? c.brighter(0.3f) : line); g.drawRoundedRectangle(pad, 10.0f, 1.2f);
             }
             break; }

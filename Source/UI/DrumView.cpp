@@ -189,7 +189,7 @@ juce::Rectangle<int> DrumView::padRect(int pad) const {
 }
 
 void DrumView::paint(juce::Graphics& g) {
-    g.fillAll(Theme::bg());
+    Theme::backdrop(g, getLocalBounds());
     drawPanel(g, leftR.toFloat(), 18); drawPanel(g, gridR.toFloat(), 18); drawPanel(g, rightR.toFloat(), 18);
     auto& D = dm(); auto& m = shell.host.model;
     int lx = leftR.getX() + 16;
@@ -211,7 +211,7 @@ void DrumView::paint(juce::Graphics& g) {
     for (int pd = 0; pd < 12; ++pd) {
         auto rh = rowHead(pd); auto col = padColour(pd);
         bool sel = pd == selPad;
-        if (sel) { g.setColour(Theme::sel().withAlpha(0.35f)); g.fillRoundedRectangle(rh.toFloat().expanded(4, 1), 8.0f); }
+        if (sel) { g.setColour(Theme::sel().withMultipliedAlpha(0.35f)); g.fillRoundedRectangle(rh.toFloat().expanded(4, 1), 8.0f); }
         bool flash = juce::Time::getMillisecondCounterHiRes() < flashUntil[pd];
         g.setColour(flash ? col : col.withAlpha(0.5f)); g.fillEllipse((float) rh.getX() + 6, rh.getCentreY() - 5.0f, 10.0f, 10.0f);
         int pk = (int) m.get("dm" + std::to_string(pd) + "_kit"); if (pk < 0) pk = kit;

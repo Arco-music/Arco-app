@@ -70,7 +70,7 @@ void PhraseView::resized() {
 }
 
 void PhraseView::paint(juce::Graphics& g) {
-    g.fillAll(Theme::bg());
+    Theme::backdrop(g, getLocalBounds());
     auto& P = shell.host.engine.phrase;
     auto col = Theme::pal().acc[5];
     drawPanel(g, waveR.toFloat(), 18);

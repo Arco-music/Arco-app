@@ -18,11 +18,17 @@ struct Palette {
     // 0 red  1 moss/green  2 ochre/amber  3 blue  4 mauve  5 teal  6 warm grey  7 olive
     std::array<juce::Colour, 8> acc;
     int style = 0;       // 0 accents of the family; 1 classic: every effect and track its own clear colour (1.1 design)
+    // 2.0: "liquid glass" - surfaces are frosted glass (translucent white) over a deep black with soft glows;
+    // solidCard / solidCard2 stand for them where a contrast has to be measured
+    bool glass = false;
+    juce::Colour solidCard {}, solidCard2 {};
+    int glow = 0;        // the backdrop's glows: 0 cool (blue / violet), 1 warm (champagne)
 };
 
 struct Theme {
     static juce::Colour rgb(float r, float g, float b) { return juce::Colour::fromFloatRGBA(r, g, b, 1.0f); }
     static juce::Colour hex(juce::uint32 v) { return juce::Colour(0xff000000u | v); }
+    static juce::Colour wa(float a) { return juce::Colour::fromFloatRGBA(1, 1, 1, a); }     // white glass
 
     // Four palettes: Black (the 1.1 design) and Storm (dark), Light and Chambray (light). Every effect keeps its own colour.
     // Text and marks are kept readable automatically where they are drawn (ink(), arc()).
@@ -37,11 +43,16 @@ struct Theme {
             // light: the same colours, softer, on warm mid-light grey (1.6: nothing near white, easy on the eyes)
             { "Light", true, hex(0xcdcbc5), hex(0xd9d7d1), hex(0xc9c7c0), hex(0xc8c6bf), hex(0xbfbdb6), hex(0x34353a), hex(0x5d5e64), hex(0xc4c2bb), hex(0xcac8c1), hex(0x9aa3b8), cLight(), 1 },
             { "Chambray", true, hex(0xd9e0e4), hex(0xedf1f3), hex(0xe2e8eb), hex(0xe6ecef), hex(0xc1ccd2), hex(0x1f2a32), hex(0x55656f), hex(0xd2dbe0), hex(0xd8e0e4), hex(0x7f93a3), cLight(), 1 },
+            // 2.0: black and glass. NOIR: cool, quiet colours; NOIR GOLD: the same with champagne
+            { "Noir", false, hex(0x101117), wa(0.075f), wa(0.11f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.30f), wa(0.10f), hex(0xf6f6f8), hex(0x9a9aa6), wa(0.06f), wa(0.08f), wa(0.20f),
+              std::array<juce::Colour, 8> { hex(0xff6b72), hex(0x4fd6a0), hex(0xf2c46d), hex(0x7ea8ff), hex(0xb79cff), hex(0x62e3d1), hex(0xe7b98d), hex(0xc6d36c) }, 0, true, hex(0x1e1f25), hex(0x26272e), 0 },
+            { "Noir Gold", false, hex(0x13110e), wa(0.075f), wa(0.11f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.30f), wa(0.10f), hex(0xf8f5f0), hex(0xa39b90), wa(0.06f), wa(0.08f), wa(0.20f),
+              std::array<juce::Colour, 8> { hex(0xf07a6a), hex(0x8fd1a2), hex(0xe2bf7e), hex(0xb9c7e6), hex(0xcbb5e8), hex(0x9cd8cc), hex(0xd9b48a), hex(0xd2cd8a) }, 0, true, hex(0x211e1a), hex(0x2a2621), 1 },
         };
         return P;
     }
-    static int& paletteIndex() { static int i = 0; return i; }
-    static int& lastDark() { static int i = 0; return i; }
+    static int& paletteIndex() { static int i = 4; return i; }      // 2.0: NOIR first
+    static int& lastDark() { static int i = 4; return i; }
     static int& lastLight() { static int i = 2; return i; }   // Light
     static const Palette& pal() { auto& P = palettes(); return P[(size_t) juce::jlimit(0, (int) P.size() - 1, paletteIndex())]; }
     static bool lightMode() { return pal().light; }
@@ -72,7 +83,29 @@ struct Theme {
         return c;
     }
     // black or white text, whichever reads better on this background
+    static bool glass() { return pal().glass; }
+    // a translucent colour as it looks on the glass (for measuring contrast)
+    static juce::Colour flat(juce::Colour c) { return c.isOpaque() ? c : (glass() ? pal().solidCard : pal().bg).overlaidWith(c); }
+    static juce::Colour cardS() { return glass() ? pal().solidCard : pal().card; }
+    static juce::Colour card2S() { return glass() ? pal().solidCard2 : pal().card2; }
+    // 2.0: the backdrop of every screen: black, and (glass) two very soft glows the glass catches
+    static void backdrop(juce::Graphics& g, juce::Rectangle<int> r) {
+        g.setColour(pal().bg); g.fillRect(r);
+        if (!glass()) return;
+        auto rf = r.toFloat(); float w = rf.getWidth(), h = rf.getHeight();
+        bool warm = pal().glow == 1;
+        auto c1 = warm ? juce::Colour(0xffb08a4a) : juce::Colour(0xff3d5bd9), c2 = warm ? juce::Colour(0xff6d4b2a) : juce::Colour(0xff7a3fd0), c3 = warm ? juce::Colour(0xff3a3328) : juce::Colour(0xff127a74);
+        auto glowAt = [&](juce::Colour c, float x, float y, float rad, float a) {
+            juce::ColourGradient gr(c.withAlpha(a), rf.getX() + x * w, rf.getY() + y * h, c.withAlpha(0.0f), rf.getX() + x * w + rad * w, rf.getY() + y * h, true);
+            gr.addColour(0.45, c.withAlpha(a * 0.45f)); g.setGradientFill(gr); g.fillRect(rf); };
+        glowAt(c1, 0.10f, 0.00f, 0.75f, 0.42f);
+        glowAt(c2, 0.95f, 0.15f, 0.60f, 0.30f);
+        glowAt(c3, 0.65f, 1.10f, 0.80f, 0.30f);
+        // a little light from above, like a room
+        g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.035f), 0, rf.getY(), juce::Colours::transparentWhite, 0, rf.getY() + h * 0.45f, false)); g.fillRect(rf);
+    }
     static juce::Colour textOn(juce::Colour bgc) {
+        bgc = flat(bgc);
         return contrast(juce::Colours::white, bgc) >= contrast(juce::Colour(0xff111216), bgc) ? juce::Colours::white : juce::Colour(0xff111216); }
 
     // a colour from the (dark) design: kept on dark palettes, made deep enough on light ones
@@ -108,13 +141,13 @@ struct Theme {
     static juce::Colour btn()   { return pal().btn; }
     static juce::Colour sel()   { return pal().sel; }
     // 1.6: the knob face of the new design
-    static juce::Colour knobHi()   { return pal().light ? hex(0xe3e1db) : hex(0x2b2d33); }
-    static juce::Colour knobLo()   { return pal().light ? hex(0xc9c7c0) : hex(0x18191d); }
-    static juce::Colour knobEdge() { return pal().light ? hex(0xbab8b1) : hex(0x33363d); }
+    static juce::Colour knobHi()   { return glass() ? hex(0x232327) : pal().light ? hex(0xe3e1db) : hex(0x2b2d33); }
+    static juce::Colour knobLo()   { return glass() ? hex(0x08080a) : pal().light ? hex(0xc9c7c0) : hex(0x18191d); }
+    static juce::Colour knobEdge() { return glass() ? wa(0.16f) : pal().light ? hex(0xbab8b1) : hex(0x33363d); }
     static juce::Colour knobDot()  { return pal().light ? hex(0x3a3b40) : hex(0xeef0f4); }
     // readable versions, applied where things are drawn: text (4.5:1 on cards and background), marks (3:1)
-    static juce::Colour ink(juce::Colour c) { return ensure(ensure(c, pal().card, 4.5f), pal().bg, 4.5f); }
-    static juce::Colour arc(juce::Colour c) { float r = (pal().style == 1 && pal().light) ? 2.3f : 3.0f; return ensure(ensure(c, pal().card, r), pal().card2, r); }
+    static juce::Colour ink(juce::Colour c) { return ensure(ensure(flat(c), cardS(), 4.5f), pal().bg, 4.5f); }
+    static juce::Colour arc(juce::Colour c) { float r = (pal().style == 1 && pal().light) ? 2.3f : 3.0f; return ensure(ensure(flat(c), cardS(), r), card2S(), r); }
     static juce::Colour mark(juce::Colour d) { return ink(d); }
     // signal colours (soft, for buttons and fills; the button text picks black or white)
     static juce::Colour red()   { return pal().acc[0]; }
