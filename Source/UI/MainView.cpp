@@ -29,12 +29,87 @@ static void label(juce::Graphics& g, const juce::String& t, juce::Rectangle<int>
     g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 1, 0.8f);
 }
 
+// 2.1: effect names as words (Space, Drive, EQ, FX box) in the soft design
+static juce::String niceName(const juce::String& n) {
+    if (!Theme::softUI()) return n;
+    auto w = juce::StringArray::fromTokens(n, " ", ""); juce::String out;
+    for (int i = 0; i < w.size(); ++i) { auto t = w[i]; if (t.length() > 2 && !(i == 0 && t.length() == 3 && t == "EQ")) t = i == 0 ? t.substring(0, 1) + t.substring(1).toLowerCase() : t.toLowerCase();
+        if (i == 0 && t.length() <= 3 && t.toUpperCase() == t) {} out << (i ? " " : "") << t; }
+    return out;
+}
+// 2.1: the small labels (PAN, VOL, IN 1 ...): monospace in the soft design
+static void mlabel(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour c, juce::Justification j = juce::Justification::centredLeft) {
+    g.setColour(Theme::ink(c)); g.setFont(Theme::softUI() ? Theme::mono(fs) : Theme::font(fs, 2)); g.drawFittedText(Theme::softUI() ? t.toUpperCase() : t, r, j, 1, 0.8f);
+}
 // ===================================================================== one strip
 // 1.6: the new design - the state inside the screen, big REC / PLAY, segmented rows, a long fader with a dB scale.
 // Every control as before (the same IDs: MIDI learn, the phone remote).
 static Pill* segPill(juce::OwnedArray<juce::Component>& kids, juce::Component* parent, const juce::String& t, ColourFn col, int seg, float fs = 9.0f) {
     auto* p = new Pill(t, std::move(col), fs, 9.0f); p->seg = seg; p->tint = true; kids.add(p); parent->addAndMakeVisible(p); return p;
 }
+// 2.1: a text button with no box (Clear · 1× · File)
+static Pill* textPill(juce::OwnedArray<juce::Component>& kids, juce::Component* parent, const juce::String& t, float fs = 10.5f) {
+    auto* p = new Pill(t, [] { return juce::Colours::transparentBlack; }, fs, 9.0f); p->weight = 1; kids.add(p); parent->addAndMakeVisible(p); return p;
+}
+
+// ===================================================================== 2.1: the loop dial
+// ticks round the loop, lit up to where it is now; bar.beat inside. A live strip: the input level instead.
+class LoopDial : public juce::Component, public juce::FileDragAndDropTarget {
+public:
+    std::function<float()> progress;               // 0..1, < 0: nothing playing
+    ColourFn colour;
+    std::function<juce::String()> big, small;
+    std::function<void(const juce::File&)> onDrop;
+    std::function<void()> onClick;
+    void paint(juce::Graphics& g) override {
+        auto b = getLocalBounds().toFloat();
+        float d = juce::jmin(b.getWidth(), b.getHeight());
+        auto r = b.withSizeKeepingCentre(d, d);
+        auto c = r.getCentre(); float R = d * 0.5f;
+        const float tp = juce::MathConstants<float>::twoPi, hp = juce::MathConstants<float>::halfPi;
+        if (Theme::softUI()) {
+            g.setColour(Theme::card2().withAlpha(0.55f)); g.fillEllipse(r.reduced(1.0f));
+            g.setColour(Theme::loC().withAlpha(Theme::lightMode() ? 0.30f : 0.55f)); g.drawEllipse(r.reduced(2.5f).translated(1.2f, 1.2f), 2.5f);
+            g.setColour(Theme::hiC().withAlpha(Theme::lightMode() ? 0.8f : 0.18f)); g.drawEllipse(r.reduced(2.5f).translated(-1.0f, -1.0f), 1.2f);
+        } else { g.setColour(Theme::scr()); g.fillEllipse(r); }
+        float p = progress ? progress() : -1.0f;
+        auto col = Theme::arc(colour ? colour() : Theme::txt());
+        const int n = 64;
+        float r1 = R - 7.0f, r2s = r1 - juce::jmax(4.0f, R * 0.07f), r2l = r1 - juce::jmax(7.0f, R * 0.12f);
+        for (int i = 0; i < n; ++i) {
+            float a = i / (float) n * tp - hp; bool lng = i % 8 == 0, lit = p >= 0 && i / (float) n <= p;
+            float rr2 = lng ? r2l : r2s;
+            g.setColour(lit ? col : Theme::sub().withAlpha(lng ? 0.55f : 0.32f));
+            g.drawLine(c.x + std::cos(a) * r1, c.y + std::sin(a) * r1, c.x + std::cos(a) * rr2, c.y + std::sin(a) * rr2, lng ? 2.0f : 1.4f);
+        }
+        if (p >= 0) {
+            float a = p * tp - hp; juce::Point<float> pt(c.x + std::cos(a) * (R - 3.5f), c.y + std::sin(a) * (R - 3.5f));
+            g.setColour(col.withAlpha(0.28f)); g.fillEllipse(pt.x - 5.5f, pt.y - 5.5f, 11, 11);
+            g.setColour(col); g.fillEllipse(pt.x - 3, pt.y - 3, 6, 6);
+        }
+        float fr = r2l - juce::jmax(6.0f, R * 0.10f);
+        auto face = juce::Rectangle<float>(c.x - fr, c.y - fr, 2 * fr, 2 * fr);
+        if (Theme::softUI()) softRaised(g, face, fr, juce::jmax(3.0f, fr * 0.09f), Theme::card()); else { g.setColour(Theme::card()); g.fillEllipse(face); }
+        auto bt = big ? big() : juce::String(), st = small ? small() : juce::String();
+        if (bt.isNotEmpty()) { g.setColour(Theme::txt()); g.setFont(Theme::font(juce::jlimit(12.0f, 30.0f, fr * 0.46f), 0));
+                               g.drawFittedText(bt, face.withTrimmedBottom(st.isEmpty() ? 0.0f : fr * 0.32f).reduced(fr * 0.15f, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f); }
+        if (st.isNotEmpty()) { g.setColour(p >= 0 ? Theme::ink(col) : Theme::sub()); g.setFont(Theme::softUI() ? Theme::mono(juce::jlimit(7.5f, 9.5f, fr * 0.15f)) : Theme::font(juce::jlimit(7.0f, 9.5f, fr * 0.15f), 2));
+                               auto sr = bt.isEmpty() ? face : face.withTrimmedTop(fr * 1.12f).withHeight(fr * 0.32f);
+                               g.drawFittedText(st, sr.reduced(fr * 0.2f, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f); }
+        if (dragOver) { g.setColour(Theme::amber()); g.drawEllipse(r.reduced(1.0f), 2.0f); }
+    }
+    void mouseUp(const juce::MouseEvent& e) override { if (onClick && getLocalBounds().contains(e.getPosition())) onClick(); }
+    bool isInterestedInFileDrag(const juce::StringArray&) override { return onDrop != nullptr; }
+    void fileDragEnter(const juce::StringArray&, int, int) override { dragOver = true; repaint(); }
+    void fileDragExit(const juce::StringArray&) override { dragOver = false; repaint(); }
+    void filesDropped(const juce::StringArray& files, int, int) override { dragOver = false; repaint(); if (onDrop && files.size() > 0) onDrop(juce::File(files[0])); }
+private:
+    bool dragOver = false;
+};
+
+// ===================================================================== one strip
+// 2.1: the dial, round REC / PLAY, Clear · 1× · File, PAN and SEND side by side, a wide volume fader, M S cue ROOM.
+// Every control as before (the same IDs: MIDI learn, the phone remote).
 class StripView : public juce::Component {
 public:
     StripView(Canvas& cv, int s_) : c(cv), s(s_) {
@@ -43,198 +118,200 @@ public:
         head = new Pill("", [] { return juce::Colours::transparentBlack; }, 9.0f, 8.0f);
         head->onClick = [this] { c.model().select(s); };
         add(head); head->setComponentID("strip" + juce::String(s) + ":select");
-        wave = new WaveScreen(c.engine(), [this]() -> SharedBuffer* {
-                if (s < 4) return &c.engine().buffer("st_wavel");
-                int sc = (int) c.snap("lscene"); const char* L[4] = { "A", "B", "C", "D" };
-                return &c.engine().buffer(std::string("st_wave") + L[juce::jlimit(0, 3, sc)]); },
-            [this] { return s < 4 ? s : s - 4; }, [this] { return s >= 4 && trackState() == 2 ? Theme::red() : Theme::strip(s); });
-        wave->overlay = [this](juce::Graphics& g, juce::Rectangle<float> r) { paintScreen(g, r); };
-        add(wave);
+        tag = textPill(kids, this, "", 8.5f); tag->weight = 2; tag->mono = true;
+        tag->textColour = [] { return Theme::sub(); };
+        dial = new LoopDial(); add(dial);
+        dial->colour = [this] { int st = trackState(); return s >= 4 && (st == 2 || st == 7) ? Theme::red() : Theme::strip(s); };
+        dial->onClick = [this] { c.model().select(s); };
         if (s >= 4) {
             int k = s - 4;
-            wave->onDrop = [this, k](const juce::File& f) { c.requestImport(f, k + 1); };
+            tag->dynText = [this, k] { int v = (int) c.model().get("src" + std::to_string(k + 1)); return U("FROM LIVE ") + juce::String(juce::jlimit(1, 4, v)) + U(" ▾"); };
+            tag->onClick = [this, k] { juce::PopupMenu pm; int cur = (int) c.model().get("src" + std::to_string(k + 1));
+                for (int i = 1; i <= 4; ++i) pm.addItem(i, "from LIVE " + juce::String(i), true, i == cur);
+                pm.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(tag), [this, k](int r) { if (r > 0) c.model().set("src" + std::to_string(k + 1), r); }); };
+            tag->setComponentID("p:src" + juce::String(k + 1));
+            dial->onDrop = [this, k](const juce::File& f) { c.requestImport(f, k + 1); };
+            dial->progress = [this] { int st = trackState(); return st == 2 || st == 3 || st == 5 || st == 7 ? loopProgress() : -1.0f; };
+            dial->big = [this] { int st = trackState(); if (st == 0) return juce::String(); if (st == 2 || st == 3 || st == 5 || st == 7) return barBeat(); return juce::String(); };
+            dial->small = [this] { int st = trackState(); int L = loopBars();
+                if (st == 2 || st == 7) return juce::String("REC"); if (st == 3) return juce::String(L) + (L == 1 ? " BAR" : " BARS");
+                return juce::String(STATE_NAMES[juce::jlimit(0, 10, st)]); };
             auto press = [this, k](Pill* p, std::string cmd) {
                 p->onClick = [this, cmd, k] { c.model().press("st_looper", cmd + std::to_string(k + 1)); };
                 p->setComponentID("trk" + juce::String(k + 1) + ":" + juce::String(cmd)); };
-            rec = new Pill("REC", [] { return Theme::red(); }, 10.5f, 12.0f); rec->tint = true; rec->icon = 3;
+            rec = new Pill("", [] { return Theme::red(); }, 10.5f, 30.0f); rec->tint = true; rec->icon = 3;
+            rec->onFn = [this] { int st = trackState(); return st == 2 || st == 7 || st == 6 || st == 4; };
             rec->solidFn = [this] { int st = trackState(); return st == 2 || st == 7; };
             press(rec, "rec"); add(rec);
-            tog = new Pill("", [] { return Theme::green(); }, 10.5f, 12.0f); tog->tint = true; tog->icon = 9;
+            tog = new Pill("", [] { return Theme::txt(); }, 10.5f, 30.0f); tog->tint = true;
+            tog->iconFn = [this] { return trackState() == 3 ? 2 : 1; };
             tog->onFn = [this] { return trackState() == 3; };
+            tog->textColour = [this] { return trackState() == 3 ? Theme::ink(Theme::strip(s)) : Theme::txt(); };
             press(tog, "tog"); add(tog);
-            clr = segPill(kids, this, "CLR", [] { return Theme::btn(); }, 1); clr->icon = 7; press(clr, "clr");
-            spd = segPill(kids, this, "1x", [] { return Theme::btn(); }, 2); press(spd, "spd");
-            spd->dynText = [this, k] { const char* S[4] = { "1x", "½x", "2x", "◀" }; int v = (int) c.snap("spdk"); return U(S[(v >> (2 * k)) & 3]); };
-            file = segPill(kids, this, "FILE", [] { return Theme::btn(); }, 3); file->icon = 6;
+            clr = textPill(kids, this, "Clear"); press(clr, "clr");
+            spd = textPill(kids, this, U("1×")); press(spd, "spd");
+            spd->dynText = [this, k] { const char* S[4] = { "1×", "½×", "2×", "◀" }; int v = (int) c.snap("spdk"); return U(S[(v >> (2 * k)) & 3]); };
+            file = textPill(kids, this, "File");
             file->onClick = [this, k] { c.importInto(k + 1); }; file->setComponentID("trk" + juce::String(k + 1) + ":file");
-            auto* ib = new ValueBox([&m, k] { return m.get("src" + std::to_string(k + 1)); }, [&m, k](double v) { m.set("src" + std::to_string(k + 1), v); },
-                                    1, 4, 0, [] { return Theme::blue(); });
-            ib->fsize = 11.0f; ib->flat = true; add(ib); ib->setComponentID("p:src" + juce::String(k + 1)); inb = ib;
         } else {
-            input = segPill(kids, this, "", [] { return Theme::btn(); }, 4, 8.5f);
-            input->dynText = [this] { bool syn = c.host.synthInto > 0 && c.host.synthInto == s; auto ph = c.host.phoneOnLive(s + 1);
-                return (syn ? juce::String("SYNTH ") + juce::String(s + 1) : ph.isNotEmpty() ? U("PHONE: ") + ph.toUpperCase()
-                            : (nr ? "INPUT " : "INTERFACE INPUT ") + juce::String(c.host.inputCh[s])) + U("  ▾"); };
-            input->textColour = [this] { return c.host.synthInto > 0 && c.host.synthInto == s ? Theme::violet() : Theme::txt(); };
-            input->onClick = [this] { c.openSetup(true); };
-            fxb = segPill(kids, this, U("FX ▸"), [] { return Theme::btn(); }, 1);
-            fxb->onClick = [this] { c.model().select(s); };
-            tune = segPill(kids, this, "TUNE", [] { return Theme::fx("tun"); }, 3);
-            tune->onFn = [this] { return c.model().get("tn_amt") > 0; };
+            tag->dynText = [this] { bool syn = c.host.synthInto > 0 && c.host.synthInto == s; auto ph = c.host.phoneOnLive(s + 1);
+                return (syn ? juce::String("SYNTH") : ph.isNotEmpty() ? U("PHONE") : "IN " + juce::String(c.host.inputCh[s])) + U(" ▾"); };
+            tag->onClick = [this] { c.openSetup(true); };
+            dial->progress = [this] { return inLevel; };
+            dial->big = [this] {
+                if (s == 0) { float p = c.snap("pitch"); static const char* N[12] = { "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" };
+                              if (p > 20) { int n = (int) std::floor(p + 0.5); return juce::String(N[n % 12]) + juce::String(n / 12 - 1); } }
+                return juce::String(); };
+            dial->small = [this] {
+                bool syn = c.host.synthInto > 0 && c.host.synthInto == s;
+                if (s == 0) { float tp = c.snap("tn_pitch"); if (tp > 0) { float cents = (tp - std::floor(tp + 0.5f)) * 100.0f;
+                    return juce::String(cents >= 0 ? "+" : "") + juce::String((int) std::round(cents)) + U("¢"); } }
+                return syn ? juce::String("SYNTH") : juce::String("INPUT"); };
+            tune = textPill(kids, this, "Tune");
+            tune->textColour = [this] { return c.model().get("tn_amt") > 0 ? Theme::ink(Theme::fx("tun")) : Theme::txt().withAlpha(0.78f); };
             tune->onClick = [this] { auto& ct = cardTable(); for (int i = 0; i < (int) ct.size(); ++i) if (juce::String(ct[(size_t) i].key) == "tun") {
                 if (!c.host.visibleCards.contains("tun")) c.host.visibleCards.add("tun"); c.showCard(i); } };
+            fxb = textPill(kids, this, U("Effects ▸")); fxb->onClick = [this] { c.model().select(s); };
+            input = textPill(kids, this, U("Input")); input->onClick = [this] { c.openSetup(true); };
         }
         auto* pn = new Knob([&m, this] { return m.get("pan" + std::to_string(s)); }, [&m, this](double v) { m.set("pan" + std::to_string(s), v); },
-                            -50, 50, 0, [] { return Theme::sub(); });
+                            -50, 50, 0, [this] { return Theme::strip(s); });
         add(pn); pn->setComponentID("p:pan" + juce::String(s)); pan = pn;
+        // SEND: how much of this strip goes into the effect open below
+        send = new Knob([this] { auto id = sendId(); return id.empty() ? 0.0 : c.model().get(id); },
+                        [this](double v) { auto id = sendId(); if (!id.empty()) c.model().set(id, v); }, 0, 100, 0, [this] { return Theme::strip(s); });
+        add(send);
         auto tg = [&](const juce::String& t, const char* key, ColourFn on, int seg) {
             std::string id = key + std::to_string(s);
-            auto* p = segPill(kids, this, t, [this, id, on] { return c.model().get(id) > 0.5 ? on() : Theme::btn(); }, seg, 9.5f);
+            auto* p = new Pill(t, [this, id, on] { return c.model().get(id) > 0.5 ? on() : Theme::btn(); }, 10.0f, 10.0f);
+            p->tint = true; juce::ignoreUnused(seg); kids.add(p); addAndMakeVisible(p);
             p->onClick = [this, id] { c.model().set(id, c.model().get(id) > 0.5 ? 0 : 1); };
             p->setComponentID("p:" + juce::String(id)); return p; };
         mute = tg("M", "mute", [] { return Theme::red(); }, 1);
         solo = tg("S", "solo", [] { return Theme::blue(); }, 2);
         cue = tg("", "cue", [] { return Theme::amber(); }, 2); cue->icon = 5;
-        room = tg("ROOM", "room", [] { return Theme::green(); }, 3);
+        room = tg("Room", "room", [this] { return Theme::strip(s); }, 3);
         auto* fd = new Fader([&m, this] { return m.get("vol" + std::to_string(s)); }, [&m, this](double v) { m.set("vol" + std::to_string(s), v); }, 0, 100, 71);
-        fd->scale = true; fd->col = [this] { return Theme::strip(s); };
+        fd->horiz = true; fd->col = [this] { return Theme::strip(s); };
         add(fd); fd->setComponentID("p:vol" + juce::String(s)); fader = fd;
-        meter = new Meter([this] { return c.engine().peak("ch" + std::to_string(s)); }, true);
-        add(meter); meter2 = meter;
-        if (s < 4) { inMeter = new Meter([this] { return c.engine().peak("live_in" + std::to_string(s + 1)); }); add(inMeter); }
+        meter = new Meter([this] { return c.engine().peak("ch" + std::to_string(s)); }, false);
+        add(meter);
     }
     ~StripView() override { kids.clear(true); }
     int trackState() const { if (s < 4) return 0; int k = s - 4; float pack = c.snap(k < 4 ? "statA" : "statB"); return ((int) pack >> (4 * (k % 4))) & 15; }
+    int loopBars() const { int L = (int) c.snap("loopbars"); return L > 0 ? L : juce::jmax(1, (int) c.model().get("bars")); }
+    int beatsPerBar() const { return juce::jmax(1, (int) c.model().get("beats")); }
+    float loopProgress() const {
+        int L = loopBars(), B = beatsPerBar(); int bar = juce::jmax(1, (int) c.snap("barno")), beat = juce::jlimit(1, B, (int) c.snap("beatno"));
+        int pos = ((bar - 1) % L) * B + (beat - 1);
+        return (pos + 1) / (float) (L * B);
+    }
+    juce::String barBeat() const {
+        int L = loopBars(); int bar = juce::jmax(1, (int) c.snap("barno")), beat = juce::jmax(1, (int) c.snap("beatno"));
+        return juce::String((bar - 1) % L + 1) + "." + juce::String(beat);
+    }
+    std::string sendId() const {
+        auto key = c.focusFx(); if (key.isEmpty()) return {};
+        auto id = Model::stripParam(s, key.toStdString());
+        return !id.empty() && c.model().def(id) != nullptr ? id : std::string();
+    }
     void resized() override {
         const int w = getWidth(), h = getHeight();
-        nr = w < 150;
-        const float k = juce::jlimit(0.72f, 1.0f, (h - 300) / 200.0f);           // a short strip: the rows get a little lower, the fader keeps room
-        auto H = [&](int v) { return juce::roundToInt(v * k); };
-        const int P = nr ? 7 : 12, iw = w - 2 * P, x = P, g = nr ? 6 : 8;
+        nr = w < 170;
+        const int P = nr ? 10 : 16, iw = w - 2 * P, x = P;
         int y = P;
-        head->setBounds(0, 0, w, P + 20);
-        headR = { x, y, iw, 18 }; y += 18 + g;
-        int dh = nr ? H(48) : H(64); wave->setBounds(x, y, iw, dh); y += dh + g;
+        head->setBounds(0, 0, w, P + 24);
+        headR = { x, y, iw, 22 };
+        auto tf = Theme::softUI() ? Theme::mono(8.5f) : Theme::font(8.5f, 2);
+        auto ttx = tag->dynText ? tag->dynText() : tag->text;
+        int tw = (int) juce::GlyphArrangement::getStringWidth(tf, Theme::softUI() ? ttx.toUpperCase() : ttx) + 18;
+        if (!nr && tw < iw - 70) { tag->setBounds(x + iw - tw + 6, y, tw, 22); y += 22 + 6; }
+        else { tag->setBounds(x - 4, y + 21, juce::jmin(iw + 8, tw), 18); y += 22 + 18 + 8; }
+        // from the bottom: M S cue ROOM, the fader (with its meter), the knobs
+        int fb = nr ? 30 : 34, gap = nr ? 4 : 6, by;
+        if (nr) { by = h - P - 2 * fb - 6; int a = iw / 2;
+                  mute->setBounds(x, by, a, fb); solo->setBounds(x + a, by, iw - a, fb);
+                  cue->setBounds(x, by + fb + 6, a, fb); room->setBounds(x + a, by + fb + 6, iw - a, fb); }
+        else { by = h - P - fb; int a = (iw - 3 * gap) * 2 / 9, rw = iw - 3 * a - 3 * gap;
+               mute->setBounds(x, by, a, fb); solo->setBounds(x + a + gap, by, a, fb); cue->setBounds(x + 2 * (a + gap), by, a, fb); room->setBounds(x + 3 * (a + gap), by, rw, fb); }
+        int fh = 28, fy = by - 14 - fh;
+        fader->setBounds(x - 2, fy, iw + 4, fh);
+        meter->setBounds(x + 8, fy + fh + 3, iw - 16, 3);
+        dbR = { x, fy - 20, iw, 18 };
+        int ks = juce::jlimit(30, 44, iw / 4), ky = dbR.getY() - 8 - 15 - ks;
+        int c1 = x + iw / 4, c2 = x + iw * 3 / 4;
+        if (nr) { c1 = x + iw / 4 + 2; c2 = x + iw * 3 / 4 - 2; }
+        pan->setBounds(c1 - ks / 2, ky, ks, ks); send->setBounds(c2 - ks / 2, ky, ks, ks);
+        panLabelR = { c1 - 40, ky + ks + 2, 80, 14 }; sendLabelR = { c2 - 40, ky + ks + 2, 80, 14 };
+        // the top: the dial, REC / PLAY, the text buttons - centred in what is left
+        int top = y, bottom = ky - 14, avail = bottom - top;
+        int bs = s >= 4 ? juce::jlimit(40, 60, (int) (iw * 0.28f)) : 0;
+        int rowH = 26, gapB = s >= 4 ? 10 : 0;
+        int ds = juce::jlimit(64, juce::jmin(iw, 196), avail - (bs + gapB + 10 + rowH));
+        if (ds > iw) ds = iw;
+        int total = ds + 10 + (s >= 4 ? bs + gapB : 0) + rowH;
+        int y0 = top + juce::jmax(0, (avail - total) / 2);
+        dial->setBounds(x + (iw - ds) / 2, y0, ds, ds); y0 += ds + 10;
         if (s >= 4) {
-            int bh = nr ? H(38) : H(48), gg = nr ? 5 : 8, hw = (iw - gg) / 2;
-            rec->setBounds(x, y, hw, bh); tog->setBounds(x + iw - hw, y, hw, bh); y += bh + g;
-            rec->text = nr ? "" : "REC";
-            int sh = nr ? H(32) : H(36);
-            int a = iw / 3; clr->setBounds(x, y, a, sh); spd->setBounds(x + a, y, iw - 2 * a, sh); file->setBounds(x + iw - a, y, a, sh); y += sh + g;
-            clr->text = nr ? "" : "CLR"; file->text = nr ? "" : "FILE";
-            int ih = nr ? H(30) : H(32);
-            inR = { x, y, iw, ih };
-            inb->setBounds(x + (nr ? 22 : 28), y + 2, nr ? iw - 26 : 44, ih - 4);
-            dotsBelow = !nr && iw < 210;
-            dotsR = nr ? juce::Rectangle<int> { x + (iw - 47) / 2, y + ih + 5, 47, 14 }
-                       : dotsBelow ? juce::Rectangle<int> { x + (iw - 96) / 2, y + ih + 4, 96, 14 } : juce::Rectangle<int> { x + iw - 102, y + (ih - 14) / 2, 96, 14 };
-            y += ih + g + (nr ? 18 : dotsBelow ? 14 : 0);
+            int ps = juce::jmax(34, (int) (bs * 0.74f)), gg = nr ? 8 : 16, tot = bs + gg + ps, x0 = x + (iw - tot) / 2;
+            rec->setBounds(x0, y0, bs, bs); tog->setBounds(x0 + bs + gg, y0 + (bs - ps) / 2, ps, ps); y0 += bs + gapB;
+            int a = iw / 3;
+            clr->setBounds(x, y0, a, rowH); spd->setBounds(x + a, y0, iw - 2 * a, rowH); file->setBounds(x + iw - a, y0, a, rowH);
+            clr->text = nr ? U("✕") : "Clear"; file->text = nr ? U("File") : "File";
         } else {
-            int ih = nr ? H(32) : H(38);
-            input->setBounds(x, y, iw, ih); y += ih + g;
-            inMeter->setBounds(x, y + 2, nr ? iw : iw - 104, 6);
-            dotsR = nr ? juce::Rectangle<int> { x + (iw - 47) / 2, y + 12, 47, 14 } : juce::Rectangle<int> { x + iw - 96, y - 2, 96, 14 };
-            y += nr ? 30 : 14;
-            int fh = nr ? H(32) : H(38);
-            int hw = iw / 2; fxb->setBounds(x, y, hw, fh); tune->setBounds(x + hw, y, iw - hw, fh); y += fh + g;
+            int a = iw / 3;
+            if (nr) { input->setVisible(false); tune->setBounds(x, y0, iw / 2, rowH); fxb->setBounds(x + iw / 2, y0, iw - iw / 2, rowH); fxb->text = "FX"; }
+            else { input->setVisible(true); input->setBounds(x, y0, a, rowH); tune->setBounds(x + a, y0, iw - 2 * a, rowH); fxb->setBounds(x + iw - a, y0, a, rowH); fxb->text = U("FX ▸"); }
         }
-        // bottom: M S cue ROOM (two rows on a narrow strip)
-        int bh = nr ? H(32) : H(42), by;
-        if (nr) { by = h - P - bh - 6 - bh; int a = iw / 3; mute->setBounds(x, by, a, bh); solo->setBounds(x + a, by, iw - 2 * a, bh); cue->setBounds(x + iw - a, by, a, bh);
-                  cue->seg = 3; room->seg = 4; room->setBounds(x, by + bh + 6, iw, bh); }
-        else { by = h - P - bh; int a = (iw * 10) / 46;
-               mute->setBounds(x, by, a, bh); solo->setBounds(x + a, by, a, bh); cue->setBounds(x + 2 * a, by, a, bh); room->setBounds(x + 3 * a, by, iw - 3 * a, bh);
-               cue->seg = 2; room->seg = 3; }
-        // pan | the dB value over the long fader | the meter
-        int fz = y + 2, fb = by - g;
-        int pw = nr ? 34 : 56, ks = nr ? 34 : 54, mw = nr ? 4 : 6;
-        pan->setBounds(x + (pw - ks) / 2, fz + 4, ks, ks);
-        panLabelR = { x - 4, fz + 8 + ks, pw + 8, 14 };
-        int fx0 = x + pw + (nr ? 2 : 8), fx1 = x + iw - mw - 2 * (nr ? 2 : 6);
-        int fwid = juce::jmin(fx1 - fx0, nr ? 52 : 110), fcx = (fx0 + fx1) / 2;
-        int dbw = juce::jmin(fwid, nr ? 56 : 84), dbh = nr ? 24 : 30;
-        dbR = { fcx - dbw / 2, fz, dbw, dbh };
-        fader->setBounds(fcx - fwid / 2, fz + dbh + 4, fwid, juce::jmax(40, fb - fz - dbh - 4));
-        meter->setBounds(x + iw - mw, fz + dbh + 10, mw, juce::jmax(30, fb - fz - dbh - 16));
     }
-    juce::String name() const { return s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3); }
+    juce::String name() const {
+        if (nr) return s < 4 ? "Live " + juce::String(s + 1) : "Track " + juce::String(s - 3);
+        return s < 4 ? "Live " + juce::String(s + 1) : "Track " + juce::String(s - 3); }
     void update() {
-        if (meter) meter->update(); if (inMeter) inMeter->update();
+        if (meter) meter->update();
+        if (s < 4) { float pk = c.engine().peak("live_in" + std::to_string(s + 1)); float db = juce::Decibels::gainToDecibels(pk, -60.0f);
+                     float t = juce::jlimit(0.0f, 1.0f, (db + 54.0f) / 54.0f); inLevel = juce::jmax(t, inLevel * 0.9f); if (inLevel < 0.02f) inLevel = -1.0f; }
+        if (send) send->enabled = !sendId().empty();
         repaint();
         for (auto* kd : kids) kd->repaint();
-    }
-    void paintScreen(juce::Graphics& g, juce::Rectangle<float> r) {
-        float fs = nr ? 7.0f : 8.0f;
-        auto top = r.toNearestInt().reduced(8, 0).withHeight(17).translated(0, 3);
-        if (s >= 4) {
-            int st = trackState();
-            juce::String t = st == 2 || st == 7 ? juce::String(U("● RECORDING")) : juce::String(STATE_NAMES[juce::jlimit(0, 10, st)]);
-            label(g, t, top, fs, st == 0 ? Theme::sub() : stateColour(st), 2);
-        } else {
-            bool syn = c.host.synthInto > 0 && c.host.synthInto == s;
-            label(g, syn ? "SYNTH " + juce::String(s + 1) : "INPUT " + juce::String(c.host.inputCh[s]), top, fs, Theme::sub(), 2);
-            if (s == 0) {                                     // the note and the tuner
-                float p = c.snap("pitch");
-                static const char* N[12] = { "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" };
-                if (p > 20) { int n = (int) std::floor(p + 0.5); label(g, juce::String(N[n % 12]) + juce::String(n / 12 - 1), top, fs + 1, Theme::fx("halo"), 2, juce::Justification::centredRight); }
-                float tp = c.snap("tn_pitch");
-                if (tp > 0) {
-                    float cents = (tp - std::floor(tp + 0.5f)) * 100.0f;
-                    float cx = r.getCentreX() + juce::jlimit(-1.0f, 1.0f, cents / 50.0f) * (r.getWidth() * 0.5f - 10);
-                    g.setColour(Theme::green()); g.fillRoundedRectangle(cx - 2, r.getBottom() - 6, 4, 4, 2);
-                    if (!nr) label(g, juce::String(cents >= 0 ? "+" : "") + juce::String((int) std::round(cents)) + U("¢"), top.withTrimmedRight(34), fs, Theme::green(), 2, juce::Justification::centredRight);
-                }
-            }
-        }
     }
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat();
         drawPanel(g, r, 16.0f);
         bool empty = s >= 4 && trackState() == 0;
-        { juce::Graphics::ScopedSaveState ss(g); juce::Path clip; clip.addRoundedRectangle(r, 16.0f); g.reduceClipRegion(clip);
+        if (!Theme::softUI()) { juce::Graphics::ScopedSaveState ss(g); juce::Path clip; clip.addRoundedRectangle(r, 16.0f); g.reduceClipRegion(clip);
           auto col = Theme::strip(s).withMultipliedAlpha(empty ? 0.45f : 1.0f);
           g.setGradientFill(juce::ColourGradient(col, 0, 0, col.withAlpha(col.getFloatAlpha() * 0.33f), r.getWidth(), 0, false)); g.fillRect(0.0f, 0.0f, r.getWidth(), 3.0f); }
         auto& m = c.model();
-        // the name (tap: this strip is the one the effects' SEND knobs edit)
         auto col = Theme::strip(s);
-        g.setColour(col.withMultipliedAlpha(empty ? 0.5f : 1.0f)); g.fillEllipse((float) headR.getX() + 1, (float) headR.getCentreY() - 4.5f, 9, 9);
-        label(g, name(), headR.withTrimmedLeft(16), nr ? 10.5f : 12.5f, Theme::txt(), 2);
-        if (s < 4 && !nr) label(g, "IN " + juce::String(c.host.inputCh[s]), headR, 8.0f, Theme::sub(), 1, juce::Justification::centredRight);
-        if (s >= 4) {
-            g.setColour(Theme::btn()); g.fillRoundedRectangle(inR.toFloat(), juce::jmin(10.0f, inR.getHeight() * 0.32f));
-            label(g, nr ? "IN" : U("IN ▸"), inR.withTrimmedLeft(nr ? 5 : 8).withWidth(26), nr ? 7.5f : 8.5f, Theme::sub(), 2);
-            if (!nr && !dotsBelow) { g.setColour(Theme::line()); g.fillRect((float) dotsR.getX() - 8, (float) inR.getY(), 1.0f, (float) inR.getHeight()); }
-        }
-        // the effects this strip uses
-        bool row = dotsR.getWidth() > 60;
-        for (int d = 0; d < (int) DOTS.size(); ++d) {
-            auto id = Model::stripParam(s, DOTS[(size_t) d]);
-            bool on = !id.empty() && m.get(id) > 0.5;
-            g.setColour(on ? Theme::fx(DOTS[(size_t) d]) : Theme::line());
-            float dx = row ? (float) dotsR.getX() + d * 6.0f : (float) dotsR.getX() + (d % 8) * 6.0f, dy = row ? (float) dotsR.getCentreY() - 2.5f : (float) dotsR.getY() + (d / 8) * 7.0f;
-            g.fillEllipse(dx, dy, 5, 5);
-        }
-        label(g, "PAN", panLabelR, 8.0f, Theme::sub(), 2, juce::Justification::centred);
+        softLed(g, { (float) headR.getX() + 4.0f, (float) headR.getCentreY() }, 3.0f, col, !empty);
+        auto nf = Theme::font(nr ? 12.0f : 13.5f, 2);
+        int nwid = juce::jmin(headR.getWidth() - 14, (int) juce::GlyphArrangement::getStringWidth(nf, name()) + 4);
+        g.setColour(Theme::txt()); g.setFont(nf); g.drawText(name(), headR.withTrimmedLeft(14).withWidth(nwid), juce::Justification::centredLeft);
+        mlabel(g, "PAN", panLabelR, 8.0f, Theme::sub(), juce::Justification::centred);
+        auto key = c.focusFx(); juce::String sl = "SEND";
+        if (key.isNotEmpty()) for (auto& d : cardTable()) if (key == d.key) { sl = U(d.name); break; }
+        mlabel(g, sl, sendLabelR, 8.0f, send && send->enabled ? Theme::sub() : Theme::off(), juce::Justification::centred);
         double db = Fader::volToDb(m.get("vol" + std::to_string(s))); if (std::abs(db) < 0.15) db = 0;
-        g.setColour(Theme::scr()); g.fillRoundedRectangle(dbR.toFloat(), 8.0f);
-        juce::String dt = db < -90 ? juce::String(U("-∞")) : (db > 0.05 ? "+" : (db < -0.05 ? U("−") : juce::String())) + juce::String(std::abs(db), 1);
-        g.setColour(Theme::txt()); g.setFont(Theme::font(nr ? 10.5f : 13.0f, 2));
-        auto tw = juce::GlyphArrangement::getStringWidth(Theme::font(nr ? 10.5f : 13.0f, 2), dt);
-        auto dr = dbR.toFloat(); float x0 = dr.getCentreX() - (tw + 14) * 0.5f;
-        g.drawText(dt, juce::Rectangle<float>(x0, dr.getY(), tw + 2, dr.getHeight()), juce::Justification::centredLeft);
-        g.setColour(Theme::sub()); g.setFont(Theme::font(7.0f, 1)); g.drawText("dB", juce::Rectangle<float>(x0 + tw + 2, dr.getY() + 1, 14, dr.getHeight()), juce::Justification::centredLeft);
+        juce::String dt = db < -90 ? juce::String(U("−∞")) : (db > 0.05 ? "+" : (db < -0.05 ? U("−") : juce::String())) + juce::String(std::abs(db), 1);
+        mlabel(g, "VOL", dbR, 8.0f, Theme::sub());
+        label(g, dt + " dB", dbR, nr ? 10.5f : 11.5f, Theme::txt(), 1, juce::Justification::centredRight);
     }
     void paintOverChildren(juce::Graphics& g) override {
-        if (c.model().selected == s) { g.setColour(Theme::strip(s).withAlpha(0.85f)); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 15.0f, 2.0f); }
+        if (c.model().selected != s) return;
+        if (Theme::softUI()) { auto col = Theme::strip(s); float bw = getWidth() * 0.34f;
+            auto br = juce::Rectangle<float>((getWidth() - bw) * 0.5f, 5.0f, bw, 3.0f);
+            g.setColour(col.withAlpha(0.3f)); g.fillRoundedRectangle(br.expanded(2.0f), 3.0f); g.setColour(col); g.fillRoundedRectangle(br, 1.5f); return; }
+        g.setColour(Theme::strip(s).withAlpha(0.85f)); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 15.0f, 2.0f);
     }
 private:
-    Canvas& c; int s; bool nr = false, dotsBelow = false;
+    Canvas& c; int s; bool nr = false; float inLevel = -1.0f;
     juce::OwnedArray<juce::Component> kids;
-    Pill *head = nullptr, *rec = nullptr, *tog = nullptr, *clr = nullptr, *spd = nullptr, *file = nullptr, *mute = nullptr, *solo = nullptr, *cue = nullptr, *room = nullptr,
+    Pill *head = nullptr, *tag = nullptr, *rec = nullptr, *tog = nullptr, *clr = nullptr, *spd = nullptr, *file = nullptr, *mute = nullptr, *solo = nullptr, *cue = nullptr, *room = nullptr,
          *input = nullptr, *fxb = nullptr, *tune = nullptr;
-    WaveScreen* wave = nullptr; Meter* meter = nullptr; Meter* meter2 = nullptr; Meter* inMeter = nullptr;
-    juce::Component *fader = nullptr, *pan = nullptr, *inb = nullptr;
-    juce::Rectangle<int> headR, inR, dotsR, panLabelR, dbR;
+    LoopDial* dial = nullptr; Meter* meter = nullptr; Knob* send = nullptr;
+    juce::Component *fader = nullptr, *pan = nullptr;
+    juce::Rectangle<int> headR, panLabelR, sendLabelR, dbR;
 };
 
 // ===================================================================== 1.6: the MASTER strip (beside the tracks)
@@ -245,7 +322,7 @@ public:
         rec = new Pill("REC SHOW", [] { return Theme::red(); }, 9.0f, 12.0f); rec->tint = true; rec->icon = 3;
         rec->onFn = [] { return true; };
         rec->solidFn = [this] { return c.host.isRecording(); };
-        rec->dynText = [this] { return c.host.isRecording() ? juce::String("STOP") : juce::String("REC SHOW"); };
+        rec->dynText = [this] { return c.host.isRecording() ? juce::String(Theme::softUI() ? "Stop" : "STOP") : juce::String(Theme::softUI() ? "Rec show" : "REC SHOW"); };
         rec->onClick = [this] { c.doRecShow(); }; rec->setComponentID("t:recshow");
         kids.add(rec); addAndMakeVisible(rec);
         master = new Knob([&m] { return m.get("master"); }, [&m](double v) { m.set("master", v); }, 0, 100, 75, [] { return Theme::blue(); });
@@ -259,13 +336,14 @@ public:
     ~MasterView() override { meters.clear(true); kids.clear(true); }
     void resized() override {
         int w = getWidth(), h = getHeight(), P = 12, iw = w - 2 * P;
-        rec->setBounds(P, 40, iw, 40);
+        rec->setBounds(P, Theme::softUI() ? 44 : 40, iw, 40);
         int ks = juce::jmin(iw - 10, h > 440 ? 80 : 66);
         master->setBounds((w - ks) / 2, 112, ks, ks);
         int gs = juce::jmin(iw - 30, 54), gy = 112 + ks + 26;
         glue->setBounds((w - gs) / 2, gy, gs, gs);
         meters[0]->setBounds((w + gs) / 2 + 4, gy + 6, 4, gs - 12);           // how much the glue holds back
         int my = gy + gs + 28, mh = juce::jmax(40, h - my - 46);
+        if (Theme::softUI()) { mh = juce::jlimit(40, 120, h - my - 60); my = h - 52 - mh; }
         meters[1]->setBounds(w / 2 - 26, my, 6, mh);
         meters[2]->setBounds(w / 2 + 14, my, 5, mh); meters[3]->setBounds(w / 2 + 21, my, 5, mh);
         meterLabelY = my + mh + 6; glueLabelY = gy + gs + 4; masterLabelY = 112 + ks + 4;
@@ -274,9 +352,21 @@ public:
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat();
         drawPanel(g, r, 16.0f);
+        int w = getWidth();
+        if (Theme::softUI()) {            // 2.1: as the design - Master · OUT 1-2, the small labels, the meters in a well
+            label(g, "Master", { 16, 14, w - 32, 22 }, 13.5f, Theme::txt(), 2);
+            mlabel(g, U("OUT 1–2"), { 16, 14, w - 32, 22 }, 7.5f, Theme::sub(), juce::Justification::centredRight);
+            double sec = c.host.recordSeconds();
+            mlabel(g, juce::String::formatted("%02d:%02d", (int) sec / 60, (int) sec % 60), { 0, 86, w, 16 }, 8.5f, Theme::sub(), juce::Justification::centred);
+            mlabel(g, "MASTER", { 0, masterLabelY + 2, w, 14 }, 7.5f, Theme::sub(), juce::Justification::centred);
+            mlabel(g, "GLUE", { 0, glueLabelY + 2, w, 14 }, 7.5f, Theme::sub(), juce::Justification::centred);
+            auto mw = juce::Rectangle<int>(meters[1]->getX() - 10, meters[1]->getY() - 8, meters[3]->getRight() - meters[1]->getX() + 20, meters[1]->getHeight() + 16);
+            softWell(g, mw.toFloat(), 10.0f);
+            mlabel(g, U("IN · OUT · CPU ") + juce::String((int) std::round(c.engine().cpu.load() * 100)) + "%", { 0, getHeight() - 26, w, 14 }, 7.0f, Theme::sub(), juce::Justification::centred);
+            return;
+        }
         { juce::Graphics::ScopedSaveState ss(g); juce::Path clip; clip.addRoundedRectangle(r, 16.0f); g.reduceClipRegion(clip);
           g.setGradientFill(juce::ColourGradient(Theme::txt().withAlpha(0.5f), 0, 0, Theme::txt().withAlpha(0.12f), r.getWidth(), 0, false)); g.fillRect(0.0f, 0.0f, r.getWidth(), 3.0f); }
-        int w = getWidth();
         label(g, "MASTER", { 0, 10, w, 22 }, 12.5f, Theme::txt(), 2, juce::Justification::centred);
         double sec = c.host.recordSeconds();
         label(g, juce::String::formatted("%02d:%02d", (int) sec / 60, (int) sec % 60), { 0, 84, w, 18 }, 10.5f, Theme::sub(), 2, juce::Justification::centred);
@@ -340,6 +430,8 @@ public:
         }
     }
     ~CardView() override { kids.clear(true); }
+    const char* key() const { return def.key; }
+    bool rowMode = false;            // 2.1: one effect open in the effects panel: the header, then its knobs in one row
     int cols() const { int n = (int) knobs.size(); return n <= 4 ? n : n <= 6 ? 3 : n <= 8 ? 4 : 5; }
     int minWidth() const { return cols() * 64 + 30; }
     float weight() const { return juce::jmax(1.0f, cols() / 3.0f); }
@@ -361,7 +453,35 @@ public:
         if (v > 0.5) { lastOn[p] = v; m.set(p, 0); }
         else m.set(p, lastOn.count(p) ? lastOn[p] : 50.0);
     }
+    void resizedRow() {
+        int w = getWidth(), h = getHeight();
+        if (scope) scope->setVisible(false);
+        headerR = { 0, 0, w, 32 };
+        toggleR = { 0, 4, 46, 24 };
+        int bw = 0;
+        if (badgePill) { bw = badgePill->getComponentID() == "p:fbk_stop" ? 72 : 64; badgePill->setBounds(w - bw, 2, bw, 30); }
+        presetR = { w - (bw ? bw + 10 : 0) - 120, 2, 120, 30 };
+        badgeR = { presetR.getX() - 10 - 100, 2, 100, 30 };
+        int y = 48, right = w;
+        if (!shadowPills.empty()) {          // SHADOW: its twelve voices in two rows on the right
+            int pw = juce::jlimit(48, 70, (w / 2) / 6 - 6); int gx = w - 6 * (pw + 5);
+            for (int v = 0; v < 12; ++v) shadowPills[(size_t) v]->setBounds(gx + (v % 6) * (pw + 5), y + (v / 6) * 30, pw, 26);
+            right = gx - 20;
+        }
+        if (juce::String(def.key) == "drm") { drumR = { juce::jmax(0, right - 260), y + 6, 260, 40 }; right = drumR.getX() - 20; }
+        int n = (int) knobs.size(); if (n == 0) return;
+        int ks = juce::jlimit(34, 50, h - y - 24);
+        float pitch = juce::jmin((float) (ks + 44), (float) right / (float) n);
+        for (int j = 0; j < n; ++j) {
+            float cx = pitch * (j + 0.5f);
+            knobs[(size_t) j]->setBounds((int) (cx - ks / 2), y, ks, ks);
+            labels[(size_t) j].r = { (int) (cx - pitch / 2), y + ks + 6, (int) pitch, 15 };
+        }
+        footR = {};
+    }
     void resized() override {
+        if (rowMode) { resizedRow(); return; }
+        if (scope) scope->setVisible(true);
         int w = getWidth(), h = getHeight(), P = 14;
         headerR = { P, 12, w - 2 * P, 30 };
         toggleR = { P, 17, 38, 21 };
@@ -384,14 +504,14 @@ public:
             int r = j / cl, cc = j % cl;
             float cx = area.getX() + cw * (cc + 0.5f), cy = area.getY() + rh * (r + 0.5f) - 9;
             knobs[(size_t) j]->setBounds((int) (cx - ks / 2), (int) (cy - ks / 2), ks, ks);
-            labels[(size_t) j].r = { (int) (cx - cw / 2), (int) (cy + ks / 2 + 4), (int) cw, 14 };
+            labels[(size_t) j].r = { (int) (cx - cw / 2), (int) (cy + ks / 2 + 6), (int) cw, 15 };
         }
         if (scope) scope->setBounds(P, h - foot - 6, (w - 2 * P) / 2, foot - 4);
         footR = { P + (w - 2 * P) / 2 + 8, h - foot - 6, (w - 2 * P) / 2 - 8, foot - 4 };
     }
     void mouseDown(const juce::MouseEvent& e) override {
         if (toggleR.expanded(6).contains(e.getPosition())) { toggle(); update(); return; }
-        if (!nameR.expanded(4).contains(e.getPosition())) return;
+        if (!nameR.expanded(4).contains(e.getPosition()) && !(rowMode && presetR.contains(e.getPosition()))) return;
         auto& m = c.model(); juce::String key = def.key;
         juce::PopupMenu menu, del;
         auto names = fxpresets::names(key);
@@ -428,6 +548,7 @@ public:
         auto r = getLocalBounds().toFloat();
         std::string key = def.key;
         auto col = Theme::fx(key);
+        if (rowMode) { paintRow(g); return; }
         drawPanel(g, r, 16.0f);
         bool on = isOn();
         if (on) { juce::Graphics::ScopedSaveState ss(g); juce::Path clip; clip.addRoundedRectangle(r, 16.0f); g.reduceClipRegion(clip);
@@ -467,7 +588,7 @@ public:
         if (key == "pdl" && m.get("pdl_auto") > 4) { static const char* AP[4] = { "every 2 bars", "every bar", "every half bar", "every beat" };
                             foot = U("auto · ") + AP[juce::jlimit(0, 3, (int) (m.get("pdl_auto") / 100.0 * 3.99))]; }
         // the header: name ▾ (presets), what it does, its value
-        auto f = Theme::font(13.0f, 2);
+        auto f = Theme::font(14.0f, 2);
         juce::String nm = U(def.name);
         int nw = (int) juce::GlyphArrangement::getStringWidth(f, nm) + 4;
         nameR = { toggleR.getRight() + 12, 14, nw + 14, 26 };
@@ -481,17 +602,66 @@ public:
             label(g, badge, br, 8.0f, Theme::sub(), 2, juce::Justification::centred);
         }
         auto descR = juce::Rectangle<int>(nameR.getRight() + 6, 14, bx - nameR.getRight() - 10, 26);
-        auto df = Theme::font(8.0f, 0);
-        if (descR.getWidth() > juce::GlyphArrangement::getStringWidth(df, U(def.desc)) + 4) label(g, U(def.desc), descR, 8.0f, Theme::sub(), 0);
+        auto df = Theme::font(9.0f, 0);
+        if (descR.getWidth() > juce::GlyphArrangement::getStringWidth(df, U(def.desc)) + 4) label(g, U(def.desc), descR, 9.0f, Theme::sub(), 0);
         if (key == "drm") {
             g.setColour(Theme::scr()); g.fillRoundedRectangle(drumR.toFloat(), 8.0f);
             label(g, pick(m.get("drm_style"), 8, STY), drumR.withWidth(drumR.getWidth() / 2), 10.0f, Theme::txt(), 2, juce::Justification::centred);
             label(g, pick(m.get("drm_kit"), 4, KIT), drumR.withTrimmedLeft(drumR.getWidth() / 2), 10.0f, Theme::txt(), 2, juce::Justification::centred);
         }
-        for (auto& l : labels) label(g, l.text, l.r, 8.0f, l.send ? Theme::ink(col) : Theme::sub(), 2, juce::Justification::centred);
+        for (auto& l : labels) label(g, l.text, l.r, 9.0f, l.send ? Theme::ink(col) : Theme::sub(), 2, juce::Justification::centred);
         if (foot.isNotEmpty()) label(g, foot, footR, 8.0f, Theme::txt(), 2, juce::Justification::centredRight);
     }
+    juce::String badgeText() {
+        auto& m = c.model(); std::string key = def.key;
+        auto pick = [](double v, int n, const char* const* names) { return juce::String(names[juce::jlimit(0, n - 1, (int) (v / 100.0 * (n - 0.01)))]); };
+        static const char* DLY[8] = { "1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4.", "1/2", "1/1" };
+        static const char* TRM[6] = { "1/1", "1/2", "1/4", "1/8", "1/8T", "1/16" };
+        static const char* REV[6] = { "1/8", "1/4", "1/4.", "1/2", "1/2.", "1/1" };
+        static const char* FXB[6] = { "LO-FI", "RING", "FILTER", "STUTTER", "METAL", "OCTAVE" };
+        static const char* PTH[3] = { "CIRCLE", "SWING", "WANDER" };
+        static const char* SCL[2] = { "CHROMATIC", "IN-KEY" };
+        static const char* N[12] = { "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" };
+        if (key == "dly") return pick(m.get("dly_time"), 8, DLY);
+        if (key == "trm") return pick(m.get("trm_rate"), 6, TRM);
+        if (key == "rev") return pick(m.get("rev_time"), 6, REV);
+        if (key == "fxb") return pick(m.get("fxb_mode"), 6, FXB);
+        if (key == "orb") return pick(m.get("orb_path"), 3, PTH);
+        if (key == "tun") return pick(m.get("tn_scale"), 2, SCL);
+        if (key == "halo") { int k = (int) c.snap("halo_key"); return k >= 0 ? juce::String(N[k % 12]) + U(" · ") + N[(k + 9) % 12] + "m" : juce::String(U("KEY –")); }
+        return {};
+    }
+    void paintRow(juce::Graphics& g) {
+        std::string key = def.key; auto col = Theme::fx(key); auto& m = c.model();
+        bool on = isOn();
+        drawToggle(g, toggleR.toFloat(), on, col);
+        auto f = Theme::font(16.0f, 2); juce::String nm = U(def.name);
+        nm = nm.length() <= 3 ? nm : niceName(nm);
+        int nw = (int) juce::GlyphArrangement::getStringWidth(f, nm) + 4;
+        nameR = { toggleR.getRight() + 16, 2, nw, 30 };
+        g.setColour(on ? Theme::txt() : Theme::txt().withAlpha(0.7f)); g.setFont(f); g.drawText(nm, nameR, juce::Justification::centredLeft);
+        auto descR = juce::Rectangle<int>(nameR.getRight() + 14, 2, badgeR.getX() - nameR.getRight() - 20, 30);
+        auto df = Theme::softUI() ? Theme::mono(8.5f) : Theme::font(9.0f, 0);
+        juce::String ds = U(def.desc); if (Theme::softUI()) ds = ds.toUpperCase();
+        if (descR.getWidth() > juce::GlyphArrangement::getStringWidth(df, ds) + 4) { g.setColour(Theme::sub()); g.setFont(df); g.drawText(ds, descR, juce::Justification::centredLeft); }
+        auto bt = badgeText();
+        if (bt.isNotEmpty()) mlabel(g, bt, badgeR, 8.5f, Theme::sub(), juce::Justification::centredRight);
+        // presets
+        auto pr = presetR.toFloat().reduced(2.0f);
+        if (Theme::softUI()) softRaised(g, pr, pr.getHeight() * 0.5f, 3.0f, Theme::btn()); else { g.setColour(Theme::btn()); g.fillRoundedRectangle(pr, pr.getHeight() * 0.5f); }
+        label(g, U("Presets ▾"), presetR, 10.5f, Theme::txt(), 1, juce::Justification::centred);
+        if (key == "drm") {
+            static const char* STY[8] = { "POP", "FUNK", "HIP-HOP", "HOUSE", "BOSSA", "JAZZ", "REGGAE", "AMBIENT" };
+            static const char* KIT[4] = { "ACOUSTIC", "808", "909", "LO-FI" };
+            auto pick = [](double v, int n, const char* const* names) { return juce::String(names[juce::jlimit(0, n - 1, (int) (v / 100.0 * (n - 0.01)))]); };
+            if (Theme::softUI()) softWell(g, drumR.toFloat(), 12.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(drumR.toFloat(), 8.0f); }
+            label(g, pick(m.get("drm_style"), 8, STY), drumR.withWidth(drumR.getWidth() / 2), 10.0f, Theme::txt(), 2, juce::Justification::centred);
+            label(g, pick(m.get("drm_kit"), 4, KIT), drumR.withTrimmedLeft(drumR.getWidth() / 2), 10.0f, Theme::txt(), 2, juce::Justification::centred);
+        }
+        for (auto& l : labels) mlabel(g, l.text, l.r, 8.0f, l.send ? Theme::ink(col) : Theme::sub(), juce::Justification::centred);
+    }
     void paintOverChildren(juce::Graphics& g) override {      // switched off: the knobs a little quieter
+        if (rowMode) return;
         if (isOn() || juce::String(def.key) == "drm") return;
         g.setColour(Theme::cardS().withAlpha(0.32f)); for (auto* k : knobs) g.fillEllipse(k->getBounds().toFloat());
     }
@@ -502,7 +672,7 @@ private:
     std::vector<L> labels;
     std::vector<Knob*> knobs; std::vector<Pill*> shadowPills;
     Knob* sendKnob = nullptr; Pill* badgePill = nullptr; MiniScope* scope = nullptr;
-    juce::Rectangle<int> headerR, toggleR, nameR, badgeR, drumR, footR;
+    juce::Rectangle<int> headerR, toggleR, nameR, badgeR, drumR, footR, presetR;
     std::map<std::string, double> lastOn;
 };
 
@@ -511,71 +681,92 @@ private:
 class FxMap : public juce::Component {
 public:
     explicit FxMap(Canvas& cv) : c(cv) {}
+    bool compact = false;      // 2.1: inside the effects panel - families on top, the effects below, no panel of its own
     struct Hit { juce::Rectangle<int> r; int fam = -1, card = -1, act = 0; };   // act: 1 choose, 2 prev page, 3 next page
     std::vector<Hit> hits;
     void paint(juce::Graphics& g) override {
+        // 2.1: one clean row - the six families as tabs, then the open family's effects as keys with room between them
         hits.clear();
         auto b = getLocalBounds();
-        drawPanel(g, b.toFloat(), 16.0f);
-        auto in = b.reduced(6);
+        if (!compact) drawPanel(g, b.toFloat(), 16.0f);
+        const bool two = getHeight() > 90, soft = Theme::softUI();
+        auto in = compact ? b : b.reduced(14, 9);
         auto& ct = cardTable();
-        // right: CHOOSE EFFECTS, and the pages of the open family
-        auto ch = in.removeFromRight(112); in.removeFromRight(6);
-        g.setColour(Theme::btn()); g.fillRoundedRectangle(ch.toFloat(), 10.0f);
-        label(g, "+", ch.withTrimmedBottom(ch.getHeight() / 2).translated(0, 4), 13.0f, Theme::blue(), 2, juce::Justification::centred);
-        label(g, "CHOOSE EFFECTS", ch.withTrimmedTop(ch.getHeight() / 2 - 2), 7.5f, Theme::sub(), 2, juce::Justification::centred);
+        auto key = [&](juce::Rectangle<int> r, bool pressed) {
+            auto rf = r.toFloat(); float rr = rf.getHeight() * 0.5f;
+            if (soft) { if (pressed) softWell(g, rf, rr); else softRaised(g, rf, rr, 3.0f, Theme::btn()); }
+            else { g.setColour(pressed ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(rf, rr); } };
+        const int rowH = two ? (in.getHeight() - 8) / 2 : in.getHeight(), kh = juce::jmin(34, rowH);
+        auto first = in.removeFromTop(rowH); if (two) in.removeFromTop(8);
+        auto fnt = [](float sz) { return Theme::font(sz, 1); };
+        // right: choose effects, the pages
+        juce::String cht = U(compact ? "+ Choose" : "+  Choose effects");
+        int chW = (int) juce::GlyphArrangement::getStringWidth(fnt(10.5f), cht) + 34;
+        juce::Rectangle<int> ch;
+        if (compact) ch = in.removeFromRight(chW).withSizeKeepingCentre(chW, kh), in.removeFromRight(10);
+        else { ch = first.removeFromRight(chW).withSizeKeepingCentre(chW, kh); first.removeFromRight(12); }
+        key(ch, false); label(g, cht, ch, 10.5f, Theme::txt(), 1, juce::Justification::centred);
         hits.push_back({ ch, -1, -1, 1 });
-        if (c.numCardPages > 1) {
-            auto pg = in.removeFromRight(96); in.removeFromRight(6);
-            auto l = pg.removeFromLeft(30), r = pg.removeFromRight(30);
-            g.setColour(Theme::btn()); g.fillRoundedRectangle(l.toFloat(), 9.0f); g.fillRoundedRectangle(r.toFloat(), 9.0f);
+        if (c.numCardPages > 1 && !compact) {
+            auto pg = first.removeFromRight(118); first.removeFromRight(10);
+            auto l = pg.removeFromLeft(kh).withSizeKeepingCentre(kh, kh), r = pg.removeFromRight(kh).withSizeKeepingCentre(kh, kh);
+            key(l, false); key(r, false);
             label(g, U("‹"), l, 15.0f, c.cardPage > 0 ? Theme::txt() : Theme::off(), 2, juce::Justification::centred);
             label(g, U("›"), r, 15.0f, c.cardPage < c.numCardPages - 1 ? Theme::txt() : Theme::off(), 2, juce::Justification::centred);
-            label(g, juce::String(c.cardPage + 1) + " / " + juce::String(c.numCardPages), pg, 9.0f, Theme::txt(), 2, juce::Justification::centred);
+            label(g, juce::String(c.cardPage + 1) + " / " + juce::String(c.numCardPages), pg, 10.5f, Theme::txt(), 1, juce::Justification::centred);
             hits.push_back({ l, -1, -1, 2 }); hits.push_back({ r, -1, -1, 3 });
         }
         // the families
-        juce::Array<int> fc[Canvas::NFAM]; float wt[Canvas::NFAM];
-        const int gap = 6, rowsF = getHeight() > 90 ? 2 : 1, perRowF = Canvas::NFAM / rowsF;     // upright: two rows of three families
-        int total = 0; for (int f = 0; f < Canvas::NFAM; ++f) { fc[f] = c.familyCards(f); total += fc[f].size(); }
-        float availAll = (float) (in.getWidth() - gap * (perRowF - 1));
-        bool cramped = availAll * rowsF / (float) juce::jmax(1, total + 5) < 40.0f;     // many effects: the open family gets the room for its names
+        static const char* FN[Canvas::NFAM] = { "Tone", "Movement", "Space", "Echoes", "Texture", "Rhythm" };
+        float tfs = 10.5f; int tabPad = 30;
+        auto tabW = [&](int f) { return (int) juce::GlyphArrangement::getStringWidth(fnt(tfs), FN[f]) + tabPad; };
+        int tabsTotal = 0; for (int f = 0; f < Canvas::NFAM; ++f) tabsTotal += tabW(f);
+        int maxTabs = two ? first.getWidth() : first.getWidth() / 2;
+        if (compact) tabPad = 26;
+        while (tabsTotal + 8 > maxTabs && tfs > 8.5f) { tfs -= 0.5f; tabPad = juce::jmax(18, tabPad - 2); tabsTotal = 0; for (int f = 0; f < Canvas::NFAM; ++f) tabsTotal += tabW(f); }
+        if (compact && two) { int extra = (first.getWidth() - 8 - tabsTotal) / Canvas::NFAM; if (extra > 0) { tabPad += juce::jmin(extra, 30); tabsTotal = 0; for (int f = 0; f < Canvas::NFAM; ++f) tabsTotal += tabW(f); } }
+        auto well = first.removeFromLeft(tabsTotal + 8).withSizeKeepingCentre(tabsTotal + 8, kh + 6);
+        if (soft) softWell(g, well.toFloat(), well.getHeight() * 0.5f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(well.toFloat(), well.getHeight() * 0.5f); }
+        int tx = well.getX() + 4;
         for (int f = 0; f < Canvas::NFAM; ++f) {
-            float n = (float) fc[f].size();
-            wt[f] = cramped && f != c.fxFamily ? juce::jmax(1.6f, n * 0.25f + 0.9f) : juce::jmax(1.6f, n) + 0.8f; }
-        int rowH = (in.getHeight() - (rowsF - 1) * gap) / rowsF;
-        float x = (float) in.getX();
-        for (int f = 0; f < Canvas::NFAM; ++f) {
-            int rowI = f / perRowF;
-            if (f % perRowF == 0) x = (float) in.getX();
-            float wsum = 0; for (int q = rowI * perRowF; q < (rowI + 1) * perRowF; ++q) wsum += wt[q];
-            int gw = (int) (availAll * wt[f] / wsum);
-            juce::Rectangle<int> gr((int) x, in.getY() + rowI * (rowH + gap), gw, rowH); x += (float) gw + gap;
-            auto col = Canvas::familyColour(f); bool open = f == c.fxFamily;
-            if (open) { g.setColour(col.withAlpha(Theme::lightMode() ? 0.20f : 0.14f)); g.fillRoundedRectangle(gr.toFloat(), 11.0f);
-                        g.setColour(col.withAlpha(0.75f)); g.drawRoundedRectangle(gr.toFloat().reduced(0.75f), 11.0f, 1.5f); }
-            int n = fc[f].size(), on = 0;
-            for (int i : fc[f]) on += c.fxUsed(ct[(size_t) i].key);
-            auto hd = gr.reduced(7, 0).withHeight(17).translated(0, 3);
-            g.setColour(col); g.fillEllipse((float) hd.getX(), (float) hd.getCentreY() - 3.0f, 6, 6);
-            label(g, Canvas::familyName(f), hd.withTrimmedLeft(10).withTrimmedRight(26), 7.5f, open ? Theme::ink(col) : Theme::sub(), 2);
-            label(g, juce::String(on) + "/" + juce::String(n), hd.removeFromRight(26), 7.5f, on ? Theme::ink(col) : Theme::sub(), 2, juce::Justification::centredRight);
-            hits.push_back({ gr, f, -1, 0 });
-            auto chips = gr.reduced(5, 0).withTop(gr.getY() + 22).withBottom(gr.getBottom() - 5);
-            if (n == 0) { label(g, "none chosen", chips, 7.0f, Theme::off(), 0, juce::Justification::centred); continue; }
-            int cw = (chips.getWidth() - (n - 1) * 4) / n;
-            for (int k = 0; k < n; ++k) {
-                int ci = fc[f][k]; auto& d = ct[(size_t) ci];
-                juce::Rectangle<int> r(chips.getX() + k * (cw + 4), chips.getY(), cw, chips.getHeight());
-                bool u = c.fxUsed(d.key);
-                g.setColour(u ? col.withAlpha(Theme::lightMode() ? 0.38f : 0.30f) : Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 8.0f);
-                auto tr = r.reduced(3, 0);
-                if (u && cw > 46) { g.setColour(col); g.fillEllipse((float) tr.getX() + 2, (float) tr.getCentreY() - 2.0f, 4, 4); tr.removeFromLeft(7); }
-                if (cw >= 24) { g.setColour(u ? Theme::txt() : Theme::sub()); g.setFont(Theme::font(cw >= 34 ? 7.5f : 6.5f, 2));
-                                g.drawFittedText(U(d.name), tr, juce::Justification::centred, 1, 0.5f); }
-                else if (u) { g.setColour(col); g.fillEllipse(r.toFloat().withSizeKeepingCentre(5, 5)); }
-                hits.push_back({ r, f, ci, 0 });
+            int w = tabW(f); juce::Rectangle<int> tr(tx, well.getY() + 3, w, well.getHeight() - 6); tx += w;
+            bool open = f == c.fxFamily; int on = 0; auto fc = c.familyCards(f);
+            for (int i : fc) on += c.fxUsed(ct[(size_t) i].key);
+            if (open) key(tr, false);
+            auto tf = fnt(tfs); float tw2 = juce::GlyphArrangement::getStringWidth(tf, FN[f]);
+            float x0 = tr.getCentreX() - tw2 * 0.5f + (on ? 4.0f : 0.0f);
+            if (on) softLed(g, { x0 - 9.0f, (float) tr.getCentreY() }, 2.4f, Canvas::familyColour(f), true);
+            g.setColour(open ? Theme::txt() : Theme::sub()); g.setFont(tf);
+            g.drawText(FN[f], juce::Rectangle<float>(x0, (float) tr.getY(), tw2 + 4, (float) tr.getHeight()), juce::Justification::centredLeft);
+            hits.push_back({ tr, f, -1, 0 });
+        }
+        // the open family's effects
+        auto area = two ? in : first.withTrimmedLeft(16);
+        auto fc = c.familyCards(c.fxFamily);
+        auto col = Canvas::familyColour(c.fxFamily);
+        if (fc.isEmpty()) { label(g, "none chosen - tap  + Choose effects", area, 10.0f, Theme::sub(), 1); return; }
+        float cfs = 10.5f; int gap = 8;
+        auto nmOf = [&](int ci) { juce::String n = U(ct[(size_t) ci].name); return n.length() <= 3 ? n : niceName(n); };
+        auto chipW = [&](int ci) { return (int) juce::GlyphArrangement::getStringWidth(fnt(cfs), nmOf(ci)) + 40; };
+        auto totalW = [&] { int t = 0; for (int ci : fc) t += chipW(ci) + gap; return t - gap; };
+        while (totalW() > area.getWidth() && cfs > 8.5f) { cfs -= 0.5f; gap = juce::jmax(5, gap - 1); }
+        int x = area.getX();
+        for (int k = 0; k < fc.size(); ++k) {
+            int ci = fc[k]; int w = chipW(ci);
+            if (x + w > area.getRight()) {     // no room: one more key leads to the rest
+                juce::Rectangle<int> mr(x, area.getCentreY() - kh / 2, juce::jmin(54, area.getRight() - x), kh);
+                if (mr.getWidth() > 30) { key(mr, false); label(g, "+" + juce::String(fc.size() - k), mr, 10.0f, Theme::sub(), 1, juce::Justification::centred); hits.push_back({ mr, c.fxFamily, -1, 0 }); }
+                break;
             }
+            juce::Rectangle<int> r(x, area.getCentreY() - kh / 2, w, kh); x += w + gap;
+            bool u = c.fxUsed(ct[(size_t) ci].key), shown = compact && c.focusFx() == juce::String(ct[(size_t) ci].key);
+            key(r, u || shown);
+            auto tf = fnt(cfs); float tw2 = juce::GlyphArrangement::getStringWidth(tf, nmOf(ci));
+            float x0 = r.getCentreX() - tw2 * 0.5f + 5.0f;
+            softLed(g, { x0 - 10.0f, (float) r.getCentreY() }, 2.6f, col, u);
+            g.setColour(u || shown ? Theme::txt() : Theme::txt().withAlpha(0.75f)); g.setFont(tf);
+            g.drawText(nmOf(ci), juce::Rectangle<float>(x0, (float) r.getY(), tw2 + 4, (float) r.getHeight()), juce::Justification::centredLeft);
+            hits.push_back({ r, c.fxFamily, ci, 0 });
         }
     }
     void mouseUp(const juce::MouseEvent& e) override {
@@ -621,8 +812,14 @@ bool Canvas::fxUsed(const juce::String& key) {
     for (int s = 0; s < NSTRIP; ++s) { auto id = Model::stripParam(s, key.toStdString()); if (model().def(id) != nullptr && model().get(id) > 0.5) return true; }
     return false;
 }
-void Canvas::showFamily(int f, int page) { fxFamily = juce::jlimit(0, NFAM - 1, f); cardPage = page; layoutCards(); if (fxMap) fxMap->repaint(); }
+// 2.1: the effect the strips' SEND knobs work on: the first one open below
+juce::String Canvas::focusFx() const {
+    for (auto* cv : cards) if (cv->isVisible()) return juce::String(cv->key());
+    auto fc = familyCards(fxFamily); return fc.isEmpty() ? juce::String() : juce::String(cardTable()[(size_t) fc[0]].key);
+}
+void Canvas::showFamily(int f, int page) { if (f != fxFamily) fxCard = -1; fxFamily = juce::jlimit(0, NFAM - 1, f); cardPage = page; layoutCards(); if (fxMap) fxMap->repaint(); }
 void Canvas::showCard(int ci) {
+    if (Theme::softUI()) { fxFamily = familyOf(cardTable()[(size_t) ci].key); fxCard = ci; layoutCards(); if (fxMap) fxMap->repaint(); return; }
     int f = familyOf(cardTable()[(size_t) ci].key);
     fxFamily = f; cardPage = 0; layoutCards();                     // learns how many fit on a page
     int idx = familyCards(f).indexOf(ci), per = juce::jmax(1, cardsPerPage);
@@ -739,7 +936,7 @@ void Canvas::layoutHeader() {
     const int topH = 60, navH = 44;
     if (inShell) {          // 2.0: only the scene row (scenes, tracks, the window buttons left) - the rest is in the shell's bar
         for (auto& k : hk) k.c->setVisible(k.grp >= 5);
-        for (auto* b : winBtns) { auto id = b->getComponentID(); b->setVisible(id != "t:synth" && id != "t:keys" && id != "t:studio"); }
+        for (auto* b : winBtns) { auto id = b->getComponentID(); b->setVisible(id != "t:synth" && id != "t:keys" && id != "t:studio" && id != "t:setup"); }
         int nb = 0; for (auto* b : winBtns) nb += b->isVisible();
         int ww = juce::jmin(GW[7], 120 * nb + 10);
         if (!portrait) { grpR[5] = { 18, 10, GW[5], navH }; grpR[6] = { 411, 10, GW[6], navH }; grpR[8] = { 669, 10, GW[8], navH }; grpR[7] = { W - 16 - ww, 10, ww, navH }; headerBottom = 62; }
@@ -870,6 +1067,8 @@ void Canvas::buildScenes() {
     w = win("EFFECTS", plain, [this] { openLook(true); }, "t:effects"); txtOn(w); w->setTooltip("choose the effect cards");
     w = win("SETUP", plain, [this] { openSetup(true); }, "t:setup"); txtOn(w);
     for (auto* p : winBtns) static_cast<Pill*>(p)->onFn = [p] { return static_cast<Pill*>(p)->bg().getAlpha() > 0; };
+    for (auto* p : winBtns) { auto* pl = static_cast<Pill*>(p); juce::String up = pl->text, low = up.substring(0, 1) + up.substring(1).toLowerCase();
+        if (up == "MIDI LEARN") low = "MIDI learn"; pl->dynText = [up, low] { return Theme::softUI() ? low : up; }; }
     for (int i = 0; i < 4; ++i) {
         auto* tab = hadd<Pill>(5, { 5 + i * 95, 5, 54, 34 }, juce::String::charToString((juce::juce_wchar) ('A' + i)), [this, i] {
             int sc = (int) snap("scenes"), mask = (int) snap("smask"), n = i + 1;
@@ -877,10 +1076,11 @@ void Canvas::buildScenes() {
             if (sc / 8 == n) return Theme::amber();
             if ((mask >> i) & 1) return Theme::blue();
             return Theme::btn(); }, 15.0f, 10.0f);
-        tab->seg = 1; tab->tint = true;
+        tab->seg = 1; tab->tint = true; tab->fsize = 15.0f;
+        tab->onFn = [this, i] { int sc = (int) snap("scenes"); return Theme::softUI() ? (sc % 8 == i + 1 || sc / 8 == i + 1) : (sc % 8 == i + 1 || sc / 8 == i + 1 || (((int) snap("smask") >> i) & 1)); };
         tab->textColour = [this, i, tab] { auto c = tab->bg(); int mask = (int) snap("smask"); return c != Theme::btn() ? Theme::ink(c) : (((mask >> i) & 1) ? Theme::txt() : Theme::sub()); };
         tab->onClick = [this, i] { model().press("st_looper", "scene", 8, i + 1); }; tab->setComponentID("scene" + juce::String(i + 1));
-        auto* cue = hadd<Pill>(5, { 59 + i * 95, 5, 36, 34 }, "", [this, i] { return pvw == i + 1 ? Theme::amber() : Theme::btn(); }, 8.0f, 8.0f);
+        auto* cue = hadd<Pill>(5, { 59 + i * 95, 5, 36, 34 }, "", [this, i] { return pvw == i + 1 ? Theme::amber() : (Theme::softUI() ? juce::Colours::transparentBlack : Theme::btn()); }, 8.0f, 8.0f);
         cue->seg = 3; cue->tint = true; cue->icon = 5;
         cue->onClick = [this, i] { pvw = pvw == i + 1 ? 0 : i + 1; engine().set("st_looper", "pvw", pvw); };
     }
@@ -892,7 +1092,7 @@ void Canvas::buildScenes() {
 // 1.6: top to bottom - the strips and MASTER (filling the width), the effect map, the open family's effects
 int Canvas::visibleCardCount() const { int n = 0; for (auto& d : cardTable()) n += host.visibleCards.contains(d.key); return n; }
 
-static const int MAP_H = 60, MAP_H2 = 110;
+static const int MAP_H = 58, MAP_H2 = 104;
 void Canvas::layoutStrips() {
     if (!stationShown) return;
     int ntn = juce::jlimit(1, 8, (int) snap("ntn")); if (snap("ntn") < 1) ntn = 4;
@@ -904,9 +1104,11 @@ void Canvas::layoutStrips() {
     const int perRow = portrait ? (nvis <= 10 ? nvis : (nvis + 1) / 2) : 12, gap = 8;
     stripRows = (nvis + perRow - 1) / perRow;
     int top = headerBottom;
-    int cardsH = portrait ? juce::jlimit(420, 640, (int) (H * 0.37f)) : juce::jlimit(250, 420, (int) (H * 0.29f));
+    const bool soft = Theme::softUI();
+    int cardsH = portrait ? juce::jlimit(420, 640, (int) (H * 0.37f)) : juce::jlimit(Theme::softUI() ? 220 : 250, 420, (int) (H * (Theme::softUI() ? 0.255f : 0.29f)));
     const int mapH = portrait ? MAP_H2 : MAP_H;
-    int avail = H - top - 8 - mapH - 8 - cardsH - 8;
+    const int fxH = portrait ? 300 : 158;
+    int avail = soft ? H - top - 16 - fxH - 18 : H - top - 8 - mapH - 8 - cardsH - 8;
     stripH = juce::jlimit(340, 620, (avail - (stripRows - 1) * 8) / stripRows);
     // MASTER on the right of the (first) row
     int mw = ntracks > 4 || portrait ? 122 : 160;
@@ -933,6 +1135,14 @@ void Canvas::layoutStrips() {
     }
     auto mr = juce::Rectangle<int>(W - 18 - mw, top, mw, stripH);
     if (masterView && masterView->getBounds() != mr) masterView->setBounds(mr);
+    if (soft) {
+        auto fr = juce::Rectangle<int>(18, top + stripRows * (stripH + 8) + 10, W - 36, fxH);
+        auto mapr = portrait ? fr.reduced(22, 16).withHeight(96) : fr.reduced(22, 16).withWidth(juce::jmin(560, (W - 36) * 40 / 100));
+        if (fr != fxPanelR || mapr != mapR) { fxPanelR = fr; mapR = mapr; if (fxMap) { static_cast<FxMap*>(fxMap.get())->compact = true; fxMap->setBounds(mapR); } if (!inLayout) layoutCards(); }
+        return;
+    }
+    if (fxMap) static_cast<FxMap*>(fxMap.get())->compact = false;
+    fxPanelR = {};
     auto mapr = juce::Rectangle<int>(18, top + stripRows * (stripH + 8), W - 36, mapH);
     if (mapr != mapR) { mapR = mapr; if (fxMap) fxMap->setBounds(mapR); if (!inLayout) layoutCards(); }
 }
@@ -944,6 +1154,20 @@ void Canvas::layoutCards() {
     for (auto* p : pagePills) p->setVisible(false);
     auto vis = familyCards(fxFamily);
     if (vis.isEmpty()) for (int f = 0; f < NFAM; ++f) if (!familyCards(f).isEmpty()) { fxFamily = f; vis = familyCards(f); break; }
+    if (Theme::softUI() && !fxPanelR.isEmpty()) {           // 2.1: one effect open, beside the families
+        if (!vis.contains(fxCard)) fxCard = vis.isEmpty() ? -1 : vis[0];
+        auto area = portrait ? fxPanelR.reduced(22, 16).withTrimmedTop(110) : fxPanelR.reduced(22, 16).withTrimmedLeft(mapR.getWidth() + 34);
+        for (int i = 0; i < cards.size(); ++i) {
+            auto* cv = cards[i]; bool show = i == fxCard;
+            cv->rowMode = true; cv->setTransform({});
+            if (show) { cv->setBounds(area); cv->resized(); }
+            cv->setVisible(show);
+        }
+        numCardPages = 1; cardPage = 0; cardsPerPage = 1;
+        if (fxMap) fxMap->repaint();
+        repaint(); return;
+    }
+    for (auto* cv : cards) if (cv->rowMode) { cv->rowMode = false; cv->resized(); }
     int top = mapR.getBottom() + 8, gap = 10;
     int availW = W - 36, availH = H - top - 10;
     // rows of cards (as many as their smallest good width allows); a tall screen shows two rows; more = pages
@@ -983,6 +1207,10 @@ void Canvas::layoutCards() {
 }
 
 void Canvas::themeChanged() {
+    fxPanelR = {}; mapR = {}; layoutStrips(); layoutCards();
+    if (auto* sh = findParentComponentOfClass<AppShell>()) sh->resized();
+    for (auto* sv : strips) sv->resized();
+    if (masterView) masterView->resized();
     if (auto* top = getTopLevelComponent()) { top->repaint(); if (auto* w = dynamic_cast<juce::DocumentWindow*>(top)) w->setBackgroundColour(Theme::bg()); }
     sendLookAndFeelChange(); repaint();
 }
@@ -1002,7 +1230,7 @@ void Canvas::showStation(bool on) {
     if (stationShown == on) return;
     stationShown = on;
     for (auto& k : hk) k.c->setVisible(on && k.grp >= 5);
-    for (auto* b : winBtns) { auto id = b->getComponentID(); b->setVisible(on && id != "t:synth" && id != "t:keys" && id != "t:studio"); }
+    for (auto* b : winBtns) { auto id = b->getComponentID(); b->setVisible(on && id != "t:synth" && id != "t:keys" && id != "t:studio" && !(inShell && id == "t:setup")); }
     for (auto* s : strips) s->setVisible(on);
     if (masterView) masterView->setVisible(on);
     if (fxMap) fxMap->setVisible(on);
@@ -1090,6 +1318,12 @@ void Canvas::paint(juce::Graphics& g) {
         g.fillRect(getLocalBounds());
     }
     if (!stationShown) return;
+    if (Theme::softUI()) {          // 2.1: the soft shade under every raised panel (the panels draw only their face)
+        auto shade = [&](juce::Component* cp) { if (cp != nullptr && cp->isVisible()) softShadow(g, cp->getBounds().toFloat(), 24.0f, 10.0f); };
+        for (auto* sv : strips) shade(sv);
+        shade(masterView.get());
+        if (!fxPanelR.isEmpty()) softRaised(g, fxPanelR.toFloat(), 30.0f, 10.0f, Theme::card());
+    }
     if (!inShell) paintTop(g);
     paintScenes(g);
 }
@@ -1121,13 +1355,14 @@ void Canvas::paintTop(juce::Graphics& g) {
     label(g, host.status, at(3, 14, 40, 108, 13), 7.0f, Theme::sub());
 }
 void Canvas::paintScenes(juce::Graphics& g) {
-    for (int k : { 5, 6, 7 }) drawPanel(g, grpR[k].toFloat(), 14.0f);
+    if (Theme::softUI()) { for (int k : { 5, 6 }) softWell(g, grpR[k].toFloat(), grpR[k].getHeight() * 0.5f); }
+    else for (int k : { 5, 6, 7 }) drawPanel(g, grpR[k].toFloat(), 14.0f);
     auto at = [&](int grp, int x, int y, int w, int h) { return juce::Rectangle<int>(grpR[grp].getX() + x, grpR[grp].getY() + y, w, h); };
-    label(g, "TRACKS", at(6, 14, 0, 56, 44), 7.5f, Theme::sub(), 2);
-    g.setColour(Theme::line()); g.fillRect(at(6, 132, 11, 1, 22));
+    mlabel(g, "TRACKS", at(6, 16, 0, 56, 44), 7.5f, Theme::sub());
+    if (!Theme::softUI()) { g.setColour(Theme::line()); g.fillRect(at(6, 132, 11, 1, 22)); }
     int s = model().selected;
-    label(g, U("SEND ▸"), at(6, 142, 0, 46, 44), 7.5f, Theme::sub(), 2);
-    label(g, s < 4 ? "LIVE " + juce::String(s + 1) : "TRACK " + juce::String(s - 3), at(6, 188, 0, 60, 44), 10.5f, Theme::txt(), 2);
+    mlabel(g, Theme::softUI() ? juce::String("SEND") : U("SEND ▸"), at(6, 142, 0, 46, 44), 7.5f, Theme::sub());
+    label(g, s < 4 ? (Theme::softUI() ? "Live " : "LIVE ") + juce::String(s + 1) : (Theme::softUI() ? "Track " : "TRACK ") + juce::String(s - 3), at(6, 188, 0, 60, 44), Theme::softUI() ? 11.5f : 10.5f, Theme::txt(), Theme::softUI() ? 1 : 2);
     if (juce::Time::getMillisecondCounterHiRes() < flashUntil) {
         auto r = grpR[8].reduced(0, 4).toFloat();
         g.setColour(Theme::amber()); g.fillRoundedRectangle(r, 10.0f);

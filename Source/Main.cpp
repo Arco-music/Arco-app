@@ -91,7 +91,7 @@ public:
     void screenshot(const juce::String& cmd) {
         auto args = juce::StringArray::fromTokens(cmd, true);
         juce::File out(args[args.indexOf("--screenshot") + 1]);
-        arco::Theme::setPalette(cmd.contains("light") ? 2 : 4);
+        arco::Theme::setPalette(cmd.contains("light") ? 7 : 6);
         if (cmd.contains("palette=")) arco::Theme::setPalette(cmd.fromFirstOccurrenceOf("palette=", false, false).getIntValue());
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);

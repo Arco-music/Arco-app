@@ -53,6 +53,7 @@ public:
     std::unique_ptr<juce::FileChooser> chooser;
     void chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs = false);
     void layoutStrips();
+    juce::String focusFx() const;
     void layoutCards();
     int cardPage = 0, numCardPages = 1; bool inLayout = false;
     std::vector<juce::Component*> pagePills;
@@ -66,7 +67,7 @@ public:
     bool fxUsed(const juce::String& key);           // is this effect working now (lit on the map)
     void showFamily(int f, int page = 0);
     void showCard(int cardIndex);
-    juce::Rectangle<int> mapR; int cardsPerPage = 4; int shotTracks = 0;   // screenshots: how many tracks to show
+    juce::Rectangle<int> mapR, fxPanelR; int fxCard = -1; int cardsPerPage = 4; int shotTracks = 0;   // screenshots: how many tracks to show
     std::unique_ptr<juce::Component> fxMap;
     void openLook(bool show);
     void openSpatial(bool show);

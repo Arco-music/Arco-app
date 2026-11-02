@@ -253,6 +253,16 @@ TopBar::TopBar(AppShell& s) : shell(s) {
     save->textColour = [] { return Theme::txt(); };
     setup = mk("SETUP", [] { return Theme::btn(); }, [this] { shell.show(Screen::Workstation); shell.canvas.openSetup(true); }, 0, 8.5f);
     setup->textColour = [] { return Theme::txt(); };
+    // 2.1 SOFT: words as in the design (Click, Count-in, Save, Setup); play lights up instead of turning green
+    click->dynText = [] { return juce::String(Theme::softUI() ? "Click" : "CLICK"); };
+    count->dynText = [] { return juce::String(Theme::softUI() ? "Count-in" : "COUNT-IN"); };
+    save->dynText = [] { return juce::String(Theme::softUI() ? "Save" : "SAVE"); };
+    setup->dynText = [] { return juce::String(Theme::softUI() ? "Setup" : "SETUP"); };
+    for (auto* p : { click, count, save, setup }) { p->fsize = 10.5f; }
+    play->onFn = [this] { return shell.isPlaying(); };
+    play->textColour = [this] { return shell.isPlaying() ? (Theme::softUI() ? Theme::ink(Theme::blue()) : Theme::textOn(Theme::green())) : Theme::txt(); };
+    play->bg = [this] { return shell.isPlaying() ? (Theme::softUI() ? Theme::blue() : Theme::green()) : Theme::btn(); };
+    play->tint = true; play->solidFn = [] { return !Theme::softUI(); };
     startTimerHz(20);
 }
 
@@ -268,6 +278,18 @@ void TopBar::resized() {
         click->setBounds(x, y, 64, bh); count->setVisible(false); meterR = {};
         int r = getWidth() - 12;
         r -= 62; setup->setBounds(r, y, 62, bh); r -= 6; r -= 56; save->setBounds(r, y, 56, bh); r -= 6; r -= 42; undo->setBounds(r, y, 42, bh);
+        return;
+    }
+    if (Theme::softUI()) {         // 2.1: round keys, one display (bar · bpm · 4/4 · the beat lights), the words
+        titleR = { 74, 8, 230, h - 16 };
+        int bs = juce::jmin(bh, 46), by = (h - bs) / 2;
+        int cx2 = getWidth() / 2, x = cx2 - 400;
+        rew->setBounds(x, by + 3, bs - 6, bs - 6); x += bs + 4; play->setBounds(x, by, bs, bs); x += bs + 8; rec->setBounds(x, by, bs, bs); x += bs + 14;
+        posR = { x, by, 132, bs }; x += 132; bpmR = { x, by, 104, bs }; x += 104; sigR = { x, by, 118, bs }; x += 118 + 14;
+        click->setBounds(x, by, 74, bs); x += 80; count->setBounds(x, by, 104, bs); count->setVisible(true);
+        int r = getWidth() - 16;
+        r -= 76; setup->setBounds(r, by, 76, bs); r -= 8; r -= 66; save->setBounds(r, by, 66, bs); r -= 8; r -= bs; undo->setBounds(r, by, bs, bs);
+        meterR = {};
         return;
     }
     int cx = getWidth() / 2;
@@ -298,13 +320,47 @@ void TopBar::paint(juce::Graphics& g) {
         cap(mid.expanded(6, 4));
         auto right = undo->getBounds().getUnion(setup->getBounds()); if (!meterR.isEmpty()) right = right.getUnion(meterR.withTrimmedLeft(-30));
         cap(right.expanded(6, 4));
+    } else if (Theme::softUI()) {   // 2.1: the soft material; the transport sits in one raised capsule
+        g.fillAll(Theme::bg());
+        auto mid = rew->getBounds().getUnion(sigR).getUnion(click->getBounds()); if (count->isVisible()) mid = mid.getUnion(count->getBounds());
+        auto mr = mid.expanded(8, 5).toFloat(); softRaised(g, mr, mr.getHeight() * 0.5f, 7.0f, Theme::card());
     } else {
         g.setColour(Theme::card()); g.fillRect(b);
         g.setColour(Theme::line()); g.fillRect(0.0f, b.getBottom() - 1, b.getWidth(), 1.0f);
     }
-    auto screenBox = [&](juce::Rectangle<int> r) { g.setColour(Theme::scr()); g.fillRoundedRectangle(r.toFloat(), Theme::glass() ? r.getHeight() * 0.5f : 10.0f);
+    auto screenBox = [&](juce::Rectangle<int> r) { if (Theme::softUI()) { softWell(g, r.toFloat(), 12.0f); return; }
+        g.setColour(Theme::scr()); g.fillRoundedRectangle(r.toFloat(), Theme::glass() ? r.getHeight() * 0.5f : 10.0f);
         if (Theme::glass()) { g.setColour(juce::Colours::white.withAlpha(0.08f)); g.drawRoundedRectangle(r.toFloat().reduced(0.5f), r.getHeight() * 0.5f, 1.0f); } };
 
+    if (Theme::softUI() && !shell.portrait) {
+        // ARCO, and where we are in small letters
+        { auto f = Theme::font(16.0f, 2).withExtraKerningFactor(0.32f); g.setColour(Theme::txt()); g.setFont(f);
+          g.drawText("ARCO", titleR.withHeight(titleR.getHeight() / 2 + 4).translated(0, 1), juce::Justification::bottomLeft); }
+        auto song = shell.host.songFolder.isDirectory() ? shell.host.songFolder.getFileName() : juce::String("new song");
+        bool running = shell.host.devices.getCurrentAudioDevice() != nullptr;
+        g.setFont(Theme::mono(8.0f)); g.setColour(running ? Theme::sub() : Theme::ink(Theme::amber()));
+        g.drawText((juce::String(screenTitle(shell.screen)) + juce::String::fromUTF8(" · ") + song + (running ? juce::String() : juce::String::fromUTF8(" · sound off"))).toUpperCase(),
+                   titleR.withTrimmedTop(titleR.getHeight() / 2 + 6).withHeight(14), juce::Justification::topLeft);
+        // the transport capsule's display
+        auto disp = posR.getUnion(bpmR).getUnion(sigR).toFloat();
+        softWell(g, disp, 14.0f);
+        auto num = [&](const juce::String& n, const char* unit, juce::Rectangle<int> r, juce::Colour col) {
+            auto f = Theme::font(19.0f, 0); float w = juce::GlyphArrangement::getStringWidth(f, n);
+            auto uf = Theme::mono(7.5f); float uw = juce::GlyphArrangement::getStringWidth(uf, unit);
+            float x0 = r.getCentreX() - (w + uw + 6) * 0.5f;
+            g.setColour(col); g.setFont(f); g.drawText(n, juce::Rectangle<float>(x0, (float) r.getY(), w + 2, (float) r.getHeight()), juce::Justification::centredLeft);
+            g.setColour(Theme::sub()); g.setFont(uf); g.drawText(unit, juce::Rectangle<float>(x0 + w + 6, (float) r.getY() + 4, uw + 4, (float) r.getHeight()), juce::Justification::centredLeft); };
+        num(shell.positionText(), "BAR", posR, shell.isRecording() ? Theme::ink(Theme::red()) : Theme::txt());
+        num(juce::String(shell.tempo(), shell.tempo() == std::round(shell.tempo()) ? 0 : 1), "BPM", bpmR, Theme::txt());
+        int bpb = juce::jlimit(1, 8, shell.beatsPerBar());
+        auto sr = sigR.withTrimmedRight(8);
+        g.setColour(Theme::txt()); g.setFont(Theme::font(15.0f, 0));
+        g.drawText(juce::String(shell.beatsPerBar()) + "/4", sr.withWidth(40), juce::Justification::centred);
+        double bt = shell.host.engine.clock.beatNow.load(); int bi = ((int) std::floor(bt)) % bpb; bool run = shell.isPlaying();
+        float lx = (float) sr.getX() + 44, step = juce::jmin(10.0f, (sr.getRight() - lx) / (float) bpb);
+        for (int i = 0; i < bpb; ++i) softLed(g, { lx + step * (i + 0.5f), (float) sr.getCentreY() }, 2.8f, Theme::blue(), run ? i <= bi : i == 0);
+        return;
+    }
     // where we are
     say(g, screenTitle(shell.screen), titleR.withHeight(titleR.getHeight() / 2 + 6).translated(0, 2), shell.portrait ? 12.0f : 15.0f, Theme::txt(), 2);
     auto song = shell.host.songFolder.isDirectory() ? shell.host.songFolder.getFileName() : juce::String("new song");
@@ -415,7 +471,12 @@ void HomeScreen::paint(juce::Graphics& g) {
         float d = std::abs((float) i - pos);
         auto acc = Theme::pal().acc[(size_t) cards[(size_t) i].accent];
         // shadow, body (a soft wash of its colour), border
-        if (Theme::glass()) {          // a slab of glass, its colour only as a glow inside
+        if (Theme::softUI()) {         // 2.1: a raised soft card; its colour only as a faint light in the corner
+            softRaised(g, r, 30.0f, d < 0.5f ? 14.0f : 9.0f, Theme::card());
+            juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(r, 30.0f); g.reduceClipRegion(cl);
+            g.setGradientFill(juce::ColourGradient(acc.withAlpha(0.10f), r.getX(), r.getY(), acc.withAlpha(0.0f), r.getX() + r.getWidth() * 0.6f, r.getY() + r.getHeight() * 0.5f, true)); g.fillRect(r);
+            if (d < 0.5f) { float bw = r.getWidth() * 0.18f; g.setColour(acc); g.fillRoundedRectangle(r.getCentreX() - bw * 0.5f, r.getY() + 10.0f, bw, 3.0f, 1.5f); }
+        } else if (Theme::glass()) {          // a slab of glass, its colour only as a glow inside
             drawGlass(g, r, 30.0f, 1.2f);
             juce::ColourGradient tint(acc.withAlpha(0.20f), r.getX(), r.getY(), acc.withAlpha(0.0f), r.getX() + r.getWidth() * 0.7f, r.getY() + r.getHeight() * 0.6f, false);
             g.setGradientFill(tint); g.fillRoundedRectangle(r, 30.0f);

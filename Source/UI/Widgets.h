@@ -10,6 +10,40 @@ using ColourFn = std::function<juce::Colour()>;
 using ValueFn = std::function<double()>;
 using SetFn = std::function<void(double)>;
 
+// 2.1 SOFT: surfaces raised out of one material, lit from the top left
+inline void softShadow(juce::Graphics& g, juce::Rectangle<float> r, float radius, float d) {
+    const bool light = Theme::lightMode();
+    for (int i = 4; i >= 1; --i) {
+        float e = d * (float) i / 4.0f * 0.7f, a = 0.5f / (float) (i + 1);
+        g.setColour(Theme::hiC().withAlpha(juce::jmin(1.0f, a * (light ? 1.6f : 0.85f))));
+        g.fillRoundedRectangle(r.translated(-d * 0.45f, -d * 0.45f).expanded(e), radius + e);
+        g.setColour(Theme::loC().withAlpha(a * (light ? 0.9f : 1.0f)));
+        g.fillRoundedRectangle(r.translated(d * 0.55f, d * 0.55f).expanded(e), radius + e);
+    }
+}
+inline void softFace(juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour base) {
+    const bool light = Theme::lightMode();
+    g.setGradientFill(juce::ColourGradient(base.brighter(light ? 0.0f : 0.035f), r.getX(), r.getY(), base.darker(light ? 0.025f : 0.05f), r.getRight(), r.getBottom(), false));
+    g.fillRoundedRectangle(r, radius);
+    juce::ColourGradient rim(Theme::hiC().withAlpha(light ? 0.95f : 0.45f), r.getX(), r.getY(), Theme::hiC().withAlpha(0.0f), r.getX() + r.getWidth() * 0.5f, r.getY() + juce::jmin(r.getHeight(), 60.0f), false);
+    g.setGradientFill(rim); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
+}
+inline void softRaised(juce::Graphics& g, juce::Rectangle<float> r, float radius, float d, juce::Colour base) { softShadow(g, r, radius, d); softFace(g, r, radius, base); }
+inline void softWell(juce::Graphics& g, juce::Rectangle<float> r, float radius) {
+    const bool light = Theme::lightMode();
+    g.setColour(Theme::card2()); g.fillRoundedRectangle(r, radius);
+    juce::Graphics::ScopedSaveState ss(g);
+    juce::Path clip; clip.addRoundedRectangle(r, radius); g.reduceClipRegion(clip);
+    float t = juce::jlimit(2.0f, 4.0f, juce::jmin(r.getWidth(), r.getHeight()) * 0.12f);
+    g.setColour(Theme::loC().withAlpha(light ? 0.55f : 0.75f)); g.drawRoundedRectangle(r.translated(t * 0.5f, t * 0.5f).expanded(t * 0.5f), radius + t * 0.5f, t);
+    g.setColour(Theme::hiC().withAlpha(light ? 0.9f : 0.30f)); g.drawRoundedRectangle(r.translated(-t * 0.5f, -t * 0.5f).expanded(t * 0.5f), radius + t * 0.5f, t * 0.6f);
+}
+inline void softLed(juce::Graphics& g, juce::Point<float> c, float rad, juce::Colour col, bool on) {
+    if (on) { g.setColour(col.withAlpha(0.22f)); g.fillEllipse(c.x - rad * 2.2f, c.y - rad * 2.2f, rad * 4.4f, rad * 4.4f);
+              g.setColour(col); g.fillEllipse(c.x - rad, c.y - rad, rad * 2, rad * 2); }
+    else { g.setColour(Theme::line()); g.fillEllipse(c.x - rad, c.y - rad, rad * 2, rad * 2); }
+}
+
 // ---------------------------------------------------------------- a rounded button
 class Pill : public juce::Component, public juce::SettableTooltipClient {
 public:
@@ -23,7 +57,10 @@ public:
     // seg = a part of a segmented control (1 left, 2 middle, 3 right, 4 alone): shared background, thin dividers
     bool tint = false; int seg = 0; std::function<bool()> solidFn; int icon = 0;   // icon: see drawIcon
     std::function<bool()> onFn;      // with tint: is it "on" (else: on = its colour differs from btn())
+    std::function<int()> iconFn;     // 2.1: an icon that follows the state (play / stop)
+    bool mono = false;               // 2.1: the small monospace labels (IN 1 ▾)
     void paint(juce::Graphics& g) override {
+        const int icon = iconFn ? iconFn() : this->icon;
         auto r = getLocalBounds().toFloat();
         auto c = bg ? bg() : Theme::btn();
         bool on = onFn ? onFn() : (c != Theme::btn() && c != Theme::card2() && c.getAlpha() > 0);
@@ -37,7 +74,28 @@ public:
         if (isMouseButtonDown()) fill = fill.darker(0.12f);
         float rr = seg == 0 ? radius : juce::jmin(10.0f, r.getHeight() * 0.32f);
         if (Theme::glass()) rr = juce::jmin(r.getHeight() * 0.5f, juce::jmax(rr, 10.0f));
-        if (Theme::glass() && (seg == 0 || seg == 4)) {       // glass: a pill of light; "on" glows in its colour, solid is the colour itself
+        bool led = false;
+        if (Theme::softUI()) {          // 2.1: a raised key; "on" = pressed in with a little light; solid = the colour itself
+            bool solid = !tint ? (on && c.isOpaque() && c != Theme::btn() && c != Theme::card2()) : (solidFn && solidFn());
+            bool clear = c.getAlpha() == 0 && !on && !solid;
+            auto b = r.reduced(juce::jmin(3.0f, r.getHeight() * 0.1f));
+            float sr = juce::jmin(b.getHeight() * 0.5f, juce::jmax(rr, 9.0f));
+            if (std::abs(b.getWidth() - b.getHeight()) < 3.0f) sr = b.getHeight() * 0.5f;
+            if (clear) { if (isMouseOver()) { g.setColour(Theme::txt().withAlpha(0.05f)); g.fillRoundedRectangle(b, sr); } ink = Theme::txt().withAlpha(isMouseOver() ? 1.0f : 0.78f); }
+            else if (solid) {
+                softShadow(g, b, sr, 3.0f);
+                g.setColour(c.withAlpha(0.28f)); g.fillRoundedRectangle(b.expanded(2.5f), sr + 2.5f);
+                g.setGradientFill(juce::ColourGradient(c.brighter(0.10f), b.getX(), b.getY(), c.darker(0.10f), b.getRight(), b.getBottom(), false)); g.fillRoundedRectangle(b, sr);
+                ink = Theme::textOn(c);
+            } else if ((on && tint) || isMouseButtonDown()) {
+                softWell(g, b, sr); ink = Theme::txt(); led = on && tint && icon == 0;
+            } else {
+                softRaised(g, b, sr, juce::jmin(5.0f, b.getHeight() * 0.14f), isMouseOver() ? Theme::btn().brighter(Theme::lightMode() ? 0.02f : 0.06f) : Theme::btn());
+                ink = on && !tint ? Theme::ink(c) : Theme::txt();
+            }
+            if (icon == 3 && !solid) ink = Theme::red();
+        }
+        else if (Theme::glass() && (seg == 0 || seg == 4)) {       // glass: a pill of light; "on" glows in its colour, solid is the colour itself
             bool solid = !tint ? (fill.isOpaque() && fill != Theme::btn()) : (solidFn && solidFn());
             if (solid) { g.setGradientFill(juce::ColourGradient(fill.brighter(0.12f), 0, r.getY(), fill.darker(0.08f), 0, r.getBottom(), false)); g.fillRoundedRectangle(r, rr);
                          g.setColour(juce::Colours::white.withAlpha(0.25f)); g.drawRoundedRectangle(r.reduced(0.5f), rr, 1.0f); }
@@ -55,8 +113,15 @@ public:
             if (seg != 1) { g.setColour(Theme::line()); g.fillRect(r.getX(), r.getY() + 0.0f, 1.0f, r.getHeight()); }
         }
         auto tc = textColour ? textColour() : ink;
+        if (Theme::softUI() && textColour && icon != 3) { auto t2 = textColour(); if (t2.getAlpha() > 0) tc = Theme::softUI() && Theme::contrast(Theme::flat(t2), Theme::btn()) < 3.0f ? ink : t2; }
         auto txt = dynText ? dynText() : text;
         auto box = getLocalBounds().reduced(3, 0);
+        if (led && txt.isNotEmpty()) {
+            auto f = Theme::font(fsize, weight); float tw = juce::GlyphArrangement::getStringWidth(f, txt);
+            float x0 = r.getCentreX() - (tw + 11.0f) * 0.5f;
+            softLed(g, { x0 + 2.5f, r.getCentreY() }, 2.6f, c, true);
+            g.setColour(tc); g.setFont(f); g.drawText(txt, juce::Rectangle<float>(x0 + 10.0f, r.getY(), tw + 4.0f, r.getHeight()), juce::Justification::centredLeft); return;
+        }
         if (icon != 0) {
             float is = juce::jmin((float) getHeight() * 0.42f, 14.0f);
             float tw = txt.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth(Theme::font(fsize, weight), txt) + 5.0f;
@@ -67,8 +132,8 @@ public:
             g.setColour(tc); g.setFont(Theme::font(fsize, weight)); g.drawText(txt, box, juce::Justification::centredLeft); return;
         }
         g.setColour(tc);
-        g.setFont(Theme::font(fsize, weight));
-        g.drawFittedText(txt, box, juce::Justification::centred, 1, 0.7f);
+        g.setFont(mono && Theme::softUI() ? Theme::mono(fsize) : Theme::font(fsize, weight));
+        g.drawFittedText(mono && Theme::softUI() ? txt.toUpperCase() : txt, box, juce::Justification::centred, 1, 0.7f);
     }
     // 1 play  2 stop  3 rec dot  4 undo  5 headphones  6 folder  7 clear (x)  8 power  9 play/stop
     static void drawIcon(juce::Graphics& g, int k, juce::Rectangle<float> b, juce::Colour c) {
@@ -108,6 +173,7 @@ inline void drawGlass(juce::Graphics& g, juce::Rectangle<float> r, float radius,
 }
 inline void drawPanel(juce::Graphics& g, juce::Rectangle<float> r, float radius = 16.0f) {
     if (Theme::glass()) { drawGlass(g, r, radius + 2.0f); return; }
+    if (Theme::softUI()) { softRaised(g, r, radius + 8.0f, 10.0f, Theme::card()); return; }
     if (Theme::lightMode()) { g.setColour(juce::Colour::fromRGBA(60, 50, 30, 16)); g.fillRoundedRectangle(r.translated(0, 2.5f).expanded(1.0f), radius); }
     else { g.setColour(juce::Colours::black.withAlpha(0.32f)); g.fillRoundedRectangle(r.translated(0, 4.0f).expanded(1.0f), radius); }
     g.setGradientFill(juce::ColourGradient(Theme::card().brighter(Theme::lightMode() ? 0.01f : 0.025f), 0, r.getY(), Theme::card(), 0, r.getBottom(), false));
@@ -115,6 +181,14 @@ inline void drawPanel(juce::Graphics& g, juce::Rectangle<float> r, float radius 
     g.setColour(Theme::lightMode() ? juce::Colour::fromRGBA(60, 50, 30, 18) : juce::Colours::white.withAlpha(0.035f)); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
 }
 inline void drawToggle(juce::Graphics& g, juce::Rectangle<float> r, bool on, juce::Colour col) {
+    if (Theme::softUI()) {
+        softWell(g, r, r.getHeight() * 0.5f);
+        float d = r.getHeight() - 6; float x = on ? r.getRight() - 3 - d : r.getX() + 3;
+        auto k = juce::Rectangle<float>(x, r.getY() + 3, d, d);
+        if (on) { g.setColour(col.withAlpha(0.3f)); g.fillEllipse(k.expanded(3)); g.setColour(col); g.fillEllipse(k); }
+        else softRaised(g, k, d * 0.5f, 2.0f, Theme::btn());
+        return;
+    }
     g.setColour(on ? col : Theme::line()); g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
     float d = r.getHeight() - 4; float x = on ? r.getRight() - 2 - d : r.getX() + 2;
     g.setColour(juce::Colours::black.withAlpha(0.25f)); g.fillEllipse(x, r.getY() + 2.6f, d, d);
@@ -136,6 +210,28 @@ public:
         const float a0 = juce::MathConstants<float>::pi * 1.25f, a1 = juce::MathConstants<float>::pi * 2.75f;
         double v = get ? get() : def;
         float t = (float) ((v - lo) / juce::jmax(1e-9, hi - lo));
+        if (Theme::softUI()) {          // 2.1: a raised cap with a line, the value lit in a ring around it
+            float sw = juce::jmax(2.0f, d * 0.055f), ring = rad - sw * 0.5f - 1.0f;
+            juce::Path tr; tr.addCentredArc(c.x, c.y, ring, ring, 0, a0, a1, true);
+            g.setColour(Theme::card2()); g.strokePath(tr, juce::PathStrokeType(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            float start = lo < 0 && hi > 0 ? (float) ((0 - lo) / (hi - lo)) : 0.0f;
+            float ta = a0 + (a1 - a0) * juce::jmin(start, t), tb = a0 + (a1 - a0) * juce::jmax(start, t);
+            auto cc = enabled ? Theme::arc(col ? col() : Theme::txt()) : Theme::line();
+            if (tb - ta > 0.001f) {
+                juce::Path va; va.addCentredArc(c.x, c.y, ring, ring, 0, ta, tb, true);
+                g.setColour(cc.withAlpha(0.20f)); g.strokePath(va, juce::PathStrokeType(sw * 2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.setColour(cc); g.strokePath(va, juce::PathStrokeType(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+            float fr = ring - sw * 0.5f - juce::jmax(3.0f, d * 0.09f);
+            auto face = juce::Rectangle<float>(c.x - fr, c.y - fr, fr * 2, fr * 2);
+            softRaised(g, face, fr, juce::jmax(2.0f, fr * 0.16f), Theme::btn());
+            float an = a0 + (a1 - a0) * t - juce::MathConstants<float>::halfPi;
+            g.setColour(enabled ? Theme::txt() : Theme::sub());
+            g.drawLine(c.x + std::cos(an) * fr * 0.42f, c.y + std::sin(an) * fr * 0.42f, c.x + std::cos(an) * fr * 0.80f, c.y + std::sin(an) * fr * 0.80f, juce::jmax(1.6f, d * 0.04f));
+            if (dragging) { g.setColour(Theme::txt()); g.setFont(Theme::font(8.0f, 1));
+                g.drawText(juce::String(v, std::abs(hi - lo) <= 2 ? 2 : 0), getLocalBounds().withY(getHeight() - 12).withHeight(12), juce::Justification::centred); }
+            return;
+        }
         // 1.6: the track ring, the value arc, a shaded face and a dot (as the new design)
         float sw = juce::jmax(2.2f, d * 0.065f), ring = rad - sw * 0.5f;
         juce::Path tr; tr.addCentredArc(c.x, c.y, ring, ring, 0, a0, a1, true);
@@ -186,10 +282,11 @@ public:
         setMouseCursor(juce::MouseCursor::UpDownResizeCursor); }
     ValueFn get; SetFn set; double lo, hi, def;
     // 1.6: the strip fader - a long thin track with a dB scale, a big handle in the strip's colour
-    ColourFn col; bool scale = false;
+    ColourFn col; bool scale = false; bool horiz = false;     // 2.1: horiz = a wide fader lying across the strip
     static double volToDb(double v) { double g = std::pow(juce::jmax(0.0, v) / 100.0, 2.0) * 2.0; return g <= 1e-6 ? -120.0 : 20.0 * std::log10(g); }
     static double dbToVol(double d) { return 100.0 * std::sqrt(std::pow(10.0, d / 20.0) / 2.0); }
     void paint(juce::Graphics& gr) override {
+        if (horiz) { paintHoriz(gr); return; }
         if (scale) { paintScale(gr); return; }
         auto r = getLocalBounds().toFloat();
         gr.setColour(Theme::card2()); gr.fillRoundedRectangle(r, r.getWidth() * 0.5f);
@@ -200,10 +297,35 @@ public:
         auto cap = juce::Rectangle<float>(r.getX() - 1, juce::jlimit(r.getY(), r.getBottom() - 8.0f, y - 4.0f), r.getWidth() + 2, 8.0f);
         gr.setColour(Theme::txt()); gr.fillRoundedRectangle(cap, 3.0f);
     }
-    void mouseDown(const juce::MouseEvent& e) override { startV = get(); startY = e.position.y; }
+    void mouseDown(const juce::MouseEvent& e) override {
+        startV = get(); startY = e.position.y; startX = e.position.x;
+        if (horiz) {        // a tap on the track jumps there; a drag on the handle moves it
+            float cx = capX(); if (std::abs(e.position.x - cx) > capD() * 0.7f) { double v = valueAtX(e.position.x); set(v); startV = v; repaint(); } } }
     void mouseDrag(const juce::MouseEvent& e) override {
+        if (horiz) { double v = juce::jlimit(lo, hi, startV + (e.position.x - startX) / (juce::jmax(20.0f, getWidth() - capD()) * (e.mods.isShiftDown() ? 4.0 : 1.0)) * (hi - lo));
+                     set(v); repaint(); return; }
         double v = juce::jlimit(lo, hi, startV + (startY - e.position.y) / (getHeight() * (e.mods.isShiftDown() ? 4.0 : 1.0)) * (hi - lo));
         set(v); repaint(); }
+    float capD() const { return juce::jlimit(16.0f, 26.0f, getHeight() - 6.0f); }
+    float capX() const { float d = capD(); return d * 0.5f + (getWidth() - d) * (float) ((juce::jlimit(lo, hi, get()) - lo) / (hi - lo)); }
+    double valueAtX(float x) const { float d = capD(); return juce::jlimit(lo, hi, lo + (hi - lo) * (double) ((x - d * 0.5f) / juce::jmax(1.0f, getWidth() - d))); }
+    void paintHoriz(juce::Graphics& gr) {
+        auto b = getLocalBounds().toFloat();
+        float d = capD(), cy = b.getCentreY(), x0 = d * 0.5f, x1 = b.getWidth() - d * 0.5f;
+        auto slot = juce::Rectangle<float>(x0 - 6.0f, cy - 5.0f, x1 - x0 + 12.0f, 10.0f);
+        if (Theme::softUI()) softWell(gr, slot, 5.0f); else { gr.setColour(Theme::card2()); gr.fillRoundedRectangle(slot, 5.0f); }
+        auto c = Theme::arc(col ? col() : Theme::txt());
+        float cx = capX();
+        // 0 dB mark
+        float zx = x0 + (x1 - x0) * (float) ((dbToVol(0) - lo) / (hi - lo));
+        gr.setColour(Theme::sub().withAlpha(0.6f)); gr.fillRect(zx - 0.5f, cy + 8.0f, 1.0f, 4.0f);
+        if (cx > x0 + 1) { gr.setColour(c.withAlpha(0.22f)); gr.fillRoundedRectangle(x0 - 2.0f, cy - 2.5f, cx - x0 + 2.0f, 5.0f, 2.5f);
+                           gr.setColour(c); gr.fillRoundedRectangle(x0 - 1.0f, cy - 1.25f, cx - x0, 2.5f, 1.25f); }
+        auto cap = juce::Rectangle<float>(cx - d * 0.5f, cy - d * 0.5f, d, d);
+        if (Theme::softUI()) softRaised(gr, cap, d * 0.5f, 3.0f, Theme::btn());
+        else { gr.setColour(Theme::txt()); gr.fillEllipse(cap); }
+        gr.setColour(Theme::sub()); gr.fillRoundedRectangle(cx - 1.0f, cy - d * 0.22f, 2.0f, d * 0.44f, 1.0f);
+    }
     void mouseDoubleClick(const juce::MouseEvent&) override { set(def); repaint(); }
     float capH() const { return juce::jlimit(22.0f, 34.0f, getWidth() * 0.5f); }
     void paintScale(juce::Graphics& gr) {
@@ -241,7 +363,7 @@ public:
         gr.setColour(c); gr.fillRect(cap.getCentreX() - cw * 0.34f, cap.getCentreY() - 1.0f, cw * 0.68f, 2.0f);
     }
 private:
-    double startV = 0; float startY = 0;
+    double startV = 0; float startY = 0, startX = 0;
 };
 
 // ---------------------------------------------------------------- a number (drag up / down; double-click to type)
