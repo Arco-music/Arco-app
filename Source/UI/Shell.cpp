@@ -230,6 +230,7 @@ void AppShell::undo() {
 
 // ================================================================== the top bar
 TopBar::TopBar(AppShell& s) : shell(s) {
+    getProperties().set("softShades", true);
     auto mk = [&](const juce::String& t, ColourFn c, std::function<void()> f, int icon, float fs = 10.0f) {
         auto* p = new Pill(t, std::move(c), fs, 12.0f); p->onClick = std::move(f); p->icon = icon; owned.add(p); addAndMakeVisible(p); return p; };
     home = mk("", [this] { return shell.screen == Screen::Home ? Theme::blue() : Theme::btn(); }, [this] { shell.show(Screen::Home); }, 10);
@@ -324,6 +325,7 @@ void TopBar::paint(juce::Graphics& g) {
         g.fillAll(Theme::bg());
         auto mid = rew->getBounds().getUnion(sigR).getUnion(click->getBounds()); if (count->isVisible()) mid = mid.getUnion(count->getBounds());
         auto mr = mid.expanded(8, 5).toFloat(); softRaised(g, mr, mr.getHeight() * 0.5f, 7.0f, Theme::card());
+        drawSoftShades(g, *this);
     } else {
         g.setColour(Theme::card()); g.fillRect(b);
         g.setColour(Theme::line()); g.fillRect(0.0f, b.getBottom() - 1, b.getWidth(), 1.0f);
@@ -416,6 +418,7 @@ void TopBar::mouseDoubleClick(const juce::MouseEvent& e) {
 
 // ================================================================== HOME
 HomeScreen::HomeScreen(AppShell& s) : shell(s) {
+    getProperties().set("softShades", true);
     setWantsKeyboardFocus(true);
     cards = {
         { Screen::Workstation, "WORKSTATION", juce::String::fromUTF8("Loop live: four scenes, eight tracks, your instruments in, effects on every strip."), 3 },
@@ -462,6 +465,7 @@ void HomeScreen::paint(juce::Graphics& g) {
     say(g, "Choose what to play", { getWidth() - 444, 44, 400, 24 }, 11.0f, Theme::sub(), 1, juce::Justification::centredRight);
     if (Theme::glass()) drawGlass(g, dockR.toFloat(), dockR.getHeight() * 0.5f, 1.1f);
     else drawPanel(g, dockR.toFloat(), 22.0f);
+    drawSoftShades(g, *this);
     // far cards first, the one in the middle on top
     std::vector<int> order(cards.size()); for (size_t i = 0; i < cards.size(); ++i) order[i] = (int) i;
     std::sort(order.begin(), order.end(), [this](int a, int b) { return std::abs(a - pos) > std::abs(b - pos); });

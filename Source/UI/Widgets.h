@@ -59,6 +59,20 @@ public:
     bool tint = false; int seg = 0; std::function<bool()> solidFn; int icon = 0;   // icon: see drawIcon
     std::function<bool()> onFn;      // with tint: is it "on" (else: on = its colour differs from btn())
     std::function<int()> iconFn;     // 2.1: an icon that follows the state (play / stop)
+    bool shadedByParent() const { auto* p = getParentComponent(); return p != nullptr && (bool) p->getProperties()["softShades"]; }
+    float softRadius(juce::Rectangle<float> b) const {
+        float rr = seg == 0 ? radius : juce::jmin(10.0f, b.getHeight() * 0.32f);
+        float sr = juce::jmin(b.getHeight() * 0.5f, juce::jmax(rr, 9.0f));
+        if (std::abs(b.getWidth() - b.getHeight()) < 3.0f) sr = b.getHeight() * 0.5f;
+        return sr; }
+    // raised right now (so its parent shades it): not a bare word, not pressed in
+    bool raisedNow() {
+        auto c = bg ? bg() : Theme::btn();
+        bool on = onFn ? onFn() : (c != Theme::btn() && c != Theme::card2() && c.getAlpha() > 0);
+        bool solid = !tint ? (on && c.isOpaque() && c != Theme::btn() && c != Theme::card2()) : (solidFn && solidFn());
+        if (c.getAlpha() == 0 && !on && !solid) return false;
+        if (!solid && ((on && tint) || isMouseButtonDown())) return false;
+        return true; }
     bool mono = false;               // 2.1: the small monospace labels (IN 1 ▾)
     void paint(juce::Graphics& g) override {
         const int icon = iconFn ? iconFn() : this->icon;
@@ -79,22 +93,23 @@ public:
         if (Theme::softUI()) {          // 2.1: a raised key; "on" = pressed in with a little light; solid = the colour itself
             bool solid = !tint ? (on && c.isOpaque() && c != Theme::btn() && c != Theme::card2()) : (solidFn && solidFn());
             bool clear = c.getAlpha() == 0 && !on && !solid;
-            auto b = r.reduced(juce::jmin(3.0f, r.getHeight() * 0.1f));
-            float sr = juce::jmin(b.getHeight() * 0.5f, juce::jmax(rr, 9.0f));
-            if (std::abs(b.getWidth() - b.getHeight()) < 3.0f) sr = b.getHeight() * 0.5f;
+            const bool ext = shadedByParent();        // 2.2: the parent draws the big soft shade round the key (outside its bounds)
+            auto b = ext ? r : r.reduced(juce::jmin(3.0f, r.getHeight() * 0.1f));
+            float sr = softRadius(b);
             if (clear) { if (isMouseOver()) { g.setColour(Theme::txt().withAlpha(0.05f)); g.fillRoundedRectangle(b, sr); } ink = Theme::txt().withAlpha(isMouseOver() ? 1.0f : 0.78f); }
             else if (solid) {
-                softShadow(g, b, sr, 3.0f);
+                if (!ext) softShadow(g, b, sr, 3.0f);
                 g.setColour(c.withAlpha(0.28f)); g.fillRoundedRectangle(b.expanded(2.5f), sr + 2.5f);
                 g.setGradientFill(juce::ColourGradient(c.brighter(0.10f), b.getX(), b.getY(), c.darker(0.10f), b.getRight(), b.getBottom(), false)); g.fillRoundedRectangle(b, sr);
                 ink = Theme::textOn(c);
             } else if ((on && tint) || isMouseButtonDown()) {
                 softWell(g, b, sr); ink = Theme::txt(); led = on && tint && icon == 0;
             } else {
-                softRaised(g, b, sr, juce::jmin(5.0f, b.getHeight() * 0.14f), isMouseOver() ? Theme::btn().brighter(Theme::lightMode() ? 0.02f : 0.06f) : Theme::btn());
+                auto base = isMouseOver() ? Theme::btn().brighter(Theme::lightMode() ? 0.02f : 0.05f) : Theme::btn();
+                if (ext) softFace(g, b, sr, base); else softRaised(g, b, sr, juce::jmin(5.0f, b.getHeight() * 0.14f), base);
                 ink = on && !tint ? Theme::ink(c) : Theme::txt();
             }
-            if (icon == 3 && !solid) ink = Theme::red();
+            if (icon == 3 && !solid) ink = (on && tint) ? Theme::red() : Theme::red().withMultipliedAlpha(0.62f);
         }
         else if (Theme::glass() && (seg == 0 || seg == 4)) {       // glass: a pill of light; "on" glows in its colour, solid is the colour itself
             bool solid = !tint ? (fill.isOpaque() && fill != Theme::btn()) : (solidFn && solidFn());
@@ -380,14 +395,15 @@ public:
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat();
         if (!flat) { g.setColour(Theme::card2()); g.fillRoundedRectangle(r, 5.0f); }
-        if (!readOnly && triCol) {
+        if (!readOnly && triCol && !(Theme::softUI() && flat && getComponentID() == "t:ntr")) {
             juce::Path p; float h = r.getHeight() * 0.3f; float x = 5, y = r.getCentreY();
             p.addTriangle(x, y - h * 0.5f, x, y + h * 0.5f, x + h * 0.8f, y);
             g.setColour(triCol()); g.fillPath(p);
         }
         g.setColour(Theme::txt()); g.setFont(Theme::font(fsize, 1));
-        g.drawText(juce::String(get(), dec), getLocalBounds().reduced(4, 0).withTrimmedLeft(readOnly ? 0 : 6),
-                   readOnly ? juce::Justification::centred : juce::Justification::centredRight);
+        bool centre = readOnly || (Theme::softUI() && getComponentID() == "t:ntr");
+        g.drawText(juce::String(get(), dec), getLocalBounds().reduced(4, 0).withTrimmedLeft(centre ? 0 : 6),
+                   centre ? juce::Justification::centred : juce::Justification::centredRight);
     }
     void mouseDown(const juce::MouseEvent& e) override { startV = get(); startY = e.position.y; }
     void mouseDrag(const juce::MouseEvent& e) override {
@@ -528,4 +544,17 @@ namespace learn {
     }
 }
 
+
+// 2.2: the big soft shades of a component's keys, drawn by the component under them (they reach outside the keys)
+inline void drawSoftShades(juce::Graphics& g, juce::Component& parent) {
+    if (!Theme::softUI()) return;
+    for (auto* ch : parent.getChildren()) {
+        if (!ch->isVisible()) continue;
+        if (auto* p = dynamic_cast<Pill*>(ch)) {
+            if (!p->raisedNow()) continue;
+            auto b = p->getBounds().toFloat();
+            softShadow(g, b, p->softRadius(b), juce::jlimit(4.0f, 9.0f, b.getHeight() * 0.22f));
+        }
+    }
+}
 } // namespace arco
