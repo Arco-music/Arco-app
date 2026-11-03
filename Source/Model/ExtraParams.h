@@ -197,6 +197,7 @@ inline const std::vector<ParamDef>& paramTable() {
 inline const std::vector<CardDef>& cardTable() {
     static const std::vector<CardDef> t = [] {
         auto v = cardTableBase();
+        v.push_back(CardDef { "beq", "BAND EQ", "five bands - drag the dots", 1, {} });     // 2.4: the strip's own EQ (StripMix), drawn
         for (auto& e : extraFxDefs()) {
             CardDef c { e.key, e.name, e.desc, 3, {} };
             for (auto& k : e.knobs) c.knobs.push_back({ k.first, k.second });

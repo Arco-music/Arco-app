@@ -676,7 +676,7 @@ void AudioHost::saveSetup() {
     o->setProperty("listenVol", listenVol.load());
     o->setProperty("layout", speakerLayout);
     o->setProperty("palette", Theme::pal().name);
-    o->setProperty("look2", true); o->setProperty("look3", true);
+    o->setProperty("look2", true); o->setProperty("look3", true); o->setProperty("beq1", true);
     o->setProperty("lastDark", Theme::palettes()[(size_t) Theme::lastDark()].name);
     o->setProperty("lastLight", Theme::palettes()[(size_t) Theme::lastLight()].name);
     juce::Array<juce::var> g;
@@ -724,6 +724,7 @@ void AudioHost::loadSetup(bool openDevice) {
         { auto old = v.getProperty("phoneWifi", "").toString(); if (old.isNotEmpty() && (int) v.getProperty("phoneLive", 0) > 0) phones.addAddress(old); }
         if (auto* rs = v["recent"].getArray()) for (auto& k : *rs) if (juce::File(k.toString()).isDirectory()) recentSongs.add(k.toString());
         if (auto* vc = v["cards"].getArray()) { visibleCards.clear(); for (auto& k : *vc) visibleCards.add(k.toString()); }
+        if (!v.hasProperty("beq1") && !visibleCards.contains("beq")) visibleCards.insert(1, "beq");   // 2.4: the new BAND EQ shows once
         if (auto* ml = v["midimap"].getArray()) { const juce::ScopedLock sl(midiLock); midiLinks.clear();
             for (auto& x : *ml) midiLinks.push_back({ x["id"].toString(), (int) x["t"], (int) x["n"], (int) x["c"] }); }
         if (auto* pd = v["pedals"].getArray())

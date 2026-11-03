@@ -166,6 +166,17 @@ inline int runProbe(AudioHost& h) {
         check(G.playing[0].load() == 0 && lp > 0.05f, "LIVE LOOPS: it plays at once, looping", lp);
         G.stopAll(); G.recState.store(0);
     }
+    // ---- SYNTH: LFO 1 dropped on the cutoff moves it (the knob on the screen follows the same value)
+    {
+        auto* syn = h.engine.synthNow.load();
+        h.model.set("l_rate", 55); h.model.set("l_sync", 0); h.model.set("l_shape", 0);
+        h.model.set("m0_src", 1); h.model.set("m0_dst", 16); h.model.set("m0_amt", 60);
+        float lo = 9, hi = -9;
+        for (int b = 0; b < (int) (2.0 * 48000 / N); ++b) { h.audioDeviceIOCallbackWithContext(ins, NI, outs, NO, N, ctx); h.model.tick();
+            if (syn) { float v = syn->lfoNow[0].load(); lo = juce::jmin(lo, v); hi = juce::jmax(hi, v); } }
+        check(syn != nullptr && hi - lo > 1.2f, "SYNTH: LFO 1 swings (the knobs it is on move with it)", hi - lo);
+        h.model.set("m0_src", 0); h.model.set("m0_dst", 0); h.model.set("m0_amt", 0);
+    }
     say("probe: %d failed", fails);
     return fails;
 }

@@ -116,6 +116,7 @@ struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(f
 
 class Engine {
 public:
+    std::atomic<Synth2*> synthNow { nullptr };      // 2.4: the synth engine now (its LFOs move the knobs on the screen)
     Engine();
     void prepare(double sampleRate);
     // device callback: in = live inputs 1-4 (may be null), out = device outputs

@@ -199,6 +199,12 @@ public:
         if (cmd.contains("lives=")) host->nLive = cmd.fromFirstOccurrenceOf("lives=", false, false).getIntValue();
         if (cmd.contains("tracks=")) mc->canvas.shotTracks = cmd.fromFirstOccurrenceOf("tracks=", false, false).getIntValue();
         if (cmd.contains("fam=")) mc->canvas.showFamily(cmd.fromFirstOccurrenceOf("fam=", false, false).getIntValue());
+        if (cmd.contains("card=")) { auto k = cmd.fromFirstOccurrenceOf("card=", false, false).upToFirstOccurrenceOf(" ", false, false); auto& ct = arco::cardTable();
+            if (!host->visibleCards.contains(k)) host->visibleCards.add(k);
+            for (int i = 0; i < (int) ct.size(); ++i) if (k == ct[(size_t) i].key) mc->canvas.showCard(i);
+            if (k == "beq") { auto& m = host->model; int st = m.selected; auto sid = [st](const char* f) { return std::string("mx_") + f + std::to_string(st); };
+                m.set(sid("hp"), 60); m.set(sid("lsg"), -3); m.set(sid("lsf"), 180); m.set(sid("pkg"), 4.5); m.set(sid("pkf"), 900); m.set(sid("pkq"), 1.4);
+                m.set(sid("p2g"), -5); m.set(sid("p2f"), 3200); m.set(sid("p2q"), 3); m.set(sid("hsg"), 3); m.set(sid("hsf"), 9000); } }
         if (cmd.contains("allfx")) { host->visibleCards.clear(); for (auto& d : arco::cardTable()) host->visibleCards.add(d.key); mc->canvas.layoutCards(); }
         if (cmd.contains("newfx")) { host->visibleCards = juce::StringArray { "pdl", "fbk", "eq", "dly", "rev", "spc" }; mc->canvas.layoutCards(); }
         if (cmd.contains("fx14")) { host->visibleCards = juce::StringArray { "voc", "pit", "spr", "tlk", "dly", "spc" }; mc->canvas.layoutCards(); }

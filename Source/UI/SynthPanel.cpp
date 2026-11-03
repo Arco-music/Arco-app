@@ -126,7 +126,17 @@ class SynthKnob : public Knob, public juce::DragAndDropTarget {
 public:
     SynthKnob(SynthPanel& p, Model& m, const std::string& id_, const ParamDef& d, ColourFn col)
         : Knob([&m, id_] { return m.get(id_); }, [&m, id_](double v) { m.set(id_, v); }, d.lo, d.hi, d.def, std::move(col)), panel(p), model(m), id(id_), dest(synthDestForKnob(id_)) {
-        setComponentID("p:" + juce::String(id_)); }
+        setComponentID("p:" + juce::String(id_));
+        // 2.4: the LFOs on this knob move it on the screen as they move the sound
+        liveOffset = [this]() -> double {
+            if (dest <= 0) return 0.0;
+            double sum = 0; auto& syn = panel.lfoSource();
+            for (int m2 = 0; m2 < kModSlots; ++m2) {
+                int sr = (int) model.get("m" + std::to_string(m2) + "_src");
+                if ((int) model.get("m" + std::to_string(m2) + "_dst") != dest || sr < 1 || sr > 3) continue;
+                sum += syn.lfoNow[sr - 1].load(std::memory_order_relaxed) * model.get("m" + std::to_string(m2) + "_amt") / 100.0 * synthModDests()[(size_t) dest].range;
+            }
+            return sum; }; }
     SynthPanel& panel; Model& model; std::string id; int dest; bool over = false;
     void paint(juce::Graphics& g) override {
         Knob::paint(g);
@@ -171,6 +181,15 @@ public:
         setTooltip(juce::String::fromUTF8("drag onto any knob")); }
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat().reduced(1);
+        if (Theme::softUI()) {        // 2.4: a silicone capsule to pick up; its light breathes with the LFO
+            auto k = r.reduced(3.0f); softRaised(g, k, k.getHeight() * 0.5f, 3.0f, Theme::btn());
+            float lv = 1.0f; if (src >= 1 && src <= 3) lv = 0.5f + 0.5f * panel.lfoSource().lfoNow[src - 1].load();
+            float dr = juce::jmin(4.0f, k.getHeight() * 0.2f);
+            softLed(g, { k.getX() + k.getHeight() * 0.5f + 2, k.getCentreY() }, dr, col.withMultipliedAlpha(0.35f + 0.65f * lv), true);
+            g.setColour(Theme::txt()); g.setFont(Theme::font(juce::jmin(10.5f, k.getHeight() * 0.36f), 2));
+            g.drawFittedText(juce::String(synthModSources()[(size_t) src]), k.toNearestInt().withTrimmedLeft((int) (k.getHeight() * 0.5f + 8)), juce::Justification::centred, 1, 0.7f);
+            return;
+        }
         g.setColour(col); g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
         g.setColour(Theme::textOn(col)); g.setFont(Theme::font(7.0f, 2));
         g.drawFittedText(juce::String::fromUTF8("⟿ ") + juce::String(synthModSources()[(size_t) src]), getLocalBounds(), juce::Justification::centred, 1, 0.7f);
@@ -335,12 +354,22 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     }
     knob(0, 270, 512, "f_cut", "CUTOFF", cFil); knob(0, 330, 512, "f_res", "RESO", cFil); knob(0, 390, 512, "f_drive", "DRIVE", cFil);
     knob(0, 450, 512, "f_env", "ENV 2", cFil); knob(0, 510, 512, "f_key", "KEY", cFil); knob(0, 570, 512, "vel_amt", "VELOCITY", cFil);
-    knob(0, 740, 432, "s_glide", "GLIDE", cVoi); knob(0, 800, 432, "spread", "WIDTH", cVoi); knob(0, 860, 432, "s_lvl", "LEVEL", cVoi); knob(0, 920, 432, "bend_rng", "BEND RANGE", cVoi);
+    knob(0, 740, 432, "s_glide", "GLIDE", cVoi); knob(0, 800, 432, "spread", "WIDTH", cVoi); knob(0, 860, 432, "s_lvl", "LEVEL", cVoi); knob(0, 920, 432, "bend_rng", "BEND", cVoi);
+    // 2.4: LFO 1 and 2 right here: pick up the capsule and drop it on any knob - that knob then moves with it
+    for (int l = 0; l < 2; ++l) {
+        int y0 = 392 + l * 96; const char* LP2[2] = { "l_", "l2_" };
+        auto* c = new ModChip(*this, 1 + l, cLfo()); kids.add(c); addAndMakeVisible(c); c->setBounds(box.getX() + 1044, box.getY() + y0, 100, 34); pages[0].push_back(c);
+        knob(0, 1156, y0, std::string(LP2[l]) + "rate", "RATE", cLfo); knob(0, 1208, y0, std::string(LP2[l]) + "shape", "SHAPE", cLfo);
+        std::string sy = std::string(LP2[l]) + "sync";
+        auto* p = add<Pill>(0, { 1262, y0 + 6, 62, 28 }, "SYNC", [&m, sy] { return m.get(sy) > 0.5 ? cLfo() : Theme::btn(); }, 8.0f, 6.0f);
+        p->tint = true; p->onFn = [&m, sy] { return m.get(sy) > 0.5; };
+        p->onClick = [&m, sy] { m.set(sy, m.get(sy) > 0.5 ? 0 : 1); };
+    }
     auto* mo = add<Pill>(0, { 740, 512, 70, 24 }, "MONO", [&m] { return m.get("mono") > 0.5 ? cVoi() : Theme::btn(); }, 8.0f, 6.0f);
     mo->onClick = [this, &m] { m.set("mono", m.get("mono") > 0.5 ? 0 : 1); cv.host.synth.allOff(); };
     auto* fo = add<Pill>(0, { 820, 512, 82, 24 }, "FOLLOW", [&m] { return m.get("follow") > 0.5 ? Theme::green() : Theme::btn(); }, 8.0f, 6.0f);
     fo->onClick = [this, &m] { m.set("follow", m.get("follow") > 0.5 ? 0 : 1); if (m.get("follow") > 0.5) cv.host.synthNeedsStrip(); };
-    auto* fov = add<ValueBox>(0, { 910, 512, 64, 24 }, [&m] { return m.get("f_oct"); }, [&m](double v) { m.set("f_oct", std::round(v)); }, -24, 24, 0, [] { return Theme::green(); });
+    auto* fov = add<ValueBox>(0, { 908, 512, 60, 24 }, [&m] { return m.get("f_oct"); }, [&m](double v) { m.set("f_oct", std::round(v)); }, -24, 24, 0, [] { return Theme::green(); });
     fov->fsize = 11.0f;
 
     // ======== MOVEMENT: envelopes, LFOs, the list, macros
@@ -412,6 +441,7 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
 }
 
 SynthPanel::~SynthPanel() { stopTimer(); }
+Synth2& SynthPanel::lfoSource() { static Synth2 idle; auto* s = cv.host.engine.synthNow.load(); return s != nullptr ? *s : idle; }
 void SynthPanel::setKeysMode(int m, bool edit) {
     keysMode = juce::jlimit(0, 3, m); kb->setVisible(keysMode == 0); held->setVisible(keysMode == 0); pad->setVisible(keysMode > 0);
     auto* kp = static_cast<KeyPad*>(pad.get()); kp->mode = keysMode; kp->editing = edit && keysMode == 2; repaint();
@@ -521,10 +551,28 @@ void SynthPanel::paint(juce::Graphics& g) {
             }
             g.setColour(cFil()); g.strokePath(p, juce::PathStrokeType(2.0f));
         }
-        card(728, 354, 608, 232, "VOICE", cVoi());
-        L(m.get("mono") > 0.5 ? U8("one note at a time (lead / bass)") : U8("12 notes at once"), 1000, 392, 320, 8.0f, Theme::sub(), 1);
-        L(juce::String(cv.host.synth.sounding()) + " notes sounding", 1000, 410, 320, 8.0f, Theme::txt(), 1);
-        L(U8("FOLLOW: one voice sings what LIVE 1 plays  ·  octave"), 740, 548, 360, 7.5f, Theme::sub());
+        card(728, 354, 292, 232, "VOICE", cVoi());
+        L((m.get("mono") > 0.5 ? U8("one note at a time") : U8("12 notes at once")) + U8("  ·  ") + juce::String(cv.host.synth.sounding()) + " sounding", 740, 390, 270, 8.0f, Theme::sub(), 1);
+        L(U8("FOLLOW: a voice sings what LIVE 1 plays"), 740, 548, 270, 7.5f, Theme::sub());
+        card(1032, 354, 304, 232, "LFO", cLfo());
+        L(U8("drag onto any knob"), 1150, 363, 176, 7.5f, Theme::sub(), 1, juce::Justification::centredRight);
+        for (int l = 0; l < 2; ++l) {
+            int y0 = 392 + l * 96; const char* LP2[2] = { "l_", "l2_" }; std::string P2 = LP2[l];
+            auto r = screen(1046, y0 + 42, 96, 40);
+            int shapes = l == 0 ? 5 : 6, sh = juce::jlimit(0, shapes - 1, (int) (m.get(P2 + "shape") / 100.0 * (shapes - 0.01)));
+            auto wf = [sh](float ph) { switch (sh) { case 0: return std::sin(6.2831853f * ph); case 1: return 1.0f - 4.0f * std::abs(ph - 0.5f); case 2: return 2.0f * ph - 1.0f;
+                                                     case 3: return ph < 0.5f ? 1.0f : -1.0f; case 4: { int q = (int) (ph * 6); static const float H[6] = { 0.6f, -0.4f, 0.9f, -0.8f, 0.2f, -0.1f }; return H[q % 6]; }
+                                                     default: { static const float H[7] = { 0.6f, -0.4f, 0.9f, -0.8f, 0.2f, -0.1f, 0.6f }; float x = ph * 6; int q = (int) x; float t2 = x - q; t2 = t2 * t2 * (3 - 2 * t2); return H[q] + (H[q + 1] - H[q]) * t2; } } };
+            curve(r, wf, cLfo(), 0.9f);
+            auto& syn = lfoSource(); float ph = syn.lfoPhase[l].load(), val = syn.lfoNow[l].load();
+            float px = r.getX() + ph * r.getWidth(), py = r.getCentreY() - val * r.getHeight() * 0.42f;
+            softLed(g, { px, py }, 3.2f, cLfo(), true);
+            bool sync = m.get(P2 + "sync") > 0.5; float rate = (float) m.get(P2 + "rate");
+            juce::String rt;
+            if (sync) { static const char* N[7] = { "4 bars", "2 bars", "1 bar", "1/2", "1/4", "1/8", "1/16" }; rt = N[juce::jlimit(0, 6, (int) (rate / 100.0f * 6.99f))]; }
+            else { float hz = 0.05f * std::pow(400.0f, rate / 100.0f); rt = juce::String(hz, hz < 1 ? 2 : 1) + " Hz"; }
+            L(rt, 1252, y0 + 44, 82, 9.0f, Theme::txt(), 1, juce::Justification::centred);
+        }
     } else if (page == 1) {
         auto env = [&](int x, int y, int w, int h, const char* pre, juce::Colour c) {
             auto r = screen(x, y, w, h);

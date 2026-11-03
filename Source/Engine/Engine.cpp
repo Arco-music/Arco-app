@@ -42,7 +42,7 @@ void Engine::prepare(double sampleRate) {
     for (auto& v : accIn) v.assign(SUB, 0.0f);
     for (auto& v : qOut) v.assign(SUB, 0.0f);
     for (auto& a : accPhone) a.assign(SUB, 0.0f);
-    mods.clear(); busToMod.clear(); graph.clear(); bus.clear();
+    synthNow.store(nullptr); mods.clear(); busToMod.clear(); graph.clear(); bus.clear();
     // ---- the shared buffers (sizes like the patch: 40 s loops, 2.3 s of pitch, 22 ms wave screens)
     auto mk = [&](const std::string& n, long frames, long ch) { auto& b = bufs[n]; b.name = n; b.resize(frames, ch); };
     for (const char* L : { "A", "B", "C", "D" }) {
@@ -60,7 +60,7 @@ void Engine::prepare(double sampleRate) {
     addNode<Listen>(this, mods, busToMod, graph, b, "st_listen", { "live_in1" }, { "pitch", "-", "lev1" });
     addNode<Tune>(this, mods, busToMod, graph, b, "st_tune", { "live_in1", "pitch" }, { "tune_out", "tn_pitch", "tn_corr", "tn_note" });
     {   // SYNTH 2
-        auto* sm = new Synth2Mod(); mods.emplace_back(sm); busToMod["st_syn"] = (int) mods.size() - 1; sm->syn.init(sr);
+        auto* sm = new Synth2Mod(); mods.emplace_back(sm); busToMod["st_syn"] = (int) mods.size() - 1; sm->syn.init(sr); synthNow.store(&sm->syn);
         const float* pi = B("pitch"); const float* be = B("gbeat_prev"); const float* bp = B("gbpm_prev");
         float* o[5] = { B("synL"), B("synR"), B("syn_mono"), B("syn_n"), B("syn_lfo") };
         graph.push_back([sm, pi, be, bp, o]() { sm->syn.process(pi, be, bp, o[0], o[1], o[2], o[3], o[4], SUB); });

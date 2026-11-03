@@ -58,6 +58,8 @@ public:
         arpPos = -1; arpIdx = 0; arpNote = -1; internalBeat = 0; lastBeat = -1; beatStill = 0;
     }
     int paramIndex(const std::string& n) const { auto it = idx.find(n); return it == idx.end() ? -1 : it->second; }
+    // 2.4: what the LFOs do right now (-1..1) and where they are in their cycle (0..1) - the screen moves the knobs with them
+    std::atomic<float> lfoNow[3] { {0}, {0}, {0} }, lfoPhase[3] { {0}, {0}, {0} };
     void setp(int i, double v) { if (i >= 0 && i < (int) slot.size()) *slot[(size_t) i] = (float) v; }
 
     // pitch: LIVE 1 pitch (MIDI note, <= 0 none); beat: the beat position (for SYNC and the arpeggiator); bpm: the tempo
@@ -91,7 +93,7 @@ public:
             double clock = beatStill > (int) (0.1 * sr) ? internalBeat : b;
             // ---- LFOs (every sample: cheap)
             float lfo[3];
-            for (int l = 0; l < 3; ++l) lfo[l] = lfoTick(l, clock, isr);
+            for (int l = 0; l < 3; ++l) lfo[l] = lastLfo[l] = lfoTick(l, clock, isr);
             exprSm += 0.002f * (P.expr - exprSm);
             // ---- the arpeggiator
             if (arpOn) arpTick(clock);
@@ -186,7 +188,9 @@ public:
             pk = std::max(pk, std::abs(ol));
         }
         (void) nact; (void) pk;
+        for (int l = 0; l < 3; ++l) { lfoNow[l].store(lastLfo[l], std::memory_order_relaxed); lfoPhase[l].store((float) lph[(size_t) l], std::memory_order_relaxed); }
     }
+    float lastLfo[3] { 0, 0, 0 };
 
 private:
     double sr = 48000;

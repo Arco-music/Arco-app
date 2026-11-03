@@ -65,7 +65,7 @@ public:
     juce::String phoneOnLive(int live);      // the name of the phone playing as LIVE n (or empty)
     static bool isPhone();                   // an iPhone: it runs as a phone (microphone + remote), not as a station
     std::function<void()> onCardsChanged;    // the effect cards were chosen from a phone
-    juce::StringArray visibleCards = defaultVisibleCards();
+    juce::StringArray visibleCards = [] { auto a = defaultVisibleCards(); a.insert(1, "beq"); return a; }();
     juce::StringArray recentSongs;            // File > Open Recent
     void addRecent(const juce::File& f) { recentSongs.removeString(f.getFullPathName()); recentSongs.insert(0, f.getFullPathName()); while (recentSongs.size() > 8) recentSongs.remove(8); saveSetup(); }
     void newSong();   // the effect cards on the main window (SETUP > EFFECTS)

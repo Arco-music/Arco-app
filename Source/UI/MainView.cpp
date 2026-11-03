@@ -1,4 +1,5 @@
 #include "MainView.h"
+#include <complex>
 #include "Shell.h"
 #include "Panels.h"
 #include "SynthPanel.h"
@@ -8,6 +9,7 @@
 #include "InstrumentPanels.h"
 #include "StudioView.h"
 #include "../App/FxPresets.h"
+#include "../Engine/StripMix.h"
 
 namespace arco {
 
@@ -301,7 +303,7 @@ public:
         g.setColour(Theme::txt()); g.setFont(nf); g.drawText(name(), headR.withTrimmedLeft(14).withWidth(nwid), juce::Justification::centredLeft);
         mlabel(g, "PAN", panLabelR, 8.0f, Theme::sub(), juce::Justification::centred);
         auto key = c.focusFx(); juce::String sl = "SEND";
-        if (key.isNotEmpty()) for (auto& d : cardTable()) if (key == d.key) { sl = U(d.name); break; }
+        if (key.isNotEmpty() && !sendId().empty()) for (auto& d : cardTable()) if (key == d.key) { sl = U(d.name); break; }
         mlabel(g, sl, sendLabelR, 8.0f, send && send->enabled ? Theme::sub() : Theme::off(), juce::Justification::centred);
         double db = Fader::volToDb(m.get("vol" + std::to_string(s))); if (std::abs(db) < 0.15) db = 0;
         juce::String dt = db < -90 ? juce::String(U("−∞")) : (db > 0.05 ? "+" : (db < -0.05 ? U("−") : juce::String())) + juce::String(std::abs(db), 1);
@@ -395,6 +397,110 @@ private:
     int meterLabelY = 0, glueLabelY = 0, masterLabelY = 0;
 };
 
+
+// ===================================================================== 2.4: BAND EQ - the strip's EQ drawn: five bands you drag
+// (it is the mixing desk's EQ behind every strip: high-pass, low shelf, two bells, high shelf)
+class EqGraph : public juce::Component, private juce::Timer {
+public:
+    explicit EqGraph(Canvas& cv) : c(cv) { startTimerHz(20); setMouseCursor(juce::MouseCursor::CrosshairCursor); }
+    struct Band { const char* name; const char* f; const char* g; const char* q; };   // g / q may be empty
+    static const std::vector<Band>& bands() { static const std::vector<Band> B = {
+        { "Low cut", "hp", "", "" }, { "Low", "lsf", "lsg", "" }, { "Bell 1", "pkf", "pkg", "pkq" }, { "Bell 2", "p2f", "p2g", "p2q" }, { "High", "hsf", "hsg", "" } }; return B; }
+    int strip() const { return c.model().selected; }
+    std::string id(const char* f) const { return std::string("mx_") + f + std::to_string(strip()); }
+    double get(const char* f) const { return c.model().get(id(f)); }
+    void set(const char* f, double v) { c.model().set(id(f), v); }
+    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced(2.0f).withTrimmedTop(24.0f); }
+    float xOf(double hz) const { auto r = plot(); return r.getX() + r.getWidth() * (float) (std::log(juce::jlimit(20.0, 20000.0, hz) / 20.0) / std::log(1000.0)); }
+    double hzOf(float x) const { auto r = plot(); return 20.0 * std::pow(1000.0, juce::jlimit(0.0, 1.0, (double) ((x - r.getX()) / r.getWidth()))); }
+    float yOf(double db) const { auto r = plot(); return r.getCentreY() - (float) (db / 18.0) * r.getHeight() * 0.5f; }
+    double dbOf(float y) const { auto r = plot(); return juce::jlimit(-15.0, 15.0, (r.getCentreY() - y) / (r.getHeight() * 0.5) * 18.0); }
+    juce::Point<float> nodeAt(int b) const {
+        auto& B = bands()[(size_t) b];
+        double f = get(B.f); if (b == 0 && f < 1) f = 20;
+        return { xOf(f), B.g[0] ? yOf(get(B.g)) : yOf(0) };
+    }
+    double response(double hz) const {
+        const double sr = 48000; std::vector<Biquad> fs;
+        auto add = [&](Biquad q) { fs.push_back(q); };
+        if (get("hp") > 0) { Biquad q; q.highpass(sr, get("hp"), 0.707); add(q); }
+        if (std::abs(get("lsg")) > 0.01) { Biquad q; q.lowShelf(sr, get("lsf"), get("lsg")); add(q); }
+        if (std::abs(get("pkg")) > 0.01) { Biquad q; q.peak(sr, get("pkf"), get("pkq"), get("pkg")); add(q); }
+        if (std::abs(get("p2g")) > 0.01) { Biquad q; q.peak(sr, get("p2f"), get("p2q"), get("p2g")); add(q); }
+        if (std::abs(get("hsg")) > 0.01) { Biquad q; q.highShelf(sr, get("hsf"), get("hsg")); add(q); }
+        std::complex<double> h(1, 0), z = std::polar(1.0, -2 * M_PI * hz / sr), z2 = z * z;
+        for (auto& q : fs) h *= ((double) q.b0 + (double) q.b1 * z + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z + (double) q.a2 * z2);
+        return 20 * std::log10(std::max(1e-9, std::abs(h)));
+    }
+    void paint(juce::Graphics& g) override {
+        auto r = plot(); auto col = Theme::fx("eq");
+        if (Theme::softUI()) softWell(g, r, 18.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(r, 10.0f); }
+        { juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(r, 18.0f); g.reduceClipRegion(cl);
+          // the grid: octaves and the dB lines
+          for (double f : { 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0 }) { g.setColour(Theme::sub().withAlpha(f == 100 || f == 1000 || f == 10000 ? 0.22f : 0.10f)); g.fillRect(xOf(f) - 0.5f, r.getY(), 1.0f, r.getHeight()); }
+          for (int db : { -12, -6, 0, 6, 12 }) { g.setColour(Theme::sub().withAlpha(db == 0 ? 0.28f : 0.10f)); g.fillRect(r.getX(), yOf(db) - 0.5f, r.getWidth(), 1.0f); }
+          g.setColour(Theme::sub()); g.setFont(Theme::mono(7.0f));
+          for (auto p : { std::pair<double, const char*> { 100, "100" }, { 1000, "1K" }, { 10000, "10K" } }) g.drawText(p.second, juce::Rectangle<float>(xOf(p.first) + 4, r.getBottom() - 16, 40, 12), juce::Justification::centredLeft);
+          for (int db : { -12, 12 }) g.drawText((db > 0 ? "+" : "") + juce::String(db), juce::Rectangle<float>(r.getX() + 8, yOf(db) - 13, 40, 12), juce::Justification::centredLeft);
+          // the curve, lit from below the skin
+          juce::Path p, fill; const int N = 220;
+          for (int i = 0; i <= N; ++i) { float x = r.getX() + r.getWidth() * i / (float) N; float y = juce::jlimit(r.getY() + 2, r.getBottom() - 2, yOf(response(hzOf(x))));
+                                         if (i == 0) { p.startNewSubPath(x, y); fill.startNewSubPath(x, yOf(0)); } p.lineTo(x, y); fill.lineTo(x, y); }
+          fill.lineTo(r.getRight(), yOf(0)); fill.closeSubPath();
+          g.setColour(col.withAlpha(0.14f)); g.fillPath(fill);
+          for (int i = 4; i >= 1; --i) { g.setColour(col.withAlpha(0.06f * (5 - i))); g.strokePath(p, juce::PathStrokeType(2.0f + i * 2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
+          g.setColour(col); g.strokePath(p, juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        // the five dots
+        for (int b = 0; b < (int) bands().size(); ++b) {
+            auto n = nodeAt(b); bool off = b == 0 ? get("hp") <= 0 : std::abs(get(bands()[(size_t) b].g)) < 0.01;
+            bool sel = b == selBand;
+            float rad = sel ? 11.0f : 9.0f;
+            auto k = juce::Rectangle<float>(n.x - rad, n.y - rad, rad * 2, rad * 2);
+            if (Theme::softUI()) { if (b == dragBand) { softFace(g, k, rad, Theme::btn()); softInset(g, k, rad, 2.5f); } else softRaised(g, k, rad, 3.0f, Theme::btn()); }
+            else { g.setColour(Theme::btn()); g.fillEllipse(k); }
+            softLed(g, n, 3.0f, col, !off || sel);
+            g.setColour(off ? Theme::sub() : Theme::txt()); g.setFont(Theme::font(7.5f, 2));
+            g.drawText(juce::String(b + 1), juce::Rectangle<float>(n.x - 20, n.y + rad + 1, 40, 12), juce::Justification::centred);
+        }
+        // the selected band, in words
+        auto& B = bands()[(size_t) selBand];
+        juce::String line = juce::String(B.name) + "   " + fmtHz(get(B.f), selBand == 0);
+        if (B.g[0]) line << "   " << (get(B.g) > 0.05 ? "+" : "") << juce::String(get(B.g), 1) << " dB";
+        if (B.q[0]) line << "   Q " << juce::String(get(B.q), 2);
+        g.setColour(Theme::txt()); g.setFont(Theme::font(10.5f, 1)); g.drawText(line, getLocalBounds().withHeight(20), juce::Justification::centredLeft);
+        g.setColour(Theme::sub()); g.setFont(Theme::mono(7.5f));
+        g.drawText(U(B.q[0] ? "DRAG · SCROLL OR PINCH FOR Q · DOUBLE-TAP RESETS" : "DRAG · DOUBLE-TAP RESETS"), getLocalBounds().withHeight(20), juce::Justification::centredRight);
+    }
+    static juce::String fmtHz(double f, bool cut) { if (cut && f < 1) return "off"; return f >= 1000 ? juce::String(f / 1000.0, f >= 10000 ? 1 : 2) + " kHz" : juce::String((int) std::round(f)) + " Hz"; }
+    int bandAt(juce::Point<float> p) const { int best = -1; float bd = 24.0f * 24.0f; for (int b = 0; b < (int) bands().size(); ++b) { float d = nodeAt(b).getDistanceSquaredFrom(p); if (d < bd) { bd = d; best = b; } } return best; }
+    void mouseDown(const juce::MouseEvent& e) override { int b = bandAt(e.position); if (b >= 0) { selBand = dragBand = b; } else dragBand = -1; repaint(); }
+    void mouseDrag(const juce::MouseEvent& e) override {
+        if (dragBand < 0) return;
+        auto& B = bands()[(size_t) dragBand]; auto* d = c.model().def(id(B.f)); if (d == nullptr) return;
+        double f = hzOf(e.position.x);
+        if (dragBand == 0) set(B.f, f < 25 ? 0.0 : juce::jlimit(d->lo, d->hi, f));
+        else set(B.f, juce::jlimit(d->lo, d->hi, f));
+        if (B.g[0]) set(B.g, std::round(dbOf(e.position.y) * 10.0) / 10.0);
+        repaint();
+    }
+    void mouseUp(const juce::MouseEvent&) override { dragBand = -1; repaint(); }
+    void mouseDoubleClick(const juce::MouseEvent& e) override {
+        int b = bandAt(e.position); if (b < 0) return; auto& B = bands()[(size_t) b];
+        if (auto* d = c.model().def(id(B.f))) set(B.f, d->def);
+        if (B.g[0]) set(B.g, 0); if (B.q[0]) set(B.q, 1); repaint();
+    }
+    void bumpQ(double k) { auto& B = bands()[(size_t) selBand]; if (!B.q[0]) return; set(B.q, juce::jlimit(0.2, 8.0, get(B.q) * k)); repaint(); }
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { bumpQ(std::pow(2.0, w.deltaY * 1.5)); }
+    void mouseMagnify(const juce::MouseEvent&, float s) override { bumpQ(1.0 / juce::jmax(0.2f, s)); }
+    bool used(int s) const { auto& m = c.model(); auto k = [&](const char* f) { return m.get(std::string("mx_") + f + std::to_string(s)); };
+        return k("hp") > 0 || std::abs(k("lsg")) > 0.01 || std::abs(k("pkg")) > 0.01 || std::abs(k("p2g")) > 0.01 || std::abs(k("hsg")) > 0.01; }
+    int selBand = 2, dragBand = -1;
+private:
+    Canvas& c; int lastStrip = -1;
+    void timerCallback() override { if (strip() != lastStrip) { lastStrip = strip(); repaint(); } }
+};
+
 // ===================================================================== one effect card
 // 1.6: the new design - an on/off switch, the name (tap: presets), what it does, its value; big knobs; the signal line at the bottom
 class CardView : public juce::Component {
@@ -428,6 +534,7 @@ public:
         auto pill = [&](const juce::String& t, ColourFn bg, std::function<void()> f, const juce::String& id) {
             auto* p = new Pill(t, std::move(bg), 8.0f, 8.0f); p->tint = true; p->onClick = std::move(f); p->setComponentID(id);
             kids.add(p); addAndMakeVisible(p); badgePill = p; };
+        if (key == "beq") { eqg = new EqGraph(c); kids.add(eqg); addAndMakeVisible(eqg); }
         if (key == "frz") pill("HOLD", [&m] { return m.get("frz_on") > 0.5 ? Theme::fx("frz") : Theme::btn(); }, [&m] { m.set("frz_on", m.get("frz_on") > 0.5 ? 0 : 1); }, "p:frz_on");
         if (key == "pdl") pill("PEDAL", [&m] { return m.get("pdl_down") > 0.5 ? Theme::fx("pdl") : Theme::btn(); }, [&m] { m.set("pdl_down", m.get("pdl_down") > 0.5 ? 0 : 1); }, "p:pdl_down");
         if (key == "fbk") pill("LET GO", [&m] { return m.get("fbk_stop") > 0.5 ? Theme::fx("fbk") : Theme::btn(); },
@@ -455,12 +562,20 @@ public:
         juce::String key = def.key; auto& m = c.model();
         if (key == "tun") return m.get("tn_amt") > 0;
         if (key == "drm") return m.get("drm_on") > 0.5;
+        if (key == "beq") return eqg != nullptr && eqg->used(m.selected);
         auto p = Model::stripParam(m.selected, def.key);
         return !p.empty() && m.def(p) != nullptr && m.get(p) > 0.5;
     }
     void toggle() {
         juce::String key = def.key; auto& m = c.model();
         if (key == "drm") { m.set("drm_on", m.get("drm_on") > 0.5 ? 0 : 1); return; }
+        if (key == "beq") {          // off: flat (and kept, to come back); on: what it was
+            const char* G[5] = { "hp", "lsg", "pkg", "p2g", "hsg" }; int st = m.selected;
+            if (isOn()) { for (auto* f : G) { auto id = std::string("mx_") + f + std::to_string(st); eqSaved[id] = m.get(id); m.set(id, 0); } }
+            else { bool any = false; for (auto* f : G) { auto id = std::string("mx_") + f + std::to_string(st); if (eqSaved.count(id) && std::abs(eqSaved[id]) > 0.01) { m.set(id, eqSaved[id]); any = true; } }
+                   if (!any) { m.set("mx_pkg" + std::to_string(st), 3.0); if (eqg) eqg->selBand = 2; } }
+            if (eqg) eqg->repaint(); return;
+        }
         std::string p = key == "tun" ? std::string("tn_amt") : Model::stripParam(m.selected, def.key);
         if (p.empty() || m.def(p) == nullptr) { c.showMessage(U(def.name) + juce::String(" is not used on this strip")); return; }
         double v = m.get(p);
@@ -483,6 +598,7 @@ public:
             right = gx - 20;
         }
         if (juce::String(def.key) == "drm") { drumR = { juce::jmax(0, right - 260), y + 6, 260, 40 }; right = drumR.getX() - 20; }
+        if (eqg) { eqg->setBounds(0, 38, w, h - 38); return; }
         int n = (int) knobs.size(); if (n == 0) return;
         int ks = juce::jlimit(40, 64, h - y - 21);
         float pitch = juce::jmin((float) (ks + 46), (float) right / (float) n);
@@ -498,6 +614,7 @@ public:
         if (rowMode) { resizedRow(); return; }
         if (scope) scope->setVisible(true);
         int w = getWidth(), h = getHeight(), P = 14;
+        if (eqg) eqg->setBounds(P, 50, w - 2 * P, h - 64);
         headerR = { P, 12, w - 2 * P, 30 };
         toggleR = { P, 17, 38, 21 };
         int bw = 0;
@@ -687,7 +804,8 @@ private:
     struct L { juce::String text; juce::Rectangle<int> r; bool send; };
     std::vector<L> labels;
     std::vector<Knob*> knobs; std::vector<Pill*> shadowPills;
-    Knob* sendKnob = nullptr; Pill* badgePill = nullptr; MiniScope* scope = nullptr;
+    Knob* sendKnob = nullptr; Pill* badgePill = nullptr; MiniScope* scope = nullptr; EqGraph* eqg = nullptr;
+    std::map<std::string, double> eqSaved;     // BAND EQ switched off: what it was
     juce::Rectangle<int> headerR, toggleR, nameR, badgeR, drumR, footR, presetR;
     std::map<std::string, double> lastOn;
 };
@@ -813,7 +931,7 @@ private:
 
 int Canvas::familyOf(const juce::String& k) {
     static const std::map<juce::String, int> F = {
-        { "eq", 0 }, { "drv", 0 }, { "swl", 0 }, { "tun", 0 }, { "wah", 0 }, { "flt", 0 }, { "oct", 0 }, { "pit", 0 }, { "crs", 0 }, { "tap", 0 }, { "pdl", 0 },
+        { "eq", 0 }, { "beq", 0 }, { "drv", 0 }, { "swl", 0 }, { "tun", 0 }, { "wah", 0 }, { "flt", 0 }, { "oct", 0 }, { "pit", 0 }, { "crs", 0 }, { "tap", 0 }, { "pdl", 0 },
         { "trm", 1 }, { "phs", 1 }, { "cho", 1 }, { "flg", 1 }, { "vib", 1 }, { "rng", 1 },
         { "spc", 2 }, { "orb", 2 }, { "spr", 2 },
         { "dly", 3 }, { "rev", 3 }, { "fxb", 3 }, { "shd", 3 }, { "png", 3 }, { "stu", 3 },
@@ -834,6 +952,8 @@ bool Canvas::fxUsed(const juce::String& key) {
     if (key == "halo") return snap("halo_used") > 0.5f;
     if (key == "tun") return model().get("tn_amt") > 0;
     if (key == "drm") return model().get("drm_on") > 0.5;
+    if (key == "beq") { for (int s = 0; s < NSTRIP; ++s) { auto k = [&](const char* f) { return model().get(std::string("mx_") + f + std::to_string(s)); };
+        if (k("hp") > 0 || std::abs(k("lsg")) > 0.01 || std::abs(k("pkg")) > 0.01 || std::abs(k("p2g")) > 0.01 || std::abs(k("hsg")) > 0.01) return true; } return false; }
     auto it = bit.find(key);
     if (it != bit.end()) return (((int) snap("fxused")) >> it->second) & 1;
     for (int s = 0; s < NSTRIP; ++s) { auto id = Model::stripParam(s, key.toStdString()); if (model().def(id) != nullptr && model().get(id) > 0.5) return true; }
@@ -1153,7 +1273,8 @@ void Canvas::layoutStrips() {
     int top = headerBottom + (soft ? 6 : 0);
     int cardsH = portrait ? juce::jlimit(420, 640, (int) (H * 0.37f)) : juce::jlimit(Theme::softUI() ? 220 : 250, 420, (int) (H * (Theme::softUI() ? 0.255f : 0.29f)));
     const int mapH = portrait ? MAP_H2 : MAP_H;
-    const int fxH = portrait ? (stripRows > 1 ? 260 : 320) : 160;
+    const bool eqOpen = fxCard >= 0 && fxCard < (int) cardTable().size() && juce::String(cardTable()[(size_t) fxCard].key) == "beq";
+    const int fxH = portrait ? (stripRows > 1 ? 260 : 320) + (eqOpen ? 60 : 0) : (eqOpen ? 236 : 160);
     int avail = soft ? H - top - 22 - fxH - 20 : H - top - 8 - mapH - 8 - cardsH - 8;
     stripH = juce::jlimit(soft ? 300 : 340, 640, (avail - (stripRows - 1) * vgap) / stripRows);
     // MASTER on the right of the (first) row

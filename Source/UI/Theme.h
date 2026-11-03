@@ -167,7 +167,7 @@ struct Theme {
     // each effect has a family colour from the palette's accents (drive = red, modulation = blue, space = teal ...)
     static int family(const std::string& k) {
         static const std::map<std::string, int> F = {
-            { "eq", 2 }, { "drv", 0 }, { "trm", 7 }, { "phs", 4 }, { "swl", 7 }, { "tun", 4 }, { "cho", 5 }, { "dly", 3 }, { "rev", 3 },
+            { "eq", 2 }, { "beq", 2 }, { "drv", 0 }, { "trm", 7 }, { "phs", 4 }, { "swl", 7 }, { "tun", 4 }, { "cho", 5 }, { "dly", 3 }, { "rev", 3 },
             { "fxb", 0 }, { "shd", 4 }, { "halo", 4 }, { "res", 2 }, { "grn", 7 }, { "frz", 5 }, { "spc", 5 }, { "orb", 1 }, { "drm", 6 },
             { "flg", 3 }, { "png", 3 }, { "wah", 2 }, { "oct", 4 }, { "tap", 0 }, { "flt", 1 }, { "rng", 0 }, { "stu", 2 }, { "vib", 1 }, { "crs", 0 },
             { "pdl", 2 }, { "fbk", 0 }, { "voc", 4 }, { "pit", 4 }, { "spr", 5 }, { "tlk", 2 } };

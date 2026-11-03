@@ -194,9 +194,10 @@ public:
                 led = on && tint && icon == 0 && !solid;
             }
             if (icon == 3) {              // the record dot: soft red under the skin; recording, it glows
-                bool lit = solid || (on && tint);
-                ink = lit ? Theme::red() : Theme::red().withMultipliedAlpha(0.55f);
-                if (lit) { float is = juce::jmin((float) getHeight() * 0.42f, 22.0f); softLed(g, r.getCentre(), is * 0.5f, Theme::red(), true); }
+                const bool hasText = (dynText ? dynText() : text).isNotEmpty();
+                bool lit = hasText ? solid : (solid || (on && tint));
+                ink = lit ? Theme::red() : Theme::red().withMultipliedAlpha(hasText ? 0.85f : 0.55f);
+                if (lit && !hasText) { float is = juce::jmin((float) getHeight() * 0.42f, 22.0f); softLed(g, r.getCentre(), is * 0.5f, Theme::red(), true); }
             } else if (icon == 1 || icon == 2) { if (on && tint) ink = Theme::ink(c.getAlpha() > 0 && c != Theme::btn() ? c : Theme::blue()); }
             else if (solid && icon != 0) ink = Theme::ink(c);
         }
@@ -318,6 +319,7 @@ public:
         get(std::move(get_)), set(std::move(set_)), lo(lo_), hi(hi_), def(def_), col(std::move(col_)) {
         setMouseCursor(juce::MouseCursor::UpDownResizeCursor); press.onMove = [this] { repaint(); }; }
     SoftSpring press; float dragDy = 0;          // 2.3: the dome under the finger
+    std::function<double()> liveOffset;          // 2.4: an LFO moving this knob: how far from where it is set (in its own units)
     ValueFn get; SetFn set; double lo, hi, def; ColourFn col;
     bool enabled = true;
     void paint(juce::Graphics& g) override {
@@ -347,7 +349,16 @@ public:
                 g.setColour(cc); g.strokePath(va, juce::PathStrokeType(juce::jmax(1.4f, 3.0f * k), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
             float an = a0 + (a1 - a0) * t - juce::MathConstants<float>::halfPi;
-            if (enabled) softLed(g, { c.x + std::cos(an) * R, c.y + std::sin(an) * R }, juce::jmax(2.0f, 3.6f * k), cc, true);   // the point of light
+            double off = liveOffset ? liveOffset() : 0.0;
+            float tl = juce::jlimit(0.0f, 1.0f, (float) ((v + off - lo) / juce::jmax(1e-9, hi - lo)));
+            const bool moving = std::abs(off) > 1e-6 * (hi - lo);
+            float anl = a0 + (a1 - a0) * tl - juce::MathConstants<float>::halfPi;
+            if (moving) {              // the LFO's swing: a soft band from where it is set to where it is now
+                juce::Path sb; sb.addCentredArc(c.x, c.y, R, R, 0, a0 + (a1 - a0) * juce::jmin(t, tl), a0 + (a1 - a0) * juce::jmax(t, tl), true);
+                g.setColour(cc.withAlpha(0.35f)); g.strokePath(sb, juce::PathStrokeType(juce::jmax(2.0f, 5.0f * k), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.setColour(Theme::sub().withAlpha(0.8f)); g.fillEllipse(c.x + std::cos(an) * R - 1.5f, c.y + std::sin(an) * R - 1.5f, 3.0f, 3.0f);    // where it is set
+            }
+            if (enabled) softLed(g, { c.x + std::cos(moving ? anl : an) * R, c.y + std::sin(moving ? anl : an) * R }, juce::jmax(2.0f, 3.6f * k), cc, true);   // the point of light
             // the dome (60 of 84), its shade 5 / 12; touched: in (inset 4 / 9), smaller, pulled the way the finger goes
             float fr = R * 0.68f * (1.0f - 0.06f * pv);
             juce::Point<float> fc(c.x, c.y + juce::jlimit(-4.0f, 4.0f, -dragDy * 0.05f) * pd);
@@ -357,6 +368,10 @@ public:
             juce::ColourGradient dg(base.interpolatedWith(Theme::hiC(), 0.18f), face.getX() + fr * 0.76f, face.getY() + fr * 0.64f, base.interpolatedWith(Theme::loC(), 0.15f), face.getRight(), face.getBottom(), true);
             dg.addColour(0.6, base); g.setGradientFill(dg); g.fillEllipse(face);
             if (pd > 0.01f) softInset(g, face, fr, juce::jmax(2.0f, 4.0f * k), pd);
+            if (moving) {              // the dome turns with the LFO: a little mark on it, going left and right
+                g.setColour(cc.withAlpha(0.9f));
+                g.drawLine(fc.x + std::cos(anl) * fr * 0.45f, fc.y + std::sin(anl) * fr * 0.45f, fc.x + std::cos(anl) * fr * 0.80f, fc.y + std::sin(anl) * fr * 0.80f, juce::jmax(1.8f, 3.2f * k));
+            }
             if (pd > 0.05f) {          // the value, in the dome, while it is touched
                 juce::String vt = lo < 0 && hi > 0 && std::abs(lo + hi) < 1e-6 ? (std::abs(v) < 0.5 ? juce::String("C") : (v < 0 ? "L" : "R") + juce::String((int) std::round(std::abs(v))))
                                                                                 : juce::String(v, std::abs(hi - lo) <= 2 ? 2 : 0);
