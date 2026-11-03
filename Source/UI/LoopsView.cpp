@@ -12,6 +12,7 @@ static juce::Colour rowColour(int r) { static const int O[8] = { 3, 1, 2, 4, 0, 
 LoopGrid& LoopsView::lg() { return shell.host.engine.loopGrid; }
 
 LoopsView::LoopsView(AppShell& s) : shell(s) {
+    getProperties().set("softShades", true);
     static const int BARS[5] = { 1, 2, 4, 8, 0 };
     auto* len = add<Segments>(juce::StringArray { "1 BAR", "2 BARS", "4 BARS", "8 BARS", "FREE" }, [this] { int b = lg().recBars.load(); for (int i = 0; i < 5; ++i) if (BARS[i] == b) return i; return 1; },
                               [this](int i) { lg().recBars.store(BARS[i]); }, [] { return Theme::red(); });
@@ -79,6 +80,7 @@ const std::vector<float>& LoopsView::peaksOf(const LoopClip* c) {
 }
 
 void LoopsView::paint(juce::Graphics& g) {
+    struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     Theme::backdrop(g, getLocalBounds());
     auto& L = lg();
     // column headers: start a whole column

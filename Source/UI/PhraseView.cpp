@@ -8,6 +8,7 @@ static void say(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r
 }
 
 PhraseView::PhraseView(AppShell& s) : shell(s) {
+    getProperties().set("softShades", true);
     auto& m = shell.host.model;
     auto col = [] { return Theme::pal().acc[5]; };
     rec = add<Pill>("REC", [this] { int st = shell.host.engine.phrase.stateOut.load(); return st == 1 || st == 2 ? Theme::red() : Theme::btn(); }, 11.0f, 14.0f);
@@ -70,6 +71,7 @@ void PhraseView::resized() {
 }
 
 void PhraseView::paint(juce::Graphics& g) {
+    struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     Theme::backdrop(g, getLocalBounds());
     auto& P = shell.host.engine.phrase;
     auto col = Theme::pal().acc[5];

@@ -15,6 +15,7 @@ DrumMachine& DrumView::dm() { return shell.host.engine.drumMachine; }
 int DrumView::pat() { return juce::jlimit(0, 7, (int) shell.host.model.get("dm_pat")); }
 
 DrumView::DrumView(AppShell& s) : shell(s) {
+    getProperties().set("softShades", true);
     setWantsKeyboardFocus(true);
     auto& m = shell.host.model;
     // kits
@@ -189,6 +190,7 @@ juce::Rectangle<int> DrumView::padRect(int pad) const {
 }
 
 void DrumView::paint(juce::Graphics& g) {
+    struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     Theme::backdrop(g, getLocalBounds());
     drawPanel(g, leftR.toFloat(), 18); drawPanel(g, gridR.toFloat(), 18); drawPanel(g, rightR.toFloat(), 18);
     auto& D = dm(); auto& m = shell.host.model;

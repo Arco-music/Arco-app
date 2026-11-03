@@ -36,6 +36,21 @@ Segments::Segments(juce::StringArray it, std::function<int()> g, std::function<v
     setMouseCursor(juce::MouseCursor::PointingHandCursor); }
 void Segments::paint(juce::Graphics& g) {
     auto r = getLocalBounds().toFloat();
+    if (Theme::softUI()) {          // 2.2: a groove in the skin; the chosen one a raised capsule with its little light
+        softWell(g, r, r.getHeight() * 0.5f);
+        int n = juce::jmax(1, items.size()), on = get ? get() : -1; float w = r.getWidth() / n;
+        for (int i = 0; i < n; ++i) {
+            auto c = juce::Rectangle<float>(r.getX() + i * w, r.getY(), w, r.getHeight());
+            if (i == on) { auto k = c.reduced(3.0f); softRaised(g, k, k.getHeight() * 0.5f, juce::jmin(5.0f, k.getHeight() * 0.18f), Theme::btn());
+                           auto cc = col ? col() : Theme::blue();
+                           float tw = juce::GlyphArrangement::getStringWidth(Theme::font(fsize, 2), items[i]);
+                           bool dot = k.getWidth() > tw + 22;
+                           if (dot) softLed(g, { k.getCentreX() - tw * 0.5f - 6.0f, k.getCentreY() }, 2.4f, cc, true);
+                           say(g, items[i], c.toNearestInt().withTrimmedLeft(dot ? 8 : 0), fsize, Theme::txt(), 2, juce::Justification::centred); }
+            else say(g, items[i], c.toNearestInt(), fsize, Theme::sub(), 2, juce::Justification::centred);
+        }
+        return;
+    }
     if (Theme::glass()) { g.setColour(juce::Colours::black.withAlpha(0.30f)); g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
                           g.setColour(juce::Colours::white.withAlpha(0.07f)); g.drawRoundedRectangle(r.reduced(0.5f), r.getHeight() * 0.5f, 1.0f); }
     else { g.setColour(Theme::btn()); g.fillRoundedRectangle(r, juce::jmin(10.0f, r.getHeight() * 0.32f)); }

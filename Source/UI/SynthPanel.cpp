@@ -266,6 +266,7 @@ void SynthPanel::setPage(int p) {
 }
 
 SynthPanel::SynthPanel(Canvas& c) : cv(c) {
+    getProperties().set("softShades", true);
     auto& h = cv.host; auto& m = cv.model();
     setWantsKeyboardFocus(true);
     auto* close = add<Pill>(-1, { 1360 - 104, 14, 88, 26 }, U8("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
@@ -465,6 +466,7 @@ static float oscWave(float p, float wave, float warp, int mode) {
 }
 
 void SynthPanel::paint(juce::Graphics& g) {
+    struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     auto& m = cv.model();
     g.fillAll(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.25f : 0.6f));
     g.setColour(Theme::bg()); g.fillRoundedRectangle(box.toFloat(), 16.0f);

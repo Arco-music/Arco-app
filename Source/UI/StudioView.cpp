@@ -16,6 +16,7 @@ static const char* GRID[5] = { "OFF", "BAR", "1/4", "1/8", "1/16" };
 
 // ================================================================== building
 StudioView::StudioView(Canvas& c) : studio(c.host.studio), cv(c), juce::Thread("ARCO studio job") {
+    getProperties().set("softShades", true);
     setWantsKeyboardFocus(true);
     buildTop();
     startTimerHz(30);
@@ -143,6 +144,7 @@ const std::vector<float>& StudioView::peaksOf(const StudioSource* s) {
 
 // ================================================================== painting
 void StudioView::paint(juce::Graphics& g) {
+    struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     hits.clear(); dynLabels.clear();
     rebuildDetail();
     Theme::backdrop(g, getLocalBounds());

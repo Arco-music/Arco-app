@@ -61,6 +61,7 @@ public:
     std::function<int()> iconFn;     // 2.1: an icon that follows the state (play / stop)
     bool shadedByParent() const { auto* p = getParentComponent(); return p != nullptr && (bool) p->getProperties()["softShades"]; }
     float softRadius(juce::Rectangle<float> b) const {
+        if (Theme::softUI()) return b.getHeight() * 0.5f;          // 2.2: every key a capsule, round at the ends (as the design)
         float rr = seg == 0 ? radius : juce::jmin(10.0f, b.getHeight() * 0.32f);
         float sr = juce::jmin(b.getHeight() * 0.5f, juce::jmax(rr, 9.0f));
         if (std::abs(b.getWidth() - b.getHeight()) < 3.0f) sr = b.getHeight() * 0.5f;
