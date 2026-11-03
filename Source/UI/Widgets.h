@@ -12,21 +12,22 @@ using SetFn = std::function<void(double)>;
 
 // 2.1 SOFT: surfaces raised out of one material, lit from the top left
 inline void softShadow(juce::Graphics& g, juce::Rectangle<float> r, float radius, float d) {
+    // 2.2: a soft-touch skin - many faint layers, so the shade melts into the surface (no edge)
     const bool light = Theme::lightMode();
-    for (int i = 4; i >= 1; --i) {
-        float e = d * (float) i / 4.0f * 0.7f, a = 0.5f / (float) (i + 1);
-        g.setColour(Theme::hiC().withAlpha(juce::jmin(1.0f, a * (light ? 1.6f : 0.85f))));
-        g.fillRoundedRectangle(r.translated(-d * 0.45f, -d * 0.45f).expanded(e), radius + e);
-        g.setColour(Theme::loC().withAlpha(a * (light ? 0.9f : 1.0f)));
-        g.fillRoundedRectangle(r.translated(d * 0.55f, d * 0.55f).expanded(e), radius + e);
+    const int n = 9;
+    for (int i = n; i >= 1; --i) {
+        float t = (float) i / (float) n, e = d * 1.1f * t, a = (1.0f - t) * (1.0f - t) * 0.42f + 0.02f;
+        g.setColour(Theme::hiC().withAlpha(juce::jmin(1.0f, a * (light ? 1.5f : 0.9f))));
+        g.fillRoundedRectangle(r.translated(-d * 0.42f, -d * 0.42f).expanded(e), radius + e);
+        g.setColour(Theme::loC().withAlpha(a * (light ? 0.85f : 1.05f)));
+        g.fillRoundedRectangle(r.translated(d * 0.5f, d * 0.5f).expanded(e), radius + e);
     }
 }
 inline void softFace(juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour base) {
+    // the skin over the key: the same material, a little light from the top left, no line round it
     const bool light = Theme::lightMode();
-    g.setGradientFill(juce::ColourGradient(base.brighter(light ? 0.0f : 0.035f), r.getX(), r.getY(), base.darker(light ? 0.025f : 0.05f), r.getRight(), r.getBottom(), false));
+    g.setGradientFill(juce::ColourGradient(base.brighter(light ? 0.015f : 0.045f), r.getX(), r.getY(), base.darker(light ? 0.03f : 0.06f), r.getRight(), r.getBottom(), false));
     g.fillRoundedRectangle(r, radius);
-    juce::ColourGradient rim(Theme::hiC().withAlpha(light ? 0.95f : 0.45f), r.getX(), r.getY(), Theme::hiC().withAlpha(0.0f), r.getX() + r.getWidth() * 0.5f, r.getY() + juce::jmin(r.getHeight(), 60.0f), false);
-    g.setGradientFill(rim); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
 }
 inline void softRaised(juce::Graphics& g, juce::Rectangle<float> r, float radius, float d, juce::Colour base) { softShadow(g, r, radius, d); softFace(g, r, radius, base); }
 inline void softWell(juce::Graphics& g, juce::Rectangle<float> r, float radius) {
@@ -123,7 +124,7 @@ public:
             g.setColour(tc); g.setFont(f); g.drawText(txt, juce::Rectangle<float>(x0 + 10.0f, r.getY(), tw + 4.0f, r.getHeight()), juce::Justification::centredLeft); return;
         }
         if (icon != 0) {
-            float is = juce::jmin((float) getHeight() * 0.42f, 14.0f);
+            float is = juce::jmin((float) getHeight() * 0.42f, Theme::softUI() && icon == 3 ? 22.0f : 14.0f);
             float tw = txt.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth(Theme::font(fsize, weight), txt) + 5.0f;
             float x0 = r.getCentreX() - (is + tw) * 0.5f;
             drawIcon(g, icon, juce::Rectangle<float>(x0, r.getCentreY() - is * 0.5f, is, is), tc);
@@ -224,7 +225,10 @@ public:
             }
             float fr = ring - sw * 0.5f - juce::jmax(3.0f, d * 0.09f);
             auto face = juce::Rectangle<float>(c.x - fr, c.y - fr, fr * 2, fr * 2);
-            softRaised(g, face, fr, juce::jmax(2.0f, fr * 0.16f), Theme::btn());
+            softShadow(g, face, fr, juce::jmax(2.5f, fr * 0.22f));
+            { const bool light = Theme::lightMode(); auto base = Theme::btn();
+              g.setGradientFill(juce::ColourGradient(base.brighter(light ? 0.03f : 0.09f), face.getX() + fr * 0.55f, face.getY() + fr * 0.45f, base.darker(light ? 0.05f : 0.10f), face.getRight(), face.getBottom(), true));
+              g.fillEllipse(face); }
             float an = a0 + (a1 - a0) * t - juce::MathConstants<float>::halfPi;
             g.setColour(enabled ? Theme::txt() : Theme::sub());
             g.drawLine(c.x + std::cos(an) * fr * 0.42f, c.y + std::sin(an) * fr * 0.42f, c.x + std::cos(an) * fr * 0.80f, c.y + std::sin(an) * fr * 0.80f, juce::jmax(1.6f, d * 0.04f));

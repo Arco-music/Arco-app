@@ -67,10 +67,13 @@ public:
         auto r = b.withSizeKeepingCentre(d, d);
         auto c = r.getCentre(); float R = d * 0.5f;
         const float tp = juce::MathConstants<float>::twoPi, hp = juce::MathConstants<float>::halfPi;
-        if (Theme::softUI()) {
-            g.setColour(Theme::card2().withAlpha(0.55f)); g.fillEllipse(r.reduced(1.0f));
-            g.setColour(Theme::loC().withAlpha(Theme::lightMode() ? 0.30f : 0.55f)); g.drawEllipse(r.reduced(2.5f).translated(1.2f, 1.2f), 2.5f);
-            g.setColour(Theme::hiC().withAlpha(Theme::lightMode() ? 0.8f : 0.18f)); g.drawEllipse(r.reduced(2.5f).translated(-1.0f, -1.0f), 1.2f);
+        if (Theme::softUI()) {          // pressed into the skin: darker inside, the shade all round the rim
+            const bool light = Theme::lightMode();
+            g.setColour(juce::Colours::black.withAlpha(light ? 0.03f : 0.16f)); g.fillEllipse(r);
+            juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addEllipse(r); g.reduceClipRegion(cl);
+            for (int i = 1; i <= 6; ++i) { float k = i / 6.0f; g.setColour(Theme::loC().withAlpha((light ? 0.18f : 0.30f) * (1.0f - k)));
+                g.drawEllipse(r.expanded(2.0f).translated(1.5f, 1.5f), 2.0f + 14.0f * k); }
+            if (light) { g.setColour(juce::Colours::white.withAlpha(0.6f)); g.drawEllipse(r.reduced(0.5f).translated(-0.8f, -0.8f), 1.0f); }
         } else { g.setColour(Theme::scr()); g.fillEllipse(r); }
         float p = progress ? progress() : -1.0f;
         auto col = Theme::arc(colour ? colour() : Theme::txt());
@@ -238,14 +241,14 @@ public:
         fader->setBounds(x - 2, fy, iw + 4, fh);
         meter->setBounds(x + 8, fy + fh + 3, iw - 16, 3);
         dbR = { x, fy - 20, iw, 18 };
-        int ks = juce::jlimit(30, 44, iw / 4), ky = dbR.getY() - 8 - 15 - ks;
+        int ks = juce::jlimit(40, 66, (int) (iw * 0.30f)), ky = dbR.getY() - 10 - 15 - ks;
         int c1 = x + iw / 4, c2 = x + iw * 3 / 4;
         if (nr) { c1 = x + iw / 4 + 2; c2 = x + iw * 3 / 4 - 2; }
         pan->setBounds(c1 - ks / 2, ky, ks, ks); send->setBounds(c2 - ks / 2, ky, ks, ks);
         panLabelR = { c1 - 40, ky + ks + 2, 80, 14 }; sendLabelR = { c2 - 40, ky + ks + 2, 80, 14 };
         // the top: the dial, REC / PLAY, the text buttons - centred in what is left
         int top = y, bottom = ky - 14, avail = bottom - top;
-        int bs = s >= 4 ? juce::jlimit(40, 60, (int) (iw * 0.28f)) : 0;
+        int bs = s >= 4 ? juce::jlimit(46, 68, (int) (iw * 0.30f)) : 0;
         int rowH = 26, gapB = s >= 4 ? 10 : 0;
         int ds = juce::jlimit(64, juce::jmin(iw, 196), avail - (bs + gapB + 10 + rowH));
         if (ds > iw) ds = iw;
@@ -253,7 +256,7 @@ public:
         int y0 = top + juce::jmax(0, (avail - total) / 2);
         dial->setBounds(x + (iw - ds) / 2, y0, ds, ds); y0 += ds + 10;
         if (s >= 4) {
-            int ps = juce::jmax(34, (int) (bs * 0.74f)), gg = nr ? 8 : 16, tot = bs + gg + ps, x0 = x + (iw - tot) / 2;
+            int ps = juce::jmax(36, (int) (bs * 0.74f)), gg = nr ? 8 : 18, tot = bs + gg + ps, x0 = x + (iw - tot) / 2;
             rec->setBounds(x0, y0, bs, bs); tog->setBounds(x0 + bs + gg, y0 + (bs - ps) / 2, ps, ps); y0 += bs + gapB;
             int a = iw / 3;
             clr->setBounds(x, y0, a, rowH); spd->setBounds(x + a, y0, iw - 2 * a, rowH); file->setBounds(x + iw - a, y0, a, rowH);
@@ -470,8 +473,9 @@ public:
         }
         if (juce::String(def.key) == "drm") { drumR = { juce::jmax(0, right - 260), y + 6, 260, 40 }; right = drumR.getX() - 20; }
         int n = (int) knobs.size(); if (n == 0) return;
-        int ks = juce::jlimit(34, 50, h - y - 24);
-        float pitch = juce::jmin((float) (ks + 44), (float) right / (float) n);
+        int ks = juce::jlimit(40, 68, h - y - 24);
+        float pitch = juce::jmin((float) (ks + 46), (float) right / (float) n);
+        if (pitch < ks + 14) { ks = juce::jmax(36, (int) pitch - 14); }
         for (int j = 0; j < n; ++j) {
             float cx = pitch * (j + 0.5f);
             knobs[(size_t) j]->setBounds((int) (cx - ks / 2), y, ks, ks);
@@ -1107,7 +1111,7 @@ void Canvas::layoutStrips() {
     const bool soft = Theme::softUI();
     int cardsH = portrait ? juce::jlimit(420, 640, (int) (H * 0.37f)) : juce::jlimit(Theme::softUI() ? 220 : 250, 420, (int) (H * (Theme::softUI() ? 0.255f : 0.29f)));
     const int mapH = portrait ? MAP_H2 : MAP_H;
-    const int fxH = portrait ? 300 : 158;
+    const int fxH = portrait ? 320 : 184;
     int avail = soft ? H - top - 16 - fxH - 18 : H - top - 8 - mapH - 8 - cardsH - 8;
     stripH = juce::jlimit(340, 620, (avail - (stripRows - 1) * 8) / stripRows);
     // MASTER on the right of the (first) row
