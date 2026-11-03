@@ -172,9 +172,9 @@ void StudioView::paint(juce::Graphics& g) {
 
 void StudioView::paintTop(juce::Graphics& g) {
     auto& S = studio.song;
-    g.setColour(Theme::card()); g.fillRect(0, 0, getWidth(), (int) topH);
+    if (!Theme::softUI()) { g.setColour(Theme::card()); g.fillRect(0, 0, getWidth(), (int) topH); }
     if (embedded) {
-        g.setColour(Theme::line()); g.fillRect(0, (int) topH - 1, getWidth(), 1);
+        if (!Theme::softUI()) { g.setColour(Theme::line()); g.fillRect(0, (int) topH - 1, getWidth(), 1); }
         juce::String line = report.isNotEmpty() ? report : hint;
         if (line.isNotEmpty()) txt(g, line, { 560, 8, juce::jmax(100, getWidth() - 560 - 420), 36 }, 7.5f, report.isNotEmpty() ? Theme::green() : Theme::sub(), 1, juce::Justification::centred);
         if (isThreadRunning() || (progress > 0 && progress < 1)) {
@@ -210,7 +210,8 @@ void StudioView::paintTop(juce::Graphics& g) {
 
 void StudioView::paintBrowser(juce::Graphics& g) {
     auto r = browserArea();
-    g.setColour(Theme::card()); g.fillRect(r.withTrimmedRight(2));
+    if (Theme::softUI()) softRaised(g, r.toFloat().reduced(10.0f, 6.0f), 22.0f, 8.0f, Theme::card());
+    else { g.setColour(Theme::card()); g.fillRect(r.withTrimmedRight(2)); }
     browserItems.clear();
     auto& e = cv.host.engine;
     int y = r.getY() + 10;
@@ -704,8 +705,9 @@ void StudioView::rebuildDetail() {
 
 void StudioView::paintDetail(juce::Graphics& g) {
     auto d = detailArea();
-    g.setColour(Theme::card()); g.fillRect(d);
-    g.setColour(Theme::line()); g.fillRect(d.getX(), d.getY(), d.getWidth(), 1);
+    if (Theme::softUI()) softRaised(g, d.toFloat().reduced(10.0f, 8.0f), 24.0f, 8.0f, Theme::card());
+    else { g.setColour(Theme::card()); g.fillRect(d);
+    g.setColour(Theme::line()); g.fillRect(d.getX(), d.getY(), d.getWidth(), 1); }
     auto& S = studio.song;
     auto tab = [&](juce::Rectangle<int> r, const juce::String& t, bool on, std::function<void()> f) {
         g.setColour(on ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 5); txt(g, t, r, 7.5f, Theme::textOn(on ? Theme::sel() : Theme::btn()), 2, juce::Justification::centred);

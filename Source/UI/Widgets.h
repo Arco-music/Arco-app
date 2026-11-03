@@ -45,11 +45,35 @@ inline void softLed(juce::Graphics& g, juce::Point<float> c, float rad, juce::Co
     else { g.setColour(Theme::line()); g.fillEllipse(c.x - rad, c.y - rad, rad * 2, rad * 2); }
 }
 
+
+// 2.3: the silicone's spring - a key goes down quickly and comes back up with a slight bounce
+struct SoftSpring : private juce::Timer {
+    float v = 0, vel = 0, target = 0; bool init = false;
+    std::function<void()> onMove;
+    void to(float t) {
+        if (!init) { v = target = t; init = true; return; }
+        if (std::abs(t - target) > 1e-4f) { target = t; if (!isTimerRunning()) startTimerHz(60); }
+    }
+    bool moving() const { return isTimerRunning(); }
+private:
+    void timerCallback() override {
+        const bool down = target > v;
+        const float k = down ? 0.38f : 0.16f, damp = down ? 0.50f : 0.24f;
+        vel += (target - v) * k; vel *= (1.0f - damp); v += vel;
+        if (std::abs(target - v) < 0.003f && std::abs(vel) < 0.003f) { v = target; vel = 0; stopTimer(); }
+        if (onMove) onMove();
+    }
+};
+
 // ---------------------------------------------------------------- a rounded button
 class Pill : public juce::Component, public juce::SettableTooltipClient {
 public:
     Pill(juce::String t, ColourFn bg_, float fs = 10.0f, float r = 7.0f) : text(std::move(t)), bg(std::move(bg_)), fsize(fs), radius(r) {
-        setMouseCursor(juce::MouseCursor::PointingHandCursor); }
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        press.onMove = [this] { repaintWithParent(); }; }
+    SoftSpring press;                // 2.3: how far the key is pressed into the skin (0 up, 1 down)
+    float pressLevel() const { return press.v; }
+    void repaintWithParent() { if (shadedByParent()) getParentComponent()->repaint(getBounds().expanded(20)); else repaint(); }
     std::function<void()> onClick;
     std::function<juce::String()> dynText;
     ColourFn textColour;
@@ -66,14 +90,12 @@ public:
         float sr = juce::jmin(b.getHeight() * 0.5f, juce::jmax(rr, 9.0f));
         if (std::abs(b.getWidth() - b.getHeight()) < 3.0f) sr = b.getHeight() * 0.5f;
         return sr; }
-    // raised right now (so its parent shades it): not a bare word, not pressed in
+    // a key of the skin (not a bare word): its parent draws its shade, as deep as the key is up
     bool raisedNow() {
         auto c = bg ? bg() : Theme::btn();
         bool on = onFn ? onFn() : (c != Theme::btn() && c != Theme::card2() && c.getAlpha() > 0);
         bool solid = !tint ? (on && c.isOpaque() && c != Theme::btn() && c != Theme::card2()) : (solidFn && solidFn());
-        if (c.getAlpha() == 0 && !on && !solid) return false;
-        if (!solid && ((on && tint) || isMouseButtonDown())) return false;
-        return true; }
+        return !(c.getAlpha() == 0 && !on && !solid); }
     bool mono = false;               // 2.1: the small monospace labels (IN 1 ▾)
     void paint(juce::Graphics& g) override {
         const int icon = iconFn ? iconFn() : this->icon;
@@ -91,26 +113,42 @@ public:
         float rr = seg == 0 ? radius : juce::jmin(10.0f, r.getHeight() * 0.32f);
         if (Theme::glass()) rr = juce::jmin(r.getHeight() * 0.5f, juce::jmax(rr, 10.0f));
         bool led = false;
-        if (Theme::softUI()) {          // 2.1: a raised key; "on" = pressed in with a little light; solid = the colour itself
+        if (Theme::softUI()) {          // 2.3: a key of silicone - pressed, it sinks into the skin; latched, it stays down with a light under it
             bool solid = !tint ? (on && c.isOpaque() && c != Theme::btn() && c != Theme::card2()) : (solidFn && solidFn());
             bool clear = c.getAlpha() == 0 && !on && !solid;
-            const bool ext = shadedByParent();        // 2.2: the parent draws the big soft shade round the key (outside its bounds)
+            const bool ext = shadedByParent();
             auto b = ext ? r : r.reduced(juce::jmin(3.0f, r.getHeight() * 0.1f));
             float sr = softRadius(b);
-            if (clear) { if (isMouseOver()) { g.setColour(Theme::txt().withAlpha(0.05f)); g.fillRoundedRectangle(b, sr); } ink = Theme::txt().withAlpha(isMouseOver() ? 1.0f : 0.78f); }
-            else if (solid) {
-                if (!ext) softShadow(g, b, sr, 3.0f);
-                g.setColour(c.withAlpha(0.28f)); g.fillRoundedRectangle(b.expanded(2.5f), sr + 2.5f);
-                g.setGradientFill(juce::ColourGradient(c.brighter(0.10f), b.getX(), b.getY(), c.darker(0.10f), b.getRight(), b.getBottom(), false)); g.fillRoundedRectangle(b, sr);
-                ink = Theme::textOn(c);
-            } else if ((on && tint) || isMouseButtonDown()) {
-                softWell(g, b, sr); ink = Theme::txt(); led = on && tint && icon == 0;
-            } else {
-                auto base = isMouseOver() ? Theme::btn().brighter(Theme::lightMode() ? 0.02f : 0.05f) : Theme::btn();
-                if (ext) softFace(g, b, sr, base); else softRaised(g, b, sr, juce::jmin(5.0f, b.getHeight() * 0.14f), base);
-                ink = on && !tint ? Theme::ink(c) : Theme::txt();
+            if (clear) { press.to(0.0f); if (isMouseOver() || isMouseButtonDown()) { g.setColour(Theme::txt().withAlpha(isMouseButtonDown() ? 0.08f : 0.04f)); g.fillRoundedRectangle(b, sr); }
+                         ink = Theme::txt().withAlpha(isMouseOver() ? 1.0f : 0.78f); }
+            else {
+                const bool latched = (on && tint) || solid;
+                press.to(isMouseButtonDown() ? 1.0f : latched ? 0.85f : 0.0f);
+                const float pv = press.v, pd = juce::jlimit(0.0f, 1.0f, pv);
+                if (!ext && pd < 0.98f) softShadow(g, b, sr, juce::jmin(5.0f, b.getHeight() * 0.14f) * (1.0f - pd));
+                juce::Graphics::ScopedSaveState ss(g);
+                float sc = 1.0f - 0.045f * juce::jlimit(-0.3f, 1.1f, pv);
+                g.addTransform(juce::AffineTransform::scale(sc, sc, b.getCentreX(), b.getCentreY()));
+                softFace(g, b, sr, Theme::btn().darker(pd * (Theme::lightMode() ? 0.02f : 0.05f)));
+                if (pd > 0.01f) {          // the inside of the dent
+                    juce::Path cl; cl.addRoundedRectangle(b, sr); g.reduceClipRegion(cl);
+                    float t = juce::jlimit(3.0f, 7.0f, b.getHeight() * 0.16f);
+                    g.setColour(Theme::loC().withAlpha((Theme::lightMode() ? 0.60f : 0.85f) * pd)); g.drawRoundedRectangle(b.translated(t * 0.55f, t * 0.55f).expanded(t * 0.5f), sr + t * 0.5f, t);
+                    g.setColour(Theme::hiC().withAlpha((Theme::lightMode() ? 0.95f : 0.35f) * pd)); g.drawRoundedRectangle(b.translated(-t * 0.5f, -t * 0.5f).expanded(t * 0.5f), sr + t * 0.5f, t * 0.7f);
+                }
+                if (solid) {               // the colour shining up through the skin
+                    juce::ColourGradient gl(c.withAlpha(0.30f), b.getCentreX(), b.getCentreY(), c.withAlpha(0.0f), b.getRight(), b.getCentreY(), true);
+                    g.setGradientFill(gl); g.fillRoundedRectangle(b, sr);
+                    ink = Theme::ink(c);
+                } else ink = on && !tint ? Theme::ink(c) : Theme::txt();
+                led = on && tint && icon == 0 && !solid;
             }
-            if (icon == 3 && !solid) ink = (on && tint) ? Theme::red() : Theme::red().withMultipliedAlpha(0.62f);
+            if (icon == 3) {              // the record dot: a soft red under the skin, lit when recording
+                bool lit = solid || (on && tint);
+                ink = lit ? Theme::red() : Theme::red().withMultipliedAlpha(0.6f);
+                if (lit) { float is = juce::jmin((float) getHeight() * 0.42f, 22.0f); auto cc = r.getCentre();
+                           for (int i = 3; i >= 1; --i) { g.setColour(Theme::red().withAlpha(0.10f * (4 - i))); float e = is * 0.5f + i * 5.0f; g.fillEllipse(cc.x - e, cc.y - e, e * 2, e * 2); } }
+            } else if (solid && icon != 0) ink = Theme::ink(c);
         }
         else if (Theme::glass() && (seg == 0 || seg == 4)) {       // glass: a pill of light; "on" glows in its colour, solid is the colour itself
             bool solid = !tint ? (fill.isOpaque() && fill != Theme::btn()) : (solidFn && solidFn());
@@ -171,10 +209,10 @@ public:
         else if (k == 10) { float s = (w - w * 0.22f) / 2; for (int i = 0; i < 4; ++i) g.fillRoundedRectangle(x + (i % 2) * (s + w * 0.22f), y + (i / 2) * (s + h * 0.22f), s, s, s * 0.25f); }   // 2.0: HOME
         else if (k == 9) { juce::Path p; p.addTriangle(x, y + h * 0.18f, x, y + h * 0.82f, x + w * 0.5f, y + h * 0.5f); g.fillPath(p); g.fillRoundedRectangle(x + w * 0.6f, y + h * 0.26f, w * 0.4f, h * 0.48f, 1.5f); }
     }
-    void mouseEnter(const juce::MouseEvent&) override { repaint(); }
-    void mouseExit(const juce::MouseEvent&) override { repaint(); }
-    void mouseDown(const juce::MouseEvent&) override { repaint(); }
-    void mouseUp(const juce::MouseEvent& e) override { repaint(); if (getLocalBounds().contains(e.getPosition()) && onClick) onClick(); }
+    void mouseEnter(const juce::MouseEvent&) override { repaintWithParent(); }
+    void mouseExit(const juce::MouseEvent&) override { repaintWithParent(); }
+    void mouseDown(const juce::MouseEvent&) override { repaintWithParent(); }
+    void mouseUp(const juce::MouseEvent& e) override { repaintWithParent(); if (getLocalBounds().contains(e.getPosition()) && onClick) onClick(); }
 };
 
 // 1.6: a panel of the new design (soft shade, hairline)
@@ -202,7 +240,7 @@ inline void drawToggle(juce::Graphics& g, juce::Rectangle<float> r, bool on, juc
         softWell(g, r, r.getHeight() * 0.5f);
         float d = r.getHeight() - 6; float x = on ? r.getRight() - 3 - d : r.getX() + 3;
         auto k = juce::Rectangle<float>(x, r.getY() + 3, d, d);
-        if (on) { g.setColour(col.withAlpha(0.3f)); g.fillEllipse(k.expanded(3)); g.setColour(col); g.fillEllipse(k); }
+        if (on) { for (int i = 3; i >= 1; --i) { g.setColour(col.withAlpha(0.10f * (4 - i))); g.fillEllipse(k.expanded(i * 2.5f)); } g.setColour(col); g.fillEllipse(k); }
         else softRaised(g, k, d * 0.5f, 2.0f, Theme::btn());
         return;
     }
@@ -217,7 +255,8 @@ class Knob : public juce::Component, public juce::SettableTooltipClient {
 public:
     Knob(ValueFn get_, SetFn set_, double lo_, double hi_, double def_, ColourFn col_) :
         get(std::move(get_)), set(std::move(set_)), lo(lo_), hi(hi_), def(def_), col(std::move(col_)) {
-        setMouseCursor(juce::MouseCursor::UpDownResizeCursor); }
+        setMouseCursor(juce::MouseCursor::UpDownResizeCursor); press.onMove = [this] { repaint(); }; }
+    SoftSpring press; float dragDy = 0;          // 2.3: the dome under the finger
     ValueFn get; SetFn set; double lo, hi, def; ColourFn col;
     bool enabled = true;
     void paint(juce::Graphics& g) override {
@@ -227,29 +266,50 @@ public:
         const float a0 = juce::MathConstants<float>::pi * 1.25f, a1 = juce::MathConstants<float>::pi * 2.75f;
         double v = get ? get() : def;
         float t = (float) ((v - lo) / juce::jmax(1e-9, hi - lo));
-        if (Theme::softUI()) {          // 2.1: a raised cap with a line, the value lit in a ring around it
-            float sw = juce::jmax(2.0f, d * 0.055f), ring = rad - sw * 0.5f - 1.0f;
+        if (Theme::softUI()) {          // 2.3: a dome of silicone; touched, it sinks and follows the finger; the value is a light under the skin
+            press.to(dragging ? 1.0f : 0.0f);
+            const float pv = press.v, pd = juce::jlimit(0.0f, 1.0f, pv);
+            const bool light = Theme::lightMode();
+            float sw = juce::jmax(2.4f, d * 0.06f), ring = rad - sw * 1.6f;
+            juce::PathStrokeType rs(sw * 1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
             juce::Path tr; tr.addCentredArc(c.x, c.y, ring, ring, 0, a0, a1, true);
-            g.setColour(Theme::card2()); g.strokePath(tr, juce::PathStrokeType(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour(Theme::card2()); g.strokePath(tr, rs);                                   // the groove
+            g.setColour(Theme::loC().withAlpha(light ? 0.25f : 0.45f)); g.strokePath(tr, juce::PathStrokeType(sw * 0.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                                                                                    juce::AffineTransform::translation(0.6f, 0.8f));
             float start = lo < 0 && hi > 0 ? (float) ((0 - lo) / (hi - lo)) : 0.0f;
             float ta = a0 + (a1 - a0) * juce::jmin(start, t), tb = a0 + (a1 - a0) * juce::jmax(start, t);
             auto cc = enabled ? Theme::arc(col ? col() : Theme::txt()) : Theme::line();
-            if (tb - ta > 0.001f) {
+            if (tb - ta > 0.001f) {             // the light, seen through the skin: wide and soft, then the line
                 juce::Path va; va.addCentredArc(c.x, c.y, ring, ring, 0, ta, tb, true);
-                g.setColour(cc.withAlpha(0.20f)); g.strokePath(va, juce::PathStrokeType(sw * 2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                g.setColour(cc); g.strokePath(va, juce::PathStrokeType(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                for (int i = 4; i >= 1; --i) { g.setColour(cc.withAlpha((0.07f + 0.05f * pd) * (5 - i) * 0.5f));
+                    g.strokePath(va, juce::PathStrokeType(sw * (1.0f + i * 1.1f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
+                g.setColour(cc.withAlpha(0.92f)); g.strokePath(va, juce::PathStrokeType(sw * 0.9f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
-            float fr = ring - sw * 0.5f - juce::jmax(3.0f, d * 0.09f);
-            auto face = juce::Rectangle<float>(c.x - fr, c.y - fr, fr * 2, fr * 2);
-            softShadow(g, face, fr, juce::jmax(2.5f, fr * 0.22f));
-            { const bool light = Theme::lightMode(); auto base = Theme::btn();
-              g.setGradientFill(juce::ColourGradient(base.brighter(light ? 0.03f : 0.09f), face.getX() + fr * 0.55f, face.getY() + fr * 0.45f, base.darker(light ? 0.05f : 0.10f), face.getRight(), face.getBottom(), true));
-              g.fillEllipse(face); }
             float an = a0 + (a1 - a0) * t - juce::MathConstants<float>::halfPi;
-            g.setColour(enabled ? Theme::txt() : Theme::sub());
-            g.drawLine(c.x + std::cos(an) * fr * 0.42f, c.y + std::sin(an) * fr * 0.42f, c.x + std::cos(an) * fr * 0.80f, c.y + std::sin(an) * fr * 0.80f, juce::jmax(1.6f, d * 0.04f));
-            if (dragging) { g.setColour(Theme::txt()); g.setFont(Theme::font(8.0f, 1));
-                g.drawText(juce::String(v, std::abs(hi - lo) <= 2 ? 2 : 0), getLocalBounds().withY(getHeight() - 12).withHeight(12), juce::Justification::centred); }
+            if (enabled) { juce::Point<float> pt(c.x + std::cos(an) * ring, c.y + std::sin(an) * ring);       // the point of light
+                for (int i = 3; i >= 1; --i) { g.setColour(cc.withAlpha(0.16f * (4 - i))); float e = sw * 0.5f + i * 2.2f; g.fillEllipse(pt.x - e, pt.y - e, e * 2, e * 2); } }
+            // the dome
+            float fr = ring - sw * 1.2f - juce::jmax(2.0f, d * 0.05f);
+            juce::Point<float> fc(c.x, c.y + juce::jlimit(-4.0f, 4.0f, -dragDy * 0.05f) * pd);
+            fr *= 1.0f - 0.06f * pv;
+            auto face = juce::Rectangle<float>(fc.x - fr, fc.y - fr, fr * 2, fr * 2);
+            if (pd < 0.98f) softShadow(g, face, fr, juce::jmax(2.5f, fr * 0.2f) * (1.0f - pd));
+            auto base = Theme::btn();
+            g.setGradientFill(juce::ColourGradient(base.brighter(light ? 0.03f : 0.09f), face.getX() + fr * 0.75f, face.getY() + fr * 0.62f, base.darker(light ? 0.05f : 0.11f), face.getRight(), face.getBottom(), true));
+            g.fillEllipse(face);
+            if (pd > 0.01f) { juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addEllipse(face); g.reduceClipRegion(cl);
+                float tt = juce::jmax(3.0f, fr * 0.22f);
+                g.setColour(Theme::loC().withAlpha((light ? 0.55f : 0.8f) * pd)); g.drawEllipse(face.translated(tt * 0.5f, tt * 0.5f).expanded(tt * 0.5f), tt);
+                g.setColour(Theme::hiC().withAlpha((light ? 0.9f : 0.3f) * pd)); g.drawEllipse(face.translated(-tt * 0.45f, -tt * 0.45f).expanded(tt * 0.5f), tt * 0.7f); }
+            // the line on the dome (it fades while the value shows)
+            g.setColour((enabled ? Theme::txt() : Theme::sub()).withMultipliedAlpha(1.0f - 0.85f * pd));
+            g.drawLine(fc.x + std::cos(an) * fr * 0.40f, fc.y + std::sin(an) * fr * 0.40f, fc.x + std::cos(an) * fr * 0.78f, fc.y + std::sin(an) * fr * 0.78f, juce::jmax(1.6f, d * 0.04f));
+            if (pd > 0.05f) {
+                juce::String vt = lo < 0 && hi > 0 && std::abs(lo + hi) < 1e-6 ? (std::abs(v) < 0.5 ? juce::String("C") : (v < 0 ? "L" : "R") + juce::String((int) std::round(std::abs(v))))
+                                                                                : juce::String(v, std::abs(hi - lo) <= 2 ? 2 : 0);
+                g.setColour(Theme::txt().withAlpha(pd)); g.setFont(Theme::font(juce::jlimit(8.0f, 15.0f, fr * 0.42f), 1));
+                g.drawText(vt, face.toNearestInt(), juce::Justification::centred);
+            }
             return;
         }
         // 1.6: the track ring, the value arc, a shaded face and a dot (as the new design)
@@ -281,13 +341,14 @@ public:
             g.drawText(juce::String(v, std::abs(hi - lo) <= 2 ? 2 : 0), getLocalBounds().withY(getHeight() / 2 - 6).withHeight(12), juce::Justification::centred);
         }
     }
-    void mouseDown(const juce::MouseEvent& e) override { start = get ? get() : def; dragging = true; startY = e.position.y; repaint(); }
+    void mouseDown(const juce::MouseEvent& e) override { start = get ? get() : def; dragging = true; startY = e.position.y; dragDy = 0; repaint(); }
     void mouseDrag(const juce::MouseEvent& e) override {
-        if (!enabled) return;
+        dragDy = startY - e.position.y;
+        if (!enabled) { repaint(); return; }
         double range = hi - lo, sens = e.mods.isShiftDown() ? 600.0 : 160.0;
         double v = juce::jlimit(lo, hi, start + (startY - e.position.y) / sens * range);
         if (set) set(v); repaint(); }
-    void mouseUp(const juce::MouseEvent&) override { dragging = false; repaint(); }
+    void mouseUp(const juce::MouseEvent&) override { dragging = false; dragDy = 0; repaint(); }
     void mouseDoubleClick(const juce::MouseEvent&) override { if (set && enabled) set(def); repaint(); }
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) override {
         if (set && enabled) set(juce::jlimit(lo, hi, (get ? get() : def) + w.deltaY * (hi - lo) * 0.1)); repaint(); }
@@ -553,9 +614,46 @@ inline void drawSoftShades(juce::Graphics& g, juce::Component& parent) {
         if (!ch->isVisible()) continue;
         if (auto* p = dynamic_cast<Pill*>(ch)) {
             if (!p->raisedNow()) continue;
-            auto b = p->getBounds().toFloat();
-            softShadow(g, b, p->softRadius(b), juce::jlimit(4.0f, 9.0f, b.getHeight() * 0.22f));
+            auto b = p->getBounds().toFloat(); float sr = p->softRadius(b);
+            float pv = juce::jlimit(-0.3f, 1.0f, p->pressLevel());
+            if (pv < 0.97f) softShadow(g, b, sr, juce::jlimit(4.0f, 9.0f, b.getHeight() * 0.22f) * (1.0f - pv));
+            if (p->isMouseButtonDown() && pv > 0.05f) {      // the skin round the key dips in with it
+                auto cr = b.expanded(9.0f); float t = 5.0f, a = juce::jlimit(0.0f, 1.0f, pv);
+                juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(cr, sr + 9.0f); g.reduceClipRegion(cl);
+                g.setColour(Theme::loC().withAlpha(0.35f * a)); g.drawRoundedRectangle(cr.translated(2.5f, 2.5f).expanded(t * 0.5f), sr + 9.0f, t);
+                g.setColour(Theme::hiC().withAlpha((Theme::lightMode() ? 0.7f : 0.25f) * a)); g.drawRoundedRectangle(cr.translated(-2.0f, -2.0f).expanded(t * 0.5f), sr + 9.0f, t * 0.7f);
+            }
         }
     }
+}
+
+// 2.3: light silicone keys for big grids (drum steps, loop cells): a short shade, a dent when pressed, colour shining up through the skin
+inline void softKeyLite(juce::Graphics& g, juce::Rectangle<float> r, float radius, bool pressed, juce::Colour glow = {}, float glowAmt = 0.0f) {
+    const bool light = Theme::lightMode();
+    if (!pressed) {
+        float d = juce::jlimit(2.0f, 5.0f, r.getHeight() * 0.10f);
+        g.setColour(Theme::hiC().withAlpha(light ? 0.9f : 0.55f)); g.fillRoundedRectangle(r.translated(-d * 0.5f, -d * 0.5f).expanded(d * 0.3f), radius + d * 0.3f);
+        g.setColour(Theme::loC().withAlpha(light ? 0.55f : 0.75f)); g.fillRoundedRectangle(r.translated(d * 0.6f, d * 0.6f).expanded(d * 0.3f), radius + d * 0.3f);
+        softFace(g, r, radius, Theme::btn());
+    } else {
+        g.setColour(Theme::btn().darker(light ? 0.02f : 0.05f)); g.fillRoundedRectangle(r, radius);
+        juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(r, radius); g.reduceClipRegion(cl);
+        float t = juce::jlimit(2.5f, 5.0f, r.getHeight() * 0.12f);
+        g.setColour(Theme::loC().withAlpha(light ? 0.55f : 0.8f)); g.drawRoundedRectangle(r.translated(t * 0.5f, t * 0.5f).expanded(t * 0.5f), radius + t * 0.5f, t);
+        g.setColour(Theme::hiC().withAlpha(light ? 0.9f : 0.28f)); g.drawRoundedRectangle(r.translated(-t * 0.45f, -t * 0.45f).expanded(t * 0.5f), radius + t * 0.5f, t * 0.7f);
+    }
+    if (glowAmt > 0.001f) {
+        juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(r, radius); g.reduceClipRegion(cl);
+        float a = juce::jlimit(0.0f, 1.0f, glowAmt);
+        juce::ColourGradient gr(glow.withAlpha(a * (light ? 0.75f : 0.85f)), r.getCentreX(), r.getCentreY(), glow.withAlpha(a * 0.22f), r.getRight(), r.getBottom(), true);
+        g.setGradientFill(gr); g.fillRoundedRectangle(r, radius);
+    }
+}
+inline void softWellLite(juce::Graphics& g, juce::Rectangle<float> r, float radius) {
+    const bool light = Theme::lightMode();
+    g.setColour(Theme::card2()); g.fillRoundedRectangle(r, radius);
+    juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(r, radius); g.reduceClipRegion(cl);
+    g.setColour(Theme::loC().withAlpha(light ? 0.45f : 0.6f)); g.drawRoundedRectangle(r.translated(1.6f, 1.6f).expanded(1.5f), radius + 1.5f, 3.0f);
+    if (light) { g.setColour(juce::Colours::white.withAlpha(0.8f)); g.drawRoundedRectangle(r.translated(-1.4f, -1.4f).expanded(1.2f), radius + 1.2f, 2.0f); }
 }
 } // namespace arco

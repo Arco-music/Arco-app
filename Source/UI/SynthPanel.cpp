@@ -468,16 +468,19 @@ static float oscWave(float p, float wave, float warp, int mode) {
 void SynthPanel::paint(juce::Graphics& g) {
     struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     auto& m = cv.model();
-    g.fillAll(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.25f : 0.6f));
-    g.setColour(Theme::bg()); g.fillRoundedRectangle(box.toFloat(), 16.0f);
+    if (Theme::softUI()) { g.fillAll(Theme::bg()); softRaised(g, box.toFloat(), 30.0f, 10.0f, Theme::bg()); }
+    else { g.fillAll(juce::Colours::black.withAlpha(Theme::lightMode() ? 0.25f : 0.6f));
+    g.setColour(Theme::bg()); g.fillRoundedRectangle(box.toFloat(), 16.0f); }
     int X = box.getX(), Y = box.getY();
     auto L = [&](const juce::String& t, int x, int y, int w, float fs, juce::Colour c, int wt = 0, juce::Justification j = juce::Justification::centredLeft) {
         slab(g, t, { X + x, Y + y, w, (int) (fs * 2.2f) }, fs, c, wt, j); };
     auto card = [&](int x, int y, int w, int h, const juce::String& title, juce::Colour c) {
-        g.setColour(Theme::card()); g.fillRoundedRectangle((float) (X + x), (float) (Y + y), (float) w, (float) h, 12.0f);
+        if (Theme::softUI()) softWellLite(g, juce::Rectangle<float>((float) (X + x), (float) (Y + y), (float) w, (float) h), 20.0f);
+        else { g.setColour(Theme::card()); g.fillRoundedRectangle((float) (X + x), (float) (Y + y), (float) w, (float) h, 12.0f); }
         g.setColour(c); g.fillEllipse((float) (X + x + 14), (float) (Y + y + 15), 7.0f, 7.0f);
         L(title, x + 28, y + 9, w - 40, 10.5f, Theme::txt(), 2); };
-    auto screen = [&](int x, int y, int w, int h) { g.setColour(Theme::scr()); g.fillRoundedRectangle((float) (X + x), (float) (Y + y), (float) w, (float) h, 6.0f);
+    auto screen = [&](int x, int y, int w, int h) { if (Theme::softUI()) softWellLite(g, juce::Rectangle<float>((float) (X + x), (float) (Y + y), (float) w, (float) h), 14.0f);
+        else { g.setColour(Theme::scr()); g.fillRoundedRectangle((float) (X + x), (float) (Y + y), (float) w, (float) h, 6.0f); }
         return juce::Rectangle<float>((float) (X + x + 6), (float) (Y + y + 6), (float) (w - 12), (float) (h - 12)); };
     auto curve = [&](juce::Rectangle<float> r, std::function<float(float)> f, juce::Colour c, float lv = 1.0f) {
         juce::Path p; for (int i = 0; i <= 200; ++i) { float ph = i / 200.0f * 2.0f; float v = f(ph - std::floor(ph));

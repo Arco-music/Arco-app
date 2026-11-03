@@ -210,20 +210,43 @@ void DrumView::paint(juce::Graphics& g) {
     // grid
     int ps = D.playStep.load(), pp = D.patPlaying.load(), len = D.patLen[pat()].load();
     int kit = (int) m.get("dm_kit");
+    const bool soft = Theme::softUI();
     for (int pd = 0; pd < 12; ++pd) {
         auto rh = rowHead(pd); auto col = padColour(pd);
         bool sel = pd == selPad;
-        if (sel) { g.setColour(Theme::sel().withMultipliedAlpha(0.35f)); g.fillRoundedRectangle(rh.toFloat().expanded(4, 1), 8.0f); }
+        if (sel) { if (soft) softWellLite(g, rh.toFloat().expanded(4, 1), rh.getHeight() * 0.5f); else { g.setColour(Theme::sel().withMultipliedAlpha(0.35f)); g.fillRoundedRectangle(rh.toFloat().expanded(4, 1), 8.0f); } }
         bool flash = juce::Time::getMillisecondCounterHiRes() < flashUntil[pd];
-        g.setColour(flash ? col : col.withAlpha(0.5f)); g.fillEllipse((float) rh.getX() + 6, rh.getCentreY() - 5.0f, 10.0f, 10.0f);
+        if (soft) softLed(g, { (float) rh.getX() + 11.0f, (float) rh.getCentreY() }, 3.2f, col, flash || sel);
+        else { g.setColour(flash ? col : col.withAlpha(0.5f)); g.fillEllipse((float) rh.getX() + 6, rh.getCentreY() - 5.0f, 10.0f, 10.0f); }
         int pk = (int) m.get("dm" + std::to_string(pd) + "_kit"); if (pk < 0) pk = kit;
         bool muted = m.get("dm" + std::to_string(pd) + "_mute") > 0.5, solo = m.get("dm" + std::to_string(pd) + "_solo") > 0.5;
-        say(g, DrumKits::padName(pk, pd), rh.withTrimmedLeft(24).withTrimmedRight(30), 8.6f, muted ? Theme::sub() : Theme::txt(), 2);
+        juce::String pn = DrumKits::padName(pk, pd); if (soft) pn = pn.substring(0, 1) + pn.substring(1).toLowerCase();
+        say(g, pn, rh.withTrimmedLeft(24).withTrimmedRight(30), soft ? 9.5f : 8.6f, muted ? Theme::sub() : Theme::txt(), soft ? 1 : 2);
         if (muted || solo) say(g, muted ? "M" : "S", rh.withTrimmedLeft(rh.getWidth() - 22), 8.5f, Theme::ink(muted ? Theme::red() : Theme::blue()), 2, juce::Justification::centred);
         for (int i = 0; i < 16; ++i) {
             int st = page * 16 + i; auto r = cellRect(pd, st).toFloat();
             bool inPat = st < len;
             auto step = D.getStep(pat(), pd, st);
+            bool on = step.vel > 0 && inPat, here = inPat && ps == st && pp == pat();
+            if (soft) {              // 2.3: every step a little silicone key; set = pressed in and lit from below in the pad's colour
+                auto k = r.reduced(2.5f); float kr = juce::jmin(k.getWidth(), k.getHeight()) * 0.32f;
+                if (!inPat) { softWellLite(g, k, kr); continue; }
+                float v = step.vel / 127.0f;
+                if (on && (mode == 1 || mode == 2)) {
+                    float amt = mode == 1 ? v : step.chance / 100.0f;
+                    softKeyLite(g, k, kr, true, col, 0.25f);
+                    juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(k, kr); g.reduceClipRegion(cl);
+                    auto bar = k.withTop(k.getBottom() - k.getHeight() * amt);
+                    g.setGradientFill(juce::ColourGradient(col.withAlpha(0.85f), bar.getCentreX(), bar.getBottom(), col.withAlpha(0.35f), bar.getCentreX(), bar.getY(), false)); g.fillRect(bar);
+                } else softKeyLite(g, k, kr, on, col, on ? 0.45f + 0.55f * v : (here ? 0.0f : 0.0f));
+                if (here) { g.setColour(Theme::txt().withAlpha(on ? 0.22f : 0.10f)); g.fillRoundedRectangle(k, kr); }
+                if (on && step.vel >= 120) softLed(g, { k.getCentreX(), k.getY() + 7.0f }, 2.2f, juce::Colours::white, true);
+                if (on && step.chance < 100 && mode != 2) say(g, juce::String(step.chance) + "%", k.toNearestInt().withTrimmedBottom(3), 6.8f, Theme::txt(), 2, juce::Justification::centredBottom);
+                if (on && step.repeats > 1) { g.setColour(Theme::txt().withAlpha(0.8f)); for (int q = 0; q < step.repeats; ++q) g.fillEllipse(k.getX() + 5 + q * 5.0f, k.getBottom() - 7, 3.0f, 3.0f);
+                                              if (mode == 3) say(g, "x" + juce::String(step.repeats), k.toNearestInt(), 9.0f, Theme::txt(), 2, juce::Justification::centred); }
+                if (on && step.nudge != 0) { float nx = k.getCentreX() + step.nudge / 100.0f * k.getWidth() * 0.5f; g.setColour(Theme::txt().withAlpha(0.8f)); g.fillRoundedRectangle(nx - 1, k.getY() + 4, 2.0f, k.getHeight() - 8, 1.0f); }
+                continue;
+            }
             juce::Colour base = (i / 4) % 2 == 0 ? Theme::btn() : Theme::card2();
             if (!inPat) base = base.withAlpha(0.35f);
             g.setColour(base); g.fillRoundedRectangle(r, 6.0f);
@@ -253,13 +276,23 @@ void DrumView::paint(juce::Graphics& g) {
     for (int pd = 0; pd < 12; ++pd) {
         auto r = padRect(pd).toFloat(); auto col = padColour(pd);
         bool flash = juce::Time::getMillisecondCounterHiRes() < flashUntil[pd];
+        int pk = (int) m.get("dm" + std::to_string(pd) + "_kit"); if (pk < 0) pk = kit;
+        if (soft) {                  // 2.3: silicone pads - hit, they go down and light up from below
+            auto k = r.reduced(4.0f);
+            if (!flash) softShadow(g, k, 16.0f, 7.0f);
+            softKeyLite(g, k, 16.0f, flash, col, flash ? 1.0f : (pd == selPad ? 0.22f : 0.0f));
+            softLed(g, { k.getRight() - 14.0f, k.getY() + 14.0f }, 3.0f, col, flash || pd == selPad);
+            juce::String pn = DrumKits::padName(pk, pd); pn = pn.substring(0, 1) + pn.substring(1).toLowerCase();
+            say(g, pn, k.toNearestInt().reduced(12, 9), 9.0f, Theme::txt(), 1, juce::Justification::bottomLeft);
+            continue;
+        }
         g.setColour(flash ? col : (pd == selPad ? Theme::card2().interpolatedWith(col, 0.30f) : Theme::btn())); g.fillRoundedRectangle(r, 12.0f);
         g.setColour(pd == selPad ? col : Theme::line()); g.drawRoundedRectangle(r.reduced(0.5f), 12.0f, pd == selPad ? 2.0f : 1.0f);
-        int pk = (int) m.get("dm" + std::to_string(pd) + "_kit"); if (pk < 0) pk = kit;
         say(g, DrumKits::padName(pk, pd), r.toNearestInt().reduced(6, 4), 7.6f, flash ? Theme::textOn(col) : Theme::txt(), 2, juce::Justification::bottomLeft);
     }
     int pk = (int) m.get("dm" + std::to_string(selPad) + "_kit"); if (pk < 0) pk = kit;
-    say(g, DrumKits::padName(pk, selPad), padNameR, 13.0f, Theme::ink(padColour(selPad)), 2);
+    { juce::String pn = DrumKits::padName(pk, selPad); if (soft) pn = pn.substring(0, 1) + pn.substring(1).toLowerCase();
+      say(g, pn, padNameR, soft ? 15.0f : 13.0f, soft ? Theme::txt() : Theme::ink(padColour(selPad)), 2); }
     say(g, "THE KIT", kitLabelR, 9.5f, Theme::sub(), 2);
     // a line of help
     juce::String hint = mode == 0 ? juce::String::fromUTF8("click a step to add / remove it  ·  shift-click: an accent  ·  drag along a row to draw  ·  keys Z X C V / A S D F / Q W E R play the pads")

@@ -87,34 +87,53 @@ void LoopsView::paint(juce::Graphics& g) {
     for (int c = 0; c < LoopGrid::COLS; ++c) {
         auto r = colHead(c).toFloat();
         bool any = false; for (int rw = 0; rw < LoopGrid::ROWS; ++rw) any |= L.cell[rw][c].load() != nullptr;
-        g.setColour(Theme::btn()); g.fillRoundedRectangle(r, 10.0f);
-        juce::Path p; float cx = r.getX() + 18, cy = r.getCentreY(); p.addTriangle(cx - 5, cy - 7, cx - 5, cy + 7, cx + 7, cy);
-        g.setColour(any ? Theme::ink(Theme::green()) : Theme::sub()); g.fillPath(p);
-        say(g, "SCENE " + juce::String(c + 1), r.toNearestInt().withTrimmedLeft(34), 8.0f, any ? Theme::txt() : Theme::sub(), 2);
+        const bool soft = Theme::softUI();
+        if (soft) softKeyLite(g, r.reduced(2.0f), (r.getHeight() - 4) * 0.5f, false);
+        else { g.setColour(Theme::btn()); g.fillRoundedRectangle(r, 10.0f); }
+        juce::Path p; float cx = r.getX() + 20, cy = r.getCentreY(); p.addTriangle(cx - 4, cy - 6, cx - 4, cy + 6, cx + 6, cy);
+        g.setColour(any ? (soft ? Theme::txt() : Theme::ink(Theme::green())) : Theme::sub()); g.fillPath(p);
+        say(g, soft ? "Scene " + juce::String(c + 1) : "SCENE " + juce::String(c + 1), r.toNearestInt().withTrimmedLeft(34), soft ? 10.0f : 8.0f, any ? Theme::txt() : Theme::sub(), soft ? 1 : 2);
     }
     // rows
     for (int rw = 0; rw < LoopGrid::ROWS; ++rw) {
         auto r = rowRect(rw); auto col = rowColour(rw);
+        const bool soft = Theme::softUI();
         drawPanel(g, r.toFloat(), 12.0f);
+        bool mu = L.mute[rw].load() != 0, pl = L.playing[rw].load() >= 0;
+        auto sr = juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22);
+        auto mr = juce::Rectangle<int>(r.getRight() - 84, r.getY() + 8, 34, 22);
+        auto st = juce::Rectangle<int>(r.getRight() - 44, r.getY() + 8, 34, 22);
+        auto vr = juce::Rectangle<float>((float) r.getRight() - 84, (float) r.getY() + 38, 74.0f, 8.0f);
+        float lvl = L.level[rw].load();
+        if (soft) {                // 2.3: the row in silicone - its light, the source in a groove, M and stop as keys, the level as a slot
+            softLed(g, { (float) r.getX() + 13.0f, (float) r.getY() + 15.0f }, 3.2f, col, pl);
+            say(g, "Row " + juce::String(rw + 1), { r.getX() + 22, r.getY() + 6, 80, 18 }, 10.5f, Theme::txt(), 2);
+            softWellLite(g, sr.toFloat(), sr.getHeight() * 0.5f);
+            g.setColour(Theme::sub()); g.setFont(Theme::mono(7.5f));
+            g.drawText((juce::String::fromUTF8("‹ ") + SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())] + juce::String::fromUTF8(" ›")).toUpperCase(), sr, juce::Justification::centred);
+            softKeyLite(g, mr.toFloat(), mr.getHeight() * 0.5f, mu, Theme::red(), mu ? 0.5f : 0.0f);
+            say(g, "M", mr, 9.0f, mu ? Theme::txt() : Theme::sub(), 2, juce::Justification::centred);
+            softKeyLite(g, st.toFloat(), st.getHeight() * 0.5f, false);
+            g.setColour(pl ? Theme::txt() : Theme::sub()); g.fillRoundedRectangle(st.toFloat().withSizeKeepingCentre(8, 8), 1.5f);
+            softWellLite(g, vr, 4.0f);
+            auto vf = vr.reduced(2.0f, 2.5f); vf = vf.withWidth(vf.getWidth() * L.vol[rw].load());
+            g.setColour(col.withAlpha(0.25f)); g.fillRoundedRectangle(vf.expanded(0, 1.5f), 2.5f); g.setColour(col); g.fillRoundedRectangle(vf, 1.5f);
+            g.setColour(col.withAlpha(0.7f)); g.fillRoundedRectangle(vr.getX() + 2, vr.getBottom() + 4, (vr.getWidth() - 4) * juce::jmin(1.0f, lvl * 1.4f), 2.0f, 1.0f);
+        } else {
         g.setColour(col); g.fillRoundedRectangle((float) r.getX() + 8, (float) r.getY() + 10, 5.0f, r.getHeight() - 20.0f, 2.5f);
         say(g, "ROW " + juce::String(rw + 1), { r.getX() + 22, r.getY() + 6, 80, 18 }, 9.0f, Theme::txt(), 2);
         // the source (click: the next one)
-        auto sr = juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22);
         g.setColour(Theme::card2()); g.fillRoundedRectangle(sr.toFloat(), 6.0f);
         say(g, juce::String::fromUTF8("◂ ") + SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())] + juce::String::fromUTF8(" ▸"), sr, 7.6f, Theme::txt(), 2, juce::Justification::centred);
         // mute, the level, stop
-        auto mr = juce::Rectangle<int>(r.getRight() - 84, r.getY() + 8, 34, 22);
-        bool mu = L.mute[rw].load() != 0;
         g.setColour(mu ? Theme::red() : Theme::btn()); g.fillRoundedRectangle(mr.toFloat(), 6.0f);
         say(g, "M", mr, 8.5f, mu ? Theme::textOn(Theme::red()) : Theme::sub(), 2, juce::Justification::centred);
-        auto st = juce::Rectangle<int>(r.getRight() - 44, r.getY() + 8, 34, 22);
-        bool pl = L.playing[rw].load() >= 0;
         g.setColour(Theme::btn()); g.fillRoundedRectangle(st.toFloat(), 6.0f);
         g.setColour(pl ? Theme::txt() : Theme::sub()); g.fillRoundedRectangle(st.toFloat().withSizeKeepingCentre(9, 9), 1.5f);
-        auto vr = juce::Rectangle<float>((float) r.getRight() - 84, (float) r.getY() + 38, 74.0f, 8.0f);
         g.setColour(Theme::card2()); g.fillRoundedRectangle(vr, 4.0f);
         g.setColour(col.withAlpha(0.8f)); g.fillRoundedRectangle(vr.withWidth(vr.getWidth() * L.vol[rw].load()), 4.0f);
-        float lvl = L.level[rw].load(); g.setColour(Theme::green().withAlpha(0.9f)); g.fillRect(vr.getX(), vr.getBottom() + 3, vr.getWidth() * juce::jmin(1.0f, lvl * 1.4f), 2.0f);
+        g.setColour(Theme::green().withAlpha(0.9f)); g.fillRect(vr.getX(), vr.getBottom() + 3, vr.getWidth() * juce::jmin(1.0f, lvl * 1.4f), 2.0f);
+        }
         // the cells
         for (int c = 0; c < LoopGrid::COLS; ++c) {
             auto cr = cellRect(rw, c).toFloat();
@@ -122,6 +141,34 @@ void LoopsView::paint(juce::Graphics& g) {
             bool playing = L.playing[rw].load() == c, queued = L.queued[rw].load() == c, stopping = L.queued[rw].load() == -1 && playing;
             bool recHere = L.recRow.load() == rw && L.recCol.load() == c && (L.recState.load() == 1 || L.recState.load() == 2);
             bool selHere = rw == selRow && c == selCol;
+            if (soft) {              // 2.3: a loop is a silicone key with its sound shining through; playing = pressed in and bright
+                auto k = cr.reduced(3.0f); float kr = 14.0f;
+                if (recHere) {
+                    softKeyLite(g, k, kr, true, Theme::red(), L.recState.load() == 2 ? 0.75f : 0.35f);
+                    if (L.recState.load() == 2) { g.setColour(Theme::red()); g.fillRoundedRectangle(k.reduced(10, 0).withWidth((k.getWidth() - 20) * juce::jlimit(0.0f, 1.0f, L.recProgressOut.load())).withTop(k.getBottom() - 8).withHeight(3), 1.5f); }
+                    say(g, L.recState.load() == 2 ? "Rec" : juce::String::fromUTF8("Rec …"), k.toNearestInt(), 11.0f, Theme::txt(), 2, juce::Justification::centred);
+                } else if (clip) {
+                    softKeyLite(g, k, kr, playing, col, playing ? 0.55f : 0.0f);
+                    auto& pk = peaksOf(clip);
+                    auto wv = k.reduced(12, 18).withTrimmedTop(4);
+                    g.setColour(col.withAlpha(playing ? 0.95f : 0.65f));
+                    for (size_t q = 0; q < pk.size(); ++q) { float x = wv.getX() + q * wv.getWidth() / pk.size(), h = pk[q] * wv.getHeight() * 0.5f;
+                        g.fillRoundedRectangle(x, wv.getCentreY() - h, juce::jmax(1.0f, wv.getWidth() / pk.size() - 1.2f), h * 2 + 1, 0.8f); }
+                    if (playing) { float pr = L.progress[rw].load(); float px = k.getX() + 8 + (k.getWidth() - 16) * pr;
+                        g.setColour(Theme::txt().withAlpha(0.25f)); g.fillRoundedRectangle(px - 2.5f, k.getY() + 6, 5.0f, k.getHeight() - 12, 2.5f);
+                        g.setColour(Theme::txt()); g.fillRoundedRectangle(px - 1.0f, k.getY() + 6, 2.0f, k.getHeight() - 12, 1.0f); }
+                    int nb = (int) std::round(clip->beats / juce::jmax(1.0, shell.host.model.get("beats")));
+                    auto nm = names[rw][c]; if (nm.isEmpty()) nm = juce::String(nb) + (nb == 1 ? " bar" : " bars");
+                    g.setColour(Theme::sub()); g.setFont(Theme::mono(7.0f)); g.drawText(nm.toUpperCase(), k.toNearestInt().reduced(12, 6).withHeight(14), juce::Justification::centredLeft);
+                    if (queued || stopping) { float ph = (float) (0.5 + 0.5 * std::sin(juce::Time::getMillisecondCounterHiRes() * 0.012));
+                        softLed(g, { k.getRight() - 13.0f, k.getY() + 13.0f }, 3.0f, col, ph > 0.5f); }
+                } else {
+                    softWellLite(g, k, kr);
+                    if (cr.contains(hover.toFloat()) || (dragItem >= 0 && cr.contains(dragNow.toFloat())) || selHere) softLed(g, k.getCentre(), 4.0f, Theme::red(), true);
+                }
+                if (selHere) { g.setColour(Theme::txt().withAlpha(0.35f)); g.drawRoundedRectangle(k.expanded(2.5f), kr + 2.5f, 1.5f); }
+                continue;
+            }
             if (recHere) {
                 g.setColour(Theme::red().withAlpha(L.recState.load() == 2 ? 0.55f : 0.25f)); g.fillRoundedRectangle(cr, 10.0f);
                 if (L.recState.load() == 2) { g.setColour(Theme::red()); g.fillRoundedRectangle(cr.withWidth(cr.getWidth() * juce::jlimit(0.0f, 1.0f, L.recProgressOut.load())).withTop(cr.getBottom() - 5), 2.5f); }
@@ -161,9 +208,11 @@ void LoopsView::paint(juce::Graphics& g) {
             say(g, juce::String("SCENE ") + SC[sc], { browR.getX() + 14, y, 200, 18 }, 8.0f, Theme::sub(), 2); y += 22;
             for (int t = 0; t < 8; ++t) if ((mask >> t) & 1) {
                 auto r = juce::Rectangle<int>(browR.getX() + 12, y, browR.getWidth() - 24, 30);
-                g.setColour(Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 8.0f);
+                if (Theme::softUI()) { softKeyLite(g, r.toFloat().reduced(1.0f), 14.0f, false); softLed(g, { (float) r.getX() + 14.0f, (float) r.getCentreY() }, 3.0f, Theme::strip(4 + t), true);
+                                       say(g, "Track " + juce::String(t + 1), r.withTrimmedLeft(26), 9.5f, Theme::txt(), 1); }
+                else { g.setColour(Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 8.0f);
                 g.setColour(Theme::strip(4 + t)); g.fillRoundedRectangle((float) r.getX() + 6, (float) r.getY() + 7, 4.0f, 16.0f, 2.0f);
-                say(g, "TRACK " + juce::String(t + 1), r.withTrimmedLeft(18), 8.5f, Theme::txt(), 2);
+                say(g, "TRACK " + juce::String(t + 1), r.withTrimmedLeft(18), 8.5f, Theme::txt(), 2); }
                 bitems.push_back({ sc, t, r }); y += 34;
                 if (y > browR.getBottom() - 40) break;
             }
