@@ -640,16 +640,10 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         m.addItem(item(cmdUndo, "Undo Last Recording", CMDKEY + "Z", cv.snap("undoav") > 0.5f));
         m.addItem(item(cmdResetAll, juce::String::fromUTF8("Clear All Loops…"), {}, loops));
         m.addSeparator();
-        m.addItem(item(cmdAutoMix, juce::String::fromUTF8("AUTO MIX…"), juce::String::fromUTF8("⇧") + CMDKEY + "M", loops));
-        m.addItem(item(cmdAB, "Compare Before / After AUTO MIX", {}, cv.autoMixAvailable()));
         m.addSeparator();
         m.addItem(item(cmdMidiLearn, cv.midiLearnActive() ? "Stop MIDI Learn" : juce::String::fromUTF8("MIDI Learn…"), CMDKEY + "L", true, cv.midiLearnActive()));
         m.addItem(item(cmdMidiClear, "Forget All MIDI Connections"));
     } else if (index == 2) {
-        auto& P = Theme::palettes();
-        juce::PopupMenu pal;
-        for (int i = 0; i < (int) P.size(); ++i) pal.addItem(item(cmdPalette + i, juce::String(P[(size_t) i].name) + (P[(size_t) i].light ? " (light)" : " (dark)"), {}, true, i == Theme::paletteIndex()));
-        m.addSubMenu("Colours", pal);
         m.addItem(item(cmdToggleLight, Theme::lightMode() ? "Dark Mode" : "Light Mode", juce::String::fromUTF8("⇧") + CMDKEY + "L"));
         m.addItem(item(cmdLook, juce::String::fromUTF8("Choose Effects…")));
         m.addSeparator();

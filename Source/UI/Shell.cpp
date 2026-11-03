@@ -36,18 +36,26 @@ Segments::Segments(juce::StringArray it, std::function<int()> g, std::function<v
     setMouseCursor(juce::MouseCursor::PointingHandCursor); }
 void Segments::paint(juce::Graphics& g) {
     auto r = getLocalBounds().toFloat();
-    if (Theme::softUI()) {          // 2.2: a groove in the skin; the chosen one a raised capsule with its little light
+    if (Theme::softUI()) {          // 2.3: a groove in the skin; the raised capsule slides to the choice, the skin bulging round it as it goes
         softWell(g, r, r.getHeight() * 0.5f);
         int n = juce::jmax(1, items.size()), on = get ? get() : -1; float w = r.getWidth() / n;
+        glide.slide = true; glide.onMove = [this] { repaint(); };
+        if (on >= 0) glide.to((float) on);
+        if (on >= 0) {
+            float pos = glide.v, speed = std::abs(glide.vel);
+            auto k = juce::Rectangle<float>(r.getX() + pos * w, r.getY(), w, r.getHeight()).reduced(3.0f);
+            k = k.withSizeKeepingCentre(k.getWidth() * (1.0f + juce::jmin(0.25f, speed * 0.9f)), k.getHeight() * (1.0f - juce::jmin(0.10f, speed * 0.4f)));   // it stretches a little while it moves
+            { juce::Graphics::ScopedSaveState ss(g); juce::Path cl; cl.addRoundedRectangle(r.expanded(12.0f), r.getHeight() * 0.5f + 12.0f); g.reduceClipRegion(cl);
+              softRaised(g, k, k.getHeight() * 0.5f, juce::jmin(5.0f, k.getHeight() * 0.18f), Theme::btn()); }
+        }
         for (int i = 0; i < n; ++i) {
             auto c = juce::Rectangle<float>(r.getX() + i * w, r.getY(), w, r.getHeight());
-            if (i == on) { auto k = c.reduced(3.0f); softRaised(g, k, k.getHeight() * 0.5f, juce::jmin(5.0f, k.getHeight() * 0.18f), Theme::btn());
-                           auto cc = col ? col() : Theme::blue();
-                           float tw = juce::GlyphArrangement::getStringWidth(Theme::font(fsize, 2), items[i]);
-                           bool dot = k.getWidth() > tw + 22;
-                           if (dot) softLed(g, { k.getCentreX() - tw * 0.5f - 6.0f, k.getCentreY() }, 2.4f, cc, true);
-                           say(g, items[i], c.toNearestInt().withTrimmedLeft(dot ? 8 : 0), fsize, Theme::txt(), 2, juce::Justification::centred); }
-            else say(g, items[i], c.toNearestInt(), fsize, Theme::sub(), 2, juce::Justification::centred);
+            float near = on >= 0 ? juce::jmax(0.0f, 1.0f - std::abs(glide.v - (float) i)) : 0.0f;
+            auto cc = col ? col() : Theme::blue();
+            float tw = juce::GlyphArrangement::getStringWidth(Theme::font(fsize, 2), items[i]);
+            bool dot = c.getWidth() - 6 > tw + 22 && i == on;
+            if (dot) softLed(g, { c.getCentreX() - tw * 0.5f - 6.0f, c.getCentreY() }, 2.4f, cc, near > 0.6f);
+            say(g, items[i], c.toNearestInt().withTrimmedLeft(dot ? 8 : 0), fsize, Theme::sub().interpolatedWith(Theme::txt(), near), 2, juce::Justification::centred);
         }
         return;
     }
@@ -251,7 +259,7 @@ TopBar::TopBar(AppShell& s) : shell(s) {
     home = mk("", [this] { return shell.screen == Screen::Home ? Theme::blue() : Theme::btn(); }, [this] { shell.show(Screen::Home); }, 10);
     home->tint = true; home->onFn = [this] { return shell.screen == Screen::Home; };
     home->setTooltip("HOME: everything ARCO plays");
-    rew = mk(juce::String::fromUTF8("⏮"), [] { return Theme::btn(); }, [this] { shell.transportRewind(); }, 0, 13.0f);
+    rew = mk("", [] { return Theme::btn(); }, [this] { shell.transportRewind(); }, 11, 13.0f);
     rew->textColour = [] { return Theme::txt(); };
     play = mk("", [this] { return shell.isPlaying() ? Theme::green() : Theme::btn(); }, [this] { shell.transportPlay(); }, 1, 14.0f);
     play->textColour = [this] { return shell.isPlaying() ? Theme::textOn(Theme::green()) : Theme::txt(); };
@@ -269,6 +277,8 @@ TopBar::TopBar(AppShell& s) : shell(s) {
     save->textColour = [] { return Theme::txt(); };
     setup = mk("SETUP", [] { return Theme::btn(); }, [this] { shell.show(Screen::Workstation); shell.canvas.openSetup(true); }, 0, 8.5f);
     setup->textColour = [] { return Theme::txt(); };
+    look = mk("", [] { return Theme::btn(); }, [this] { shell.canvas.command(cmdToggleLight); }, 12, 10.0f);
+    look->textColour = [] { return Theme::txt(); }; look->setTooltip("light / dark"); look->setComponentID("shell:look");
     // 2.1 SOFT: words as in the design (Click, Count-in, Save, Setup); play lights up instead of turning green
     click->dynText = [] { return juce::String(Theme::softUI() ? "Click" : "CLICK"); };
     count->dynText = [] { return juce::String(Theme::softUI() ? "Count-in" : "COUNT-IN"); };
@@ -294,6 +304,7 @@ void TopBar::resized() {
         click->setBounds(x, y, 64, bh); count->setVisible(false); meterR = {};
         int r = getWidth() - 12;
         r -= 62; setup->setBounds(r, y, 62, bh); r -= 6; r -= 56; save->setBounds(r, y, 56, bh); r -= 6; r -= 42; undo->setBounds(r, y, 42, bh);
+        r -= 6; r -= 42; look->setBounds(r, y, 42, bh);
         return;
     }
     if (Theme::softUI()) {         // 2.1: round keys, one display (bar · bpm · 4/4 · the beat lights), the words
@@ -305,6 +316,7 @@ void TopBar::resized() {
         click->setBounds(x, by, 74, bs); x += 80; count->setBounds(x, by, 104, bs); count->setVisible(true);
         int r = getWidth() - 16;
         r -= 76; setup->setBounds(r, by, 76, bs); r -= 8; r -= 66; save->setBounds(r, by, 66, bs); r -= 8; r -= bs; undo->setBounds(r, by, bs, bs);
+        r -= 8; r -= bs; look->setBounds(r, by, bs, bs);
         meterR = {};
         return;
     }
@@ -321,7 +333,7 @@ void TopBar::resized() {
     int r = getWidth() - 14;
     r -= 72; setup->setBounds(r, y, 72, bh); r -= 6;
     r -= 64; save->setBounds(r, y, 64, bh); r -= 6;
-    r -= 48; undo->setBounds(r, y, 48, bh); r -= 14;
+    r -= 48; undo->setBounds(r, y, 48, bh); r -= 6; r -= 48; look->setBounds(r, y, 48, bh); r -= 14;
     meterR = { r - 60, y + 6, 60, bh - 12 };
     count->setVisible(true);
 }
@@ -448,6 +460,8 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
     };
     auto mk = [&](const juce::String& t, std::function<void()> f) { auto* p = new Pill(t, [] { return Theme::btn(); }, 9.0f, 12.0f); p->onClick = std::move(f);
         p->textColour = [] { return Theme::txt(); }; owned.add(p); addAndMakeVisible(p); return p; };
+    lookBtn = std::make_unique<Pill>("", [] { return Theme::btn(); }, 10.0f, 12.0f); lookBtn->icon = 12; lookBtn->textColour = [] { return Theme::txt(); };
+    lookBtn->onClick = [this] { shell.canvas.command(cmdToggleLight); }; lookBtn->setComponentID("home:look"); addAndMakeVisible(*lookBtn);
     mk("NEW SONG", [this] { shell.canvas.command(cmdNewSong); });
     mk("OPEN SONG", [this] { shell.canvas.doOpen(); });
     mk("SAVE", [this] { shell.canvas.doSave(false); });
@@ -461,6 +475,7 @@ void HomeScreen::resized() {
     dockR = juce::Rectangle<int>(0, 0, n * bw + (n - 1) * gap + 20, 64).withCentre({ getWidth() / 2, getHeight() - 52 });
     int x = dockR.getX() + 10;
     for (auto* c : owned) { c->setBounds(x, dockR.getY() + 10, bw, 44); x += bw + gap; }
+    if (lookBtn) lookBtn->setBounds(getWidth() - 46 - 44, 34, 46, 46);
 }
 juce::Rectangle<float> HomeScreen::cardRect(int i) const {
     float d = (float) i - pos;
@@ -477,7 +492,7 @@ void HomeScreen::paint(juce::Graphics& g) {
     g.setColour(Theme::txt()); g.setFont(Theme::font(26.0f, 2).withExtraKerningFactor(0.18f)); g.drawText("ARCO", 44, 34, 300, 40, juce::Justification::centredLeft);
     auto song = shell.host.songFolder.isDirectory() ? shell.host.songFolder.getFileName() : juce::String("new song");
     say(g, song, { 46, 76, 400, 20 }, 10.0f, Theme::sub(), 1);
-    say(g, "Choose what to play", { getWidth() - 444, 44, 400, 24 }, 11.0f, Theme::sub(), 1, juce::Justification::centredRight);
+    say(g, "Choose what to play", { getWidth() - 444 - 64, 44, 400, 24 }, 11.0f, Theme::sub(), 1, juce::Justification::centredRight);
     if (Theme::glass()) drawGlass(g, dockR.toFloat(), dockR.getHeight() * 0.5f, 1.1f);
     else drawPanel(g, dockR.toFloat(), 22.0f);
     drawSoftShades(g, *this);

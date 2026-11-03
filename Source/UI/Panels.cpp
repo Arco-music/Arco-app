@@ -145,8 +145,6 @@ juce::Rectangle<int> LookPanel::effectTile(int i) const {
 void LookPanel::mouseDown(const juce::MouseEvent& e) {
     auto pt = e.getPosition();
     if (!box.contains(pt)) { cv.host.saveSetup(); setVisible(false); return; }
-    for (int i = 0; i < (int) Theme::palettes().size(); ++i)
-        if (paletteTile(i).contains(pt)) { Theme::setPalette(i); cv.host.saveSetup(); cv.themeChanged(); repaint(); return; }
     auto& ct = cardTable();
     for (int i = 0; i < (int) ct.size(); ++i)
         if (effectTile(i).contains(pt)) {
@@ -161,22 +159,7 @@ void LookPanel::paint(juce::Graphics& g) {
     g.setColour(Theme::bg()); g.fillRoundedRectangle(box.toFloat(), 16.0f);
     int X = box.getX(), Y = box.getY();
     auto L = [&](const juce::String& t, int x, int y, int w, float fs, juce::Colour c, int wt = 0) { lab(g, t, { X + x, Y + y, w, (int) (fs * 2.4f) }, fs, c, wt); };
-    L("SETUP", 24, 14, 140, 17.0f, Theme::txt(), 2);
-    L("COLOURS", 24, 62, 300, 11.0f, Theme::txt(), 2);
-    L(U("four palettes, every colour checked for contrast: BLACK and STORM (dark), LIGHT and CHAMBRAY (light)"), 24, 80, 1000, 8.0f, Theme::sub());
-    auto& P = Theme::palettes();
-    for (int i = 0; i < (int) P.size(); ++i) {
-        auto r = paletteTile(i).toFloat(); auto& p = P[(size_t) i];
-        bool on = i == Theme::paletteIndex();
-        g.setColour(p.bg); g.fillRoundedRectangle(r, 10.0f);
-        g.setColour(p.card); g.fillRoundedRectangle(r.reduced(10).withTrimmedBottom(34), 7.0f);
-        for (int a = 0; a < 6; ++a) { g.setColour(p.acc[(size_t) a]); g.fillEllipse(r.getX() + 18 + a * 19.0f, r.getY() + 22, 13, 13); }
-        g.setColour(p.btn); g.fillRoundedRectangle(r.getX() + 20, r.getY() + 46, 60, 18, 5.0f);
-        g.setColour(p.txt); g.setFont(Theme::font(8.0f, 2)); g.drawText("REC", juce::Rectangle<float>(r.getX() + 86, r.getY() + 46, 60, 18), juce::Justification::centredLeft);
-        g.setColour(p.txt); g.setFont(Theme::font(10.0f, 2)); g.drawText(p.name, r.withTop(r.getBottom() - 30).withTrimmedLeft(12), juce::Justification::centredLeft);
-        g.setColour(p.sub); g.setFont(Theme::font(7.5f, 0)); g.drawText(p.light ? "light" : "dark", r.withTop(r.getBottom() - 30).withTrimmedRight(12), juce::Justification::centredRight);
-        g.setColour(on ? Theme::txt() : Theme::line()); g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, on ? 2.5f : 1.0f);
-    }
+    L("EFFECTS", 24, 14, 140, 17.0f, Theme::txt(), 2);
     auto& ct = cardTable();
     int shown = 0; for (auto& d : ct) shown += cv.host.visibleCards.contains(d.key);
     L("EFFECTS ON THE MAIN WINDOW", 24, 262, 400, 11.0f, Theme::txt(), 2);

@@ -132,7 +132,7 @@ void DrumView::resized() {
         for (int k = 0; k < 4; ++k) if (auto* c = byId(bus[k])) c->setBounds(rx + k * (rw / 4), py, rw / 4, 90);
     } else {
         // an iPad held upright: the kit and the patterns on top, the grid in the middle, the pads and the sound below
-        leftR = { 18, 16, W - 36, 236 };
+        leftR = { 18, 16, W - 36, 262 };
         int x = leftR.getX() + 16, w = leftR.getWidth() - 32, y = leftR.getY() + 40;
         int kw = (w - 4 * 8) / 5;
         for (size_t k = 0; k < kitBtns.size(); ++k) kitBtns[k]->setBounds(x + (int) k * (kw + 8), y, kw, 38);
@@ -143,9 +143,9 @@ void DrumView::resized() {
         if (auto* c = byId("dv:copy")) c->setBounds(xx + 76, y + 4, 104, 32);
         if (auto* c = byId("dv:clear")) c->setBounds(xx + 186, y + 4, 70, 32);
         y += 76;
-        segs[0]->setBounds(x, y, 260, 32); segs[1]->setBounds(x + 280, y, 300, 32);
-        if (auto* c = byId("dv:swing")) c->setBounds(x + 600, y - 52, 90, 92);
-        if (auto* c = byId("dv:human")) c->setBounds(x + 700, y - 52, 90, 92);
+        segs[0]->setBounds(x, y + 22, 230, 32); segs[1]->setBounds(x + 248, y + 22, 270, 32);
+        if (auto* c = byId("dv:swing")) c->setBounds(x + w - 188, y - 6, 90, 92);
+        if (auto* c = byId("dv:human")) c->setBounds(x + w - 92, y - 6, 90, 92);
         rightR = { 18, H - 16 - 380, W - 36, 380 };
         gridR = { 18, leftR.getBottom() + 14, W - 36, rightR.getY() - 14 - (leftR.getBottom() + 14) };
         int rx = rightR.getX() + 16;

@@ -26,6 +26,7 @@ public:
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
     juce::StringArray items; std::function<int()> get; std::function<void(int)> set; ColourFn col; float fsize = 9.0f;
+    SoftSpring glide;          // 2.3: where the raised capsule is (it slides to the choice, pushing the skin)
 };
 
 // ---------------------------------------------------------------- the screens
@@ -41,7 +42,7 @@ public:
 private:
     void timerCallback() override { repaint(); for (auto* c : owned) c->repaint(); }
     juce::OwnedArray<juce::Component> owned;
-    Pill *home = nullptr, *rew = nullptr, *play = nullptr, *rec = nullptr, *click = nullptr, *count = nullptr, *undo = nullptr, *save = nullptr, *setup = nullptr;
+    Pill *home = nullptr, *rew = nullptr, *play = nullptr, *rec = nullptr, *click = nullptr, *count = nullptr, *undo = nullptr, *save = nullptr, *setup = nullptr, *look = nullptr;
     juce::Rectangle<int> posR, bpmR, sigR, titleR, meterR;
     float bpmStart = 0, dragY = 0; bool bpmDrag = false;
     void mouseDown(const juce::MouseEvent& e) override;
@@ -73,6 +74,7 @@ private:
     void drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juce::Colour c);
     float downX = 0, downPos = 0, lastX = 0; double lastT = 0; bool dragged = false;
     juce::OwnedArray<juce::Component> owned;
+    std::unique_ptr<Pill> lookBtn;      // 2.3: light / dark, top right
 };
 
 class DrumView;

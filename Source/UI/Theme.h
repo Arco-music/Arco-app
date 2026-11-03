@@ -52,12 +52,12 @@ struct Theme {
             { "Noir Gold", false, hex(0x25221e), wa(0.08f), wa(0.12f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.26f), wa(0.12f), hex(0xfffcf7), hex(0xbdb5a9), wa(0.07f), wa(0.09f), wa(0.22f),
               std::array<juce::Colour, 8> { hex(0xf07a6a), hex(0x8fd1a2), hex(0xe2bf7e), hex(0xb9c7e6), hex(0xcbb5e8), hex(0x9cd8cc), hex(0xd9b48a), hex(0xd2cd8a) }, 0, true, hex(0x37342f), hex(0x3f3c37), 1 },
             // 2.1: SOFT DARK / SOFT LIGHT - one soft material, dusty colours, light only where something is on
-            { "Soft Dark", false, hex(0x2a2e37), hex(0x2a2e37), hex(0x262931), hex(0x23262d), hex(0x3a3f4a), hex(0xeceef3), hex(0x8f96a3), hex(0x5c6270), hex(0x2e323c), hex(0x3d4559),
-              std::array<juce::Colour, 8> { hex(0xe3837a), hex(0x94c7b0), hex(0xdcbd8f), hex(0x9db0dc), hex(0xb3a7da), hex(0x8fc4c7), hex(0xd9a6bc), hex(0xc2c48f) }, 0, false, hex(0x2a2e37), hex(0x262931), 0,
-              true, hex(0x353a45), hex(0x1e2128) },
-            { "Soft Light", true, hex(0xe8e9ec), hex(0xe8e9ec), hex(0xe1e3e7), hex(0xdcdee3), hex(0xd3d6dc), hex(0x2a2d33), hex(0x767c88), hex(0xb3b7bf), hex(0xebecef), hex(0xd3daea),
-              std::array<juce::Colour, 8> { hex(0xd9665d), hex(0x76ad95), hex(0xc9a36e), hex(0x7d93c4), hex(0x9a8cc4), hex(0x6aa5a8), hex(0xc48aa3), hex(0x9a9c5e) }, 0, false, hex(0xe8e9ec), hex(0xe1e3e7), 0,
-              true, hex(0xffffff), hex(0xcdd0d6) },
+            { "Soft Dark", false, hex(0x2a2e37), hex(0x2a2e37), hex(0x24272f), hex(0x23262d), hex(0x3a3f4a), hex(0xeceef3), hex(0x8f96a3), hex(0x5c6270), hex(0x2a2e37), hex(0x3d4559),
+              std::array<juce::Colour, 8> { hex(0xe3837a), hex(0x94c7b0), hex(0xdcbd8f), hex(0x9db0dc), hex(0xb3a7da), hex(0x8fc4c7), hex(0xd9a6bc), hex(0xc2c48f) }, 0, false, hex(0x2a2e37), hex(0x24272f), 0,
+              true, hex(0x363b47), hex(0x1b1e25) },
+            { "Soft Light", true, hex(0xe8e9ec), hex(0xe8e9ec), hex(0xdfe1e6), hex(0xdcdee3), hex(0xd3d6dc), hex(0x2a2d33), hex(0x767c88), hex(0xb3b7bf), hex(0xe8e9ec), hex(0xd3daea),
+              std::array<juce::Colour, 8> { hex(0xd9665d), hex(0x76ad95), hex(0xc9a36e), hex(0x7d93c4), hex(0x9a8cc4), hex(0x6aa5a8), hex(0xc48aa3), hex(0x9a9c5e) }, 0, false, hex(0xe8e9ec), hex(0xdfe1e6), 0,
+              true, hex(0xffffff), hex(0xc8ccd3) },
         };
         return P;
     }
@@ -66,11 +66,14 @@ struct Theme {
     static int& lastLight() { static int i = 7; return i; }   // Soft Light
     static const Palette& pal() { auto& P = palettes(); return P[(size_t) juce::jlimit(0, (int) P.size() - 1, paletteIndex())]; }
     static bool lightMode() { return pal().light; }
+    // 2.3: ARCO has two looks, SOFT DARK and SOFT LIGHT; any other (an old setting, an old menu) becomes the one of its kind
+    static constexpr int kDark = 6, kLight = 7;
     static void setPalette(int i) {
-        paletteIndex() = juce::jlimit(0, (int) palettes().size() - 1, i);
-        (pal().light ? lastLight() : lastDark()) = paletteIndex();
+        auto& P = palettes(); i = juce::jlimit(0, (int) P.size() - 1, i);
+        paletteIndex() = P[(size_t) i].light ? kLight : kDark;
+        lastDark() = kDark; lastLight() = kLight;
     }
-    static void toggleLight() { setPalette(lightMode() ? lastDark() : lastLight()); }
+    static void toggleLight() { setPalette(lightMode() ? kDark : kLight); }
     static int paletteByName(const juce::String& n) {
         auto& P = palettes(); for (int i = 0; i < (int) P.size(); ++i) if (n == P[(size_t) i].name) return i; return 0; }
 

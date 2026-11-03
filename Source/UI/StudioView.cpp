@@ -47,7 +47,9 @@ void StudioView::buildTop() {
         auto col = b.col;
         bool big = b.id == "play" || b.id == "rec" || b.id == "home" || b.id == "undo" || b.id == "redo";
         auto* p = add<Pill>(b.t, col ? col : std::function<juce::Colour()>([] { return Theme::btn(); }), big ? 14.0f : 8.5f, 8.0f);
-        if (b.id == "play") p->dynText = [this] { return studio.playing.load() ? U8("■") : U8("▶"); };
+        if (b.id == "play") { p->text = ""; p->iconFn = [this] { return studio.playing.load() ? 2 : 1; }; }
+        if (b.id == "home") { p->text = ""; p->icon = 11; }
+        if (b.id == "rec") { p->text = ""; p->icon = 3; }
         if (b.id == "undo") p->setTooltip("undo (Cmd Z)"); if (b.id == "redo") p->setTooltip("redo (Shift Cmd Z)");
         p->setComponentID("studio:" + b.id);
         p->onClick = b.f;

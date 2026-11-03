@@ -18,7 +18,7 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -38,6 +38,7 @@ public:
         }
         host = std::make_unique<arco::AudioHost>(!test);
         if (cmd.contains("--screenshot")) { screenshot(cmd); return; }
+        if (cmd.contains("--layoutcheck")) { layoutCheck(); return; }
         if (cmd.contains("--update-check")) {          // for testing the UPDATE button
             updater = std::make_unique<arco::Updater>();
             updater->onChecked = [this](const juce::String& m, int b, const juce::String& n) {
@@ -86,6 +87,81 @@ public:
         });
     }
     bool asking = false;
+
+
+    // 2.3: for testing - every screen at several sizes: do any two controls overlap, or does one stick out of its panel?
+    struct LCfg { arco::Screen sc; int w, h, tracks, pal; juce::String extra; };
+    std::vector<LCfg> lcfg; size_t lci = 0; int lcProblems = 0; arco::MainComponent* lcmc = nullptr;
+    static bool lcControl(juce::Component* c) {
+        return dynamic_cast<arco::Pill*>(c) || dynamic_cast<arco::Knob*>(c) || dynamic_cast<arco::Fader*>(c) || dynamic_cast<arco::ValueBox*>(c) || dynamic_cast<arco::Segments*>(c);
+    }
+    static juce::String lcName(juce::Component* c) {
+        juce::String n = c->getComponentID();
+        if (auto* p = dynamic_cast<arco::Pill*>(c)) n << " '" << (p->dynText ? p->dynText() : p->text) << "'";
+        if (auto* sg = dynamic_cast<arco::Segments*>(c)) n << " [" << sg->items.joinIntoString("|") << "]";
+        juce::String cls = typeid(*c).name(); return cls.fromLastOccurrenceOf("arco", false, false).retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") + ":" + n;
+    }
+    void lcCollect(juce::Component* c, std::vector<juce::Component*>& out) {
+        if (!c->isVisible()) return;
+        if (lcControl(c)) { out.push_back(c); return; }
+        for (auto* ch : c->getChildren()) lcCollect(ch, out);
+    }
+    void layoutCheck() {
+        using arco::Screen;
+        for (int pal : { 6, 7 }) {
+            for (auto wh : { std::pair<int,int> { 1440, 880 }, { 1180, 820 }, { 1366, 1024 }, { 820, 1180 }, { 1024, 1366 } }) {
+                for (int t : { 1, 4, 8 }) lcfg.push_back({ Screen::Workstation, wh.first, wh.second, t, pal, {} });
+                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys })
+                    lcfg.push_back({ sc, wh.first, wh.second, 4, pal, {} });
+            }
+        }
+        lcNext();
+    }
+    void lcNext() {
+        if (lcmc) { delete lcmc; lcmc = nullptr; }
+        if (lci >= lcfg.size()) { printf("layout check: %d problems\n", lcProblems); fflush(stdout); setApplicationReturnValue(lcProblems ? 1 : 0); quit(); return; }
+        auto cf = lcfg[lci++];
+        arco::Theme::setPalette(cf.pal);
+        lcmc = new arco::MainComponent(*host);
+        lcmc->setVisible(true);
+        lcmc->setSize(cf.w, cf.h);
+        lcmc->canvas.shotTracks = cf.tracks;
+        lcmc->shell.show(cf.sc);
+        if (cf.sc == arco::Screen::Synth) lcmc->canvas.openSynth(true);
+        juce::Timer::callAfterDelay(250, [this, cf] {
+            std::vector<juce::Component*> v; lcCollect(lcmc, v);
+            if (lci <= 3 || lci % 20 == 0) { printf("  [%d controls] %s %dx%d\n", (int) v.size(), arco::screenTitle(cf.sc), cf.w, cf.h); }
+            juce::String tag = juce::String(arco::screenTitle(cf.sc)) + " " + juce::String(cf.w) + "x" + juce::String(cf.h) + " tracks=" + juce::String(cf.tracks) + " pal=" + juce::String(cf.pal);
+            auto rectOf = [this](juce::Component* c) { return lcmc->getLocalArea(c->getParentComponent(), c->getBounds()); };
+            juce::StringArray seen;
+            for (size_t i = 0; i < v.size(); ++i) {
+                auto a = rectOf(v[i]);
+                if (a.getWidth() < 4 || a.getHeight() < 4) continue;
+                // sticking out of its parent panel (or off the screen)
+                auto* par = v[i]->getParentComponent();
+                if (par != nullptr && par != lcmc && !par->getLocalBounds().contains(v[i]->getBounds().reduced(1))) {
+                    auto msg = tag + "  OUTSIDE  " + lcName(v[i]) + " " + v[i]->getBounds().toString() + " in " + par->getLocalBounds().toString();
+                    if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                if (!lcmc->getLocalBounds().contains(a.reduced(1))) {
+                    auto msg = tag + "  OFFSCREEN  " + lcName(v[i]) + " " + a.toString();
+                    if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                for (size_t j = i + 1; j < v.size(); ++j) {
+                    auto b = rectOf(v[j]); if (b.getWidth() < 4 || b.getHeight() < 4) continue;
+                    auto x = a.getIntersection(b);
+                    if (x.getWidth() > 2 && x.getHeight() > 2) {
+                        // a control lying inside a bigger one on purpose (the head pill of a strip) is not an overlap
+                        auto* pa = dynamic_cast<arco::Pill*>(v[i]); auto* pb = dynamic_cast<arco::Pill*>(v[j]);
+                        bool headA = pa && pa->getComponentID().endsWith(":select"), headB = pb && pb->getComponentID().endsWith(":select");
+                        if (headA || headB) continue;
+                        auto msg = tag + "  OVERLAP  " + lcName(v[i]) + " " + a.toString() + "  x  " + lcName(v[j]) + " " + b.toString();
+                        if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; }
+                    }
+                }
+            }
+            fflush(stdout);
+            lcNext();
+        });
+    }
 
     // for testing: render the interface to a PNG and quit (ARCO --screenshot out.png [light])
     void screenshot(const juce::String& cmd) {

@@ -243,7 +243,7 @@ public:
         fader->setBounds(x - 2, fy, iw + 4, fh);
         meter->setBounds(x + 8, fy + fh + 3, iw - 16, 3);
         dbR = { x, fy - 20, iw, 18 };
-        int ks = juce::jlimit(40, 66, (int) (iw * (nr ? 0.42f : 0.30f))), ky = dbR.getY() - 10 - 15 - ks;
+        int ks = juce::jmin(iw / 2 - 4, juce::jlimit(44, 94, (int) (iw * (nr ? 0.46f : 0.38f)))), ky = dbR.getY() - 8 - 15 - ks;
         int c1 = x + iw / 4, c2 = x + iw * 3 / 4;
         if (nr) { c1 = x + iw / 4 + 2; c2 = x + iw * 3 / 4 - 2; }
         pan->setBounds(c1 - ks / 2, ky, ks, ks); send->setBounds(c2 - ks / 2, ky, ks, ks);
@@ -252,13 +252,18 @@ public:
         int top = y, bottom = ky - 14, avail = bottom - top;
         int bs = s >= 4 ? juce::jlimit(48, 70, (int) (iw * 0.34f)) : 0;
         int rowH = 26, gapB = s >= 4 ? (soft && !nr ? 12 : 10) : 0, gapD = soft && !nr ? 16 : 10, topGap = soft && !nr ? 8 : 0;
-        int ds = juce::jlimit(64, juce::jmin(iw, soft ? 176 : 196), avail - topGap - (bs + gapB + gapD + rowH));
+        if (avail - topGap - (bs + gapB + gapD + rowH) < 56) {      // a short strip: tighter, smaller keys, so nothing ever lands on the knobs
+            topGap = 0; gapB = 6; gapD = 6;
+            if (s >= 4) bs = juce::jlimit(30, bs, (avail - 56 - gapB - gapD - rowH));
+        }
+        int ds = juce::jlimit(40, juce::jmin(iw, soft ? 176 : 196), avail - topGap - (bs + gapB + gapD + rowH));
         if (ds > iw) ds = iw;
         int total = topGap + ds + gapD + (s >= 4 ? bs + gapB : 0) + rowH;
         int y0 = soft ? top + topGap + juce::jmin(16, juce::jmax(0, (avail - total) / 3)) : top + juce::jmax(0, (avail - total) / 2);
         dial->setBounds(x + (iw - ds) / 2, y0, ds, ds); y0 += ds + gapD;
         if (s >= 4) {
-            int ps = juce::jmax(36, (int) (bs * 0.73f)), gg = nr ? 8 : 20, tot = bs + gg + ps, x0 = x + (iw - tot) / 2;
+            int gg = nr ? 6 : 20; if (bs + gg + (int) (bs * 0.73f) > iw) bs = (int) ((iw - gg) / 1.73f);
+            int ps = juce::jmax(28, (int) (bs * 0.73f)), tot = bs + gg + ps, x0 = x + (iw - tot) / 2;
             rec->setBounds(x0, y0, bs, bs); tog->setBounds(x0 + bs + gg, y0 + (bs - ps) / 2, ps, ps); y0 += bs + gapB;
             int a = iw / 3;
             clr->setBounds(x, y0, a, rowH); spd->setBounds(x + a, y0, iw - 2 * a, rowH); file->setBounds(x + iw - a, y0, a, rowH);
@@ -693,6 +698,7 @@ class FxMap : public juce::Component {
 public:
     explicit FxMap(Canvas& cv) : c(cv) {}
     bool compact = false;      // 2.1: inside the effects panel - families on top, the effects below, no panel of its own
+    SoftSpring famGlide;       // 2.3: the raised capsule slides to the open family
     struct Hit { juce::Rectangle<int> r; int fam = -1, card = -1, act = 0; };   // act: 1 choose, 2 prev page, 3 next page
     std::vector<Hit> hits;
     void paint(juce::Graphics& g) override {
@@ -739,11 +745,21 @@ public:
         auto well = first.removeFromLeft(tabsTotal + 8).withSizeKeepingCentre(tabsTotal + 8, kh + 6);
         if (soft) softWell(g, well.toFloat(), well.getHeight() * 0.5f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(well.toFloat(), well.getHeight() * 0.5f); }
         int tx = well.getX() + 4;
+        std::vector<juce::Rectangle<int>> trs;
+        for (int f = 0; f < Canvas::NFAM; ++f) { int w = tabW(f); trs.push_back({ tx, well.getY() + 3, w, well.getHeight() - 6 }); tx += w; }
+        if (soft) {                // the capsule glides between the families
+            famGlide.slide = true; famGlide.onMove = [this] { repaint(); }; famGlide.to((float) c.fxFamily);
+            float gv = juce::jlimit(0.0f, (float) Canvas::NFAM - 1.0f, famGlide.v); int a = (int) std::floor(gv), b2 = juce::jmin(Canvas::NFAM - 1, a + 1); float t = gv - a;
+            auto ra = trs[(size_t) a].toFloat(), rb = trs[(size_t) b2].toFloat();
+            juce::Rectangle<float> cr(ra.getX() + (rb.getX() - ra.getX()) * t, ra.getY(), ra.getWidth() + (rb.getWidth() - ra.getWidth()) * t, ra.getHeight());
+            float sp = std::abs(famGlide.vel); cr = cr.withSizeKeepingCentre(cr.getWidth() * (1.0f + juce::jmin(0.2f, sp * 0.6f)), cr.getHeight() * (1.0f - juce::jmin(0.1f, sp * 0.3f)));
+            softRaised(g, cr, cr.getHeight() * 0.5f, 3.0f, Theme::btn());
+        }
         for (int f = 0; f < Canvas::NFAM; ++f) {
-            int w = tabW(f); juce::Rectangle<int> tr(tx, well.getY() + 3, w, well.getHeight() - 6); tx += w;
+            auto tr = trs[(size_t) f];
             bool open = f == c.fxFamily; int on = 0; auto fc = c.familyCards(f);
             for (int i : fc) on += c.fxUsed(ct[(size_t) i].key);
-            if (open) key(tr, false);
+            if (open && !soft) key(tr, false);
             auto tf = fnt(tfs); float tw2 = juce::GlyphArrangement::getStringWidth(tf, FN[f]);
             float x0 = tr.getCentreX() - tw2 * 0.5f + (on ? 4.0f : 0.0f);
             if (on) softLed(g, { x0 - 9.0f, (float) tr.getCentreY() }, 2.4f, Canvas::familyColour(f), true);
@@ -1087,7 +1103,6 @@ void Canvas::buildScenes() {
     w = win("SYNTH", plain, [this] { openSynth(true); }, "t:synth"); txtOn(w);
     w = win("KEYS", plain, [this] { openKeyboard(true); }, "t:keys"); txtOn(w); w->setTooltip("KEYBOARD: a big keyboard, sampled instruments, plug-ins, MODULAR");
     w = win("STUDIO", plain, [this] { openStudio(); }, "t:studio"); txtOn(w);
-    w = win("AUTO MIX", [this, plain] { return autoMixAvailable() ? Theme::blue() : plain(); }, [this] { openAutoMix(); }, "t:automix"); txtOn(w);
     w = win("MIDI LEARN", [this, plain] { return midiLearn ? Theme::amber() : plain(); }, [this] { setMidiLearn(!midiLearn); }, "t:midilearn"); txtOn(w);
     w = win("EFFECTS", plain, [this] { openLook(true); }, "t:effects"); txtOn(w); w->setTooltip("choose the effect cards");
     w = win("SETUP", plain, [this] { openSetup(true); }, "t:setup"); txtOn(w);
@@ -1133,14 +1148,14 @@ void Canvas::layoutStrips() {
     const bool soft = Theme::softUI();
     // 2.1 SOFT: as the design - wide margins, air between the strips
     const int M = soft ? 26 : 18;
-    const int perRow = portrait ? (nvis <= 10 ? nvis : (nvis + 1) / 2) : 12, gap = soft ? (nvis > 6 ? 12 : 22) : 8, vgap = soft ? 18 : 8;
+    const int perRow = portrait ? (nvis <= (soft ? 5 : 10) ? nvis : (nvis + 1) / 2) : 12, gap = soft ? (nvis > 6 ? 12 : 22) : 8, vgap = soft ? 18 : 8;
     stripRows = (nvis + perRow - 1) / perRow;
     int top = headerBottom + (soft ? 6 : 0);
     int cardsH = portrait ? juce::jlimit(420, 640, (int) (H * 0.37f)) : juce::jlimit(Theme::softUI() ? 220 : 250, 420, (int) (H * (Theme::softUI() ? 0.255f : 0.29f)));
     const int mapH = portrait ? MAP_H2 : MAP_H;
-    const int fxH = portrait ? 320 : 160;
+    const int fxH = portrait ? (stripRows > 1 ? 260 : 320) : 160;
     int avail = soft ? H - top - 22 - fxH - 20 : H - top - 8 - mapH - 8 - cardsH - 8;
-    stripH = juce::jlimit(340, 640, (avail - (stripRows - 1) * vgap) / stripRows);
+    stripH = juce::jlimit(soft ? 300 : 340, 640, (avail - (stripRows - 1) * vgap) / stripRows);
     // MASTER on the right of the (first) row
     int mw = soft ? (ntracks > 4 || portrait ? 150 : 204) : (ntracks > 4 || portrait ? 122 : 160);
     int rowW = W - 2 * M - mw - gap;
@@ -1301,7 +1316,6 @@ bool Canvas::keyPressed(const juce::KeyPress& k) {
     if (cmd && code == 'R') { command(cmdRecordShow); return true; }
     if (cmd && shift && code == 'L') { command(cmdToggleLight); return true; }
     if (cmd && code == 'L') { command(cmdMidiLearn); return true; }
-    if (cmd && shift && code == 'M') { command(cmdAutoMix); return true; }
     if (cmd && code == 'M') { command(cmdMinimise); return true; }
     if (cmd && code == ',') { command(cmdSetup); return true; }
     if (cmd && k.getModifiers().isCtrlDown() && code == 'F') { command(cmdFullScreen); return true; }
@@ -1350,10 +1364,10 @@ void Canvas::paint(juce::Graphics& g) {
     }
     if (!stationShown) return;
     if (Theme::softUI()) {          // 2.1: the soft shade under every raised panel (the panels draw only their face)
-        auto shade = [&](juce::Component* cp) { if (cp != nullptr && cp->isVisible()) softShadow(g, cp->getBounds().toFloat(), 24.0f, 10.0f); };
+        auto shade = [&](juce::Component* cp) { if (cp != nullptr && cp->isVisible()) softShadow(g, cp->getBounds().toFloat(), 28.0f, 12.0f); };
         for (auto* sv : strips) shade(sv);
         shade(masterView.get());
-        if (!fxPanelR.isEmpty()) softRaised(g, fxPanelR.toFloat(), 30.0f, 10.0f, Theme::card());
+        if (!fxPanelR.isEmpty()) softRaised(g, fxPanelR.toFloat(), 32.0f, 12.0f, Theme::card());
     }
     if (!inShell) paintTop(g);
     paintScenes(g);
