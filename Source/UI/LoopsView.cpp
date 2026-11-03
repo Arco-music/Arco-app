@@ -49,8 +49,9 @@ void LoopsView::resized() {
         return;
     }
     if (auto* c = byId("lv:vol")) c->setVisible(true);
-    if (auto* c = byId("lv:len")) c->setBounds(240, y + 6, 430, 36);
-    if (auto* c = byId("lv:quant")) c->setBounds(690, y + 6, 250, 36);
+    bool narrow = W < 1300;          // an iPhone lying down
+    if (auto* c = byId("lv:len")) c->setBounds(narrow ? 168 : 240, y + 6, narrow ? 380 : 430, 36);
+    if (auto* c = byId("lv:quant")) c->setBounds(narrow ? 562 : 690, y + 6, narrow ? 230 : 250, 36);
     if (auto* c = byId("lv:browser")) c->setBounds(W - 18 - 160, y, 160, 46);
     if (auto* c = byId("lv:vol")) c->setBounds(W - 18 - 160 - 90, y - 14, 80, 74);
 }
@@ -283,6 +284,7 @@ void LoopsView::mouseDown(const juce::MouseEvent& e) {
     dragFromRow = rw; dragFromCol = c; dragNow = p;
 }
 void LoopsView::mouseDrag(const juce::MouseEvent& e) {
+    setViewportIgnoreDragFlag(dragItem >= 0 || dragFromRow >= 0);   // dragging a loop or a volume: no scrolling (iPhone)
     dragNow = e.getPosition();
     if (dragFromRow >= 100) { int rw = dragFromRow - 100; auto r = rowRect(rw); lg().vol[rw].store(juce::jlimit(0.0f, 1.0f, (e.position.x - (r.getRight() - 84)) / 74.0f)); repaint(); return; }
     repaint();

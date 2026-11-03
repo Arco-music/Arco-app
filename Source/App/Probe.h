@@ -83,6 +83,38 @@ inline int runProbe(AudioHost& h) {
         juce::AudioBuffer<float> ex; bool exok = S.renderAll(ex, nullptr);
         check(exok && ex.getNumSamples() > 48000 && ex.getMagnitude(0, ex.getNumSamples()) > 0.05f, "STUDIO: export renders the song", ex.getNumSamples());
     }
+    // studio: a station loop dragged in keeps its exact length (its speed): 2 bars at 120 bpm stay 96000 samples,
+    // and the song takes the loop's tempo even after a lane was recorded first
+    {
+        auto& S = h.studio; auto& e = h.engine;
+        auto& b = e.buffer("st_loopsA"); bool fits = b.len >= 96000 && b.ch >= 1;
+        if (fits) {
+            for (long i = 0; i < 96000; ++i) b.chan(0)[i] = 0.3f * (float) std::sin(i * 0.05);
+            float l0 = e.snap("sv_len0").v.load(), m0 = e.snap("sv_mask0").v.load(), bl0 = e.snap("sv_bl").v.load();
+            e.snap("sv_len0").v.store(96000.0f); e.snap("sv_mask0").v.store(1.0f); e.snap("sv_bl").v.store(24000.0f);
+            S.song.bpm = 97; juce::String why; bool ok = S.addStationLoop(1, 0, 0, -1, why);
+            e.snap("sv_len0").v.store(l0); e.snap("sv_mask0").v.store(m0); e.snap("sv_bl").v.store(bl0);
+            long cl = 0, sl = 0; double diff = 1;
+            if (ok && !S.song.clips.empty()) { auto& c = S.song.clips.back(); cl = c.length; auto& src = *S.song.sources[(size_t) c.source]; sl = (long) src.size();
+                diff = 0; for (long i = 0; i < sl; i += 997) diff = juce::jmax(diff, (double) std::abs(src.l[(size_t) i] - b.chan(0)[i])); }
+            say("  loop in the studio: clip %ld, source %ld samples, song %.1f bpm", cl, sl, S.song.bpm);
+            check(ok && cl == 96000 && sl == 96000 && diff < 1e-6, "STUDIO: a dragged loop keeps its exact length and samples (speed unchanged)", (float) cl);
+            double blLive = e.snap("sv_bl").v.load();   // the engine rewrites the station's clock every block
+            bool tempoOk = std::abs(S.song.bpm - 120.0) < 0.01 || (blLive > 16 && std::abs(S.song.bpm - 60.0 * e.sr / blLive) < 0.01) || (blLive <= 16 && S.song.bpm == 97);
+            check(tempoOk, "STUDIO: the song takes the station's tempo", (float) S.song.bpm);
+            // recording into a NEW lane: add one, arm it, record
+            int ni = S.addLane(LaneAudio, "NEW"); for (auto& L : S.song.lanes) L.arm = false;
+            S.song.lanes[(size_t) ni].input = 1; S.song.lanes[(size_t) ni].arm = true;
+            S.pos = 0; S.play(); S.startRecording();
+            for (int k = 0; k < 30; ++k) { run(0.05, 0, 0.3f, o, p); S.collectRecordings(); }
+            S.stopRecording(); S.stop();
+            float npk = 0; for (auto& c : S.song.clips) if (c.lane == ni && c.source >= 0) for (float x : S.song.sources[(size_t) c.source]->l) npk = juce::jmax(npk, std::abs(x));
+            check(npk > 0.1f, "STUDIO: recording into a new track", npk);
+            // and the loop still has its length after recording beside it
+            long cl2 = 0; for (auto& c : S.song.clips) if (c.lane != ni && c.loop) cl2 = c.length;
+            check(cl2 == 96000, "STUDIO: the loop is untouched by the new take", (float) cl2);
+        } else say("  (no station loop buffer to test with)");
+    }
     // the clocks: the station's tempo while stopped and while playing
     h.model.set("bpm", 100); run(0.5, 0, 0, o, p);
     say("  stopped: transport %.0f  ebpm %.2f  beat %.3f", h.engine.snap("transport").v.load(), h.engine.snap("ebpm").v.load(), h.engine.snap("beat").v.load());

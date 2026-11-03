@@ -368,6 +368,7 @@ void KeyboardPanel::paint(juce::Graphics& g) {
 
 void KeyboardPanel::mouseDown(const juce::MouseEvent& e) {
     auto p = e.getPosition() - box.getPosition();
+    setViewportIgnoreDragFlag(page >= 2 && listArea().contains(p));     // its own list scrolls; elsewhere the screen does (iPhone)
     dragging = false; dragY0 = p.y; dragScroll0 = page == 2 ? sampleScroll : pluginScroll;
     juce::ignoreUnused(p);
 }
@@ -488,7 +489,7 @@ struct ModKnob : public juce::Component {
         lab(g, text(v), { 0, 40, getWidth(), 10 }, 6.5f, Theme::txt(), 0, juce::Justification::centred);
     }
     int typeOf() const { for (auto& m : M.patch.mods) if (m.id == id) return m.type; return 0; }
-    void mouseDown(const juce::MouseEvent& e) override { startT = toT(value()); startY = e.position.y; }
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); startT = toT(value()); startY = e.position.y; }
     void mouseDrag(const juce::MouseEvent& e) override {
         float sens = e.mods.isShiftDown() ? 0.0012f : (stepped() ? 0.008f : 0.005f);
         M.setParam(id, k, fromT(startT - (e.position.y - startY) * sens)); repaint(); }
@@ -557,7 +558,7 @@ struct ModularPanel::Rack::ModView : public juce::Component {
         bool out; int k = portHit(e.position, out);
         if (k >= 0) rack.beginDrag(id, out, k, e.getEventRelativeTo(&rack).position);
     }
-    void mouseDrag(const juce::MouseEvent& e) override { rack.moveDrag(e.getEventRelativeTo(&rack).position); }
+    void mouseDrag(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); rack.moveDrag(e.getEventRelativeTo(&rack).position); }
     void mouseUp(const juce::MouseEvent& e) override { rack.endDrag(e.getEventRelativeTo(&rack).position); }
 };
 

@@ -105,6 +105,9 @@ long StudioView::snapTo(long s, bool fine) const {
 }
 
 void StudioView::resized() {
+    // a short screen (an iPhone lying down): the timeline gets the room - the inspector opens from a lane or a clip
+    static bool shortSeen = false;
+    if (getHeight() > 0 && getHeight() < 640 && !shortSeen) { shortSeen = true; showDetail = false; detailH = 200; }
     // the top bar: the transport and the position in the middle-left, the views and files on the right - all the same height
     std::map<juce::String, int> W = { { "home", 46 }, { "play", 58 }, { "rec", 58 }, { "loop", 62 }, { "metro", 62 }, { "count", 82 },
                                       { "undo", 44 }, { "redo", 44 }, { "arrange", 96 }, { "mixer", 86 }, { "export", 88 }, { "save", 70 }, { "close", 44 } };
@@ -259,7 +262,7 @@ void StudioView::paintBrowser(juce::Graphics& g) {
     button(U8("IMPORT A FILE …"), 5, Theme::btn());
     y += 6;
     g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(7.0f, 0));
-    g.drawFittedText(U8("The station is for playing live; STUDIO turns what you played into a song. Record here too: arm a lane (●), then press ● above."),
+    g.drawFittedText(U8("The station is for playing live; STUDIO turns what you played into a song. Record here too: press ● above - it records into the selected track, or a new one."),
                      { 14, y, r.getWidth() - 24, juce::jmax(10, juce::jmin(60, r.getBottom() - y - 6)) }, juce::Justification::topLeft, 5, 0.9f);
 }
 
@@ -1012,7 +1015,19 @@ void StudioView::togglePlay() {
 void StudioView::toggleRecord() {
     if (studio.recording.load() || studio.countInLeft.load() > 0) { studio.stopRecording(); studio.playing = false; report = studio.lastRecordName.isNotEmpty() ? U8("✓ recorded: ") + studio.lastRecordName : juce::String(); repaint(); return; }
     bool armed = false; for (auto& L : studio.song.lanes) armed |= L.arm;
-    if (!armed) { report = U8("arm a lane first (● on the lane) - or + RECORD THE STATION on the left"); repaint(); return; }
+    if (!armed) {
+        // nothing armed: record straight away - into the selected audio track, or into a new track
+        auto& S = studio.song; int li = selLane;
+        if (li < 0 || li >= (int) S.lanes.size() || S.lanes[(size_t) li].kind != LaneAudio) {
+            int n = 1; for (auto& L : S.lanes) n += L.kind == LaneAudio;
+            studio.ensureReturns();
+            li = studio.addLane(LaneAudio, "TAKE " + juce::String(n));
+            S.lanes[(size_t) li].input = 0; selLane = li;
+            report = U8("● recording into a new track (LIVE 1) - change its input on the lane");
+        } else report = U8("● recording into ") + S.lanes[(size_t) li].name;
+        S.lanes[(size_t) li].arm = true;
+        studio.collectRecordings();
+    }
     studio.startRecording(); repaint();
 }
 

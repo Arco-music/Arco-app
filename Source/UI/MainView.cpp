@@ -474,7 +474,7 @@ public:
     }
     static juce::String fmtHz(double f, bool cut) { if (cut && f < 1) return "off"; return f >= 1000 ? juce::String(f / 1000.0, f >= 10000 ? 1 : 2) + " kHz" : juce::String((int) std::round(f)) + " Hz"; }
     int bandAt(juce::Point<float> p) const { int best = -1; float bd = 24.0f * 24.0f; for (int b = 0; b < (int) bands().size(); ++b) { float d = nodeAt(b).getDistanceSquaredFrom(p); if (d < bd) { bd = d; best = b; } } return best; }
-    void mouseDown(const juce::MouseEvent& e) override { int b = bandAt(e.position); if (b >= 0) { selBand = dragBand = b; } else dragBand = -1; repaint(); }
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); int b = bandAt(e.position); if (b >= 0) { selBand = dragBand = b; } else dragBand = -1; repaint(); }
     void mouseDrag(const juce::MouseEvent& e) override {
         if (dragBand < 0) return;
         auto& B = bands()[(size_t) dragBand]; auto* d = c.model().def(id(B.f)); if (d == nullptr) return;
@@ -1139,7 +1139,7 @@ void Canvas::setLayout(bool tall, int w, int h) {
         c->setBounds(0, 0, 1440, portrait ? (int) std::ceil(H / s) : 880);              // the whole screen is dimmed behind it
         c->setTransform(portrait ? juce::AffineTransform::scale(s).translated(0.0f, 60.0f) : juce::AffineTransform());
         if (!portrait && H < 880) {        // (in the shell the station is a little shorter: the window shrinks to fit, centred)
-            float k = H / 880.0f; c->setTransform(juce::AffineTransform::scale(k).translated((W - 1440 * k) * 0.5f, 0.0f)); } };
+            float k = juce::jmin(H / 880.0f, W / 1440.0f); c->setTransform(juce::AffineTransform::scale(k).translated((W - 1440 * k) * 0.5f, 0.0f)); } };
     for (juce::Component* c : { (juce::Component*) setup.get(), (juce::Component*) look.get(), (juce::Component*) exportSheet.get(), (juce::Component*) helpSheet.get(),
                                 (juce::Component*) aboutSheet.get(), (juce::Component*) importSheet.get(), (juce::Component*) autoMixSheet.get(), (juce::Component*) synthWin.get(), (juce::Component*) spatial.get(),
                                 (juce::Component*) keyboardWin.get(), (juce::Component*) modularWin.get() }) fit(c);

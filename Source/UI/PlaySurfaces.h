@@ -184,7 +184,7 @@ public:
     }
     void playPad() { if (host().latch) return; for (int v : padNotes(editPad)) host().keys.noteOn(1, base() + v, 0.7f);
         juce::Timer::callAfterDelay(450, [sp = juce::Component::SafePointer<KeyPad>(this), ns = padNotes(editPad), b = base()] { if (sp) for (int v : ns) sp->host().keys.noteOff(1, b + v, 0.0f); }); }
-    void mouseDown(const juce::MouseEvent& e) override {
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true);
         if (mode == 1) { pad(e, 0); return; }
         if (mode == 2 && editing) { editTap(e.position); return; }
         int n = noteAt(e.position); if (n < 0) return;

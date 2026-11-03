@@ -194,7 +194,7 @@ public:
         g.setColour(Theme::textOn(col)); g.setFont(Theme::font(7.0f, 2));
         g.drawFittedText(juce::String::fromUTF8("⟿ ") + juce::String(synthModSources()[(size_t) src]), getLocalBounds(), juce::Justification::centred, 1, 0.7f);
     }
-    void mouseDrag(const juce::MouseEvent& e) override { if (e.getDistanceFromDragStart() > 4 && !panel.isDragAndDropActive()) panel.startDragging("mod:" + juce::String(src), this); }
+    void mouseDrag(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); if (e.getDistanceFromDragStart() > 4 && !panel.isDragAndDropActive()) panel.startDragging("mod:" + juce::String(src), this); }
     void setTooltip(const juce::String&) {}
     SynthPanel& panel; int src; juce::Colour col;
 };
@@ -246,7 +246,7 @@ public:
         } else if (x > getWidth() - 18) { model.set(k(i, "src"), 0); model.set(k(i, "dst"), 0); model.set(k(i, "amt"), 0); repaint(); }
         else { dragRow = i; dragStart = (float) e.x; amtStart = model.get(k(i, "amt")); }
     }
-    void mouseDrag(const juce::MouseEvent& e) override { if (dragRow >= 0) { model.set(k(dragRow, "amt"), juce::jlimit(-100.0, 100.0, amtStart + (e.x - dragStart) / (getWidth() - 276) * 200.0)); repaint(); } }
+    void mouseDrag(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); if (dragRow >= 0) { model.set(k(dragRow, "amt"), juce::jlimit(-100.0, 100.0, amtStart + (e.x - dragStart) / (getWidth() - 276) * 200.0)); repaint(); } }
     void mouseUp(const juce::MouseEvent&) override { dragRow = -1; }
     void mouseDoubleClick(const juce::MouseEvent& e) override { int i = rowAt(e.y); if (i >= 0 && e.x > 236 && e.x < getWidth() - 40) model.set(k(i, "amt"), 0); }
 };

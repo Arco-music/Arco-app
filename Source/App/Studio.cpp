@@ -121,7 +121,10 @@ bool Studio::addStationLoop(int scene, int track, long at, int lane, juce::Strin
     len = std::min(len, b.len);
     snapshot();
     const juce::ScopedLock sl(lock);
-    if (song.lanes.empty()) { song.sr = e.sr; double bl = e.snap("sv_bl").v.load(); if (bl > 16) song.bpm = 60.0 * e.sr / bl; song.beats = juce::jmax(1, (int) std::round(e.snap("sv_bts").v.load())); }
+    // the song takes the station's tempo while nothing from the station is in it yet (recorded or imported lanes
+    // don't lock it), so the grid, the click and the bars match the loops; the loops themselves are never resampled
+    bool fromStation = false; for (int st : laneStrip) fromStation |= st >= 4;
+    if (song.lanes.empty() || !fromStation) { if (song.lanes.empty()) song.sr = e.sr; double bl = e.snap("sv_bl").v.load(); if (bl > 16) song.bpm = 60.0 * e.sr / bl; song.beats = juce::jmax(1, (int) std::round(e.snap("sv_bts").v.load())); }
     ensureReturns();
     if (lane < 0 || lane >= (int) song.lanes.size() || song.lanes[(size_t) lane].kind != LaneAudio) {
         lane = -1;

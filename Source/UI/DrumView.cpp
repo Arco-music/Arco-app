@@ -341,6 +341,7 @@ void DrumView::mouseDown(const juce::MouseEvent& e) {
     }
 }
 void DrumView::mouseDrag(const juce::MouseEvent& e) {
+    setViewportIgnoreDragFlag(dragPad >= 0);          // painting steps: the screen does not scroll (iPhone)
     if (dragPad < 0) return;
     if (mode == 0) {
         int pd, st;

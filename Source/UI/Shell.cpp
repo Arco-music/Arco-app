@@ -106,11 +106,30 @@ void AppShell::setLayout(bool tall, int w, int h) {
     portrait = tall; W = w; H = h;
     top.setBounds(0, 0, W, TOPH);
     auto c = content();
-    canvas.setLayout(tall, c.getWidth(), c.getHeight());
+    // an iPhone: each screen keeps the height it needs and scrolls up and down inside the screen
+    juce::Component* cur = nullptr;
+    bool station = screen == Screen::Workstation || screen == Screen::Synth || screen == Screen::Keys || screen == Screen::Modular || screen == Screen::Speakers;
+    if (station) cur = &canvas; else if (screen == Screen::Drums) cur = drums.get(); else if (screen == Screen::Phrase) cur = phrase.get(); else if (screen == Screen::Loops) cur = loops.get();
+    int need = portrait ? (screen == Screen::Workstation ? 1040 : 1136) : 816;
+    bool scroll = phone && cur != nullptr && c.getHeight() < need;
+    int ch = scroll && cur == &canvas ? need : c.getHeight();
+    canvas.setLayout(tall, c.getWidth(), ch);
     canvas.layoutHeader(); canvas.layoutStrips(); canvas.layoutCards();
+    if (!canvas.stationShown) { canvas.stationShown = true; canvas.showStation(false); }   // laying out shows the header: hide it again under a window
+    // whatever the viewport held goes back to the shell
+    if (auto* held = stationVp.getViewedComponent(); held != nullptr && (! scroll || held != cur)) {
+        bool vis = held->isVisible(); stationVp.setViewedComponent(nullptr, false); addChildComponent(held, 0); held->setVisible(vis); }
     canvas.setBounds(c);
-    homeScreen.setBounds(0, 0, W, H);                // HOME has no bar on top: the whole screen
     for (juce::Component* v : { (juce::Component*) drums.get(), (juce::Component*) phrase.get(), (juce::Component*) loops.get() }) if (v) v->setBounds(c);
+    if (scroll) {
+        if (stationVp.getParentComponent() != this) { addChildComponent(stationVp, 0); stationVp.setScrollBarsShown(false, false);
+                                                      stationVp.setScrollOnDragMode(juce::Viewport::ScrollOnDragMode::all); }
+        if (stationVp.getViewedComponent() != cur) { bool vis = cur->isVisible(); stationVp.setViewedComponent(cur, false); cur->setVisible(vis); }
+        stationVp.setBounds(c);
+        cur->setBounds(0, 0, c.getWidth(), need);
+        stationVp.setVisible(true);
+    } else stationVp.setVisible(false);
+    homeScreen.setBounds(0, 0, W, H);                // HOME has no bar on top: the whole screen
     if (auto* sv = studioView()) if (sv->getParentComponent() == this) sv->setBounds(c);
 }
 
@@ -143,6 +162,7 @@ void AppShell::show(Screen s) {
         canvas.studioView->setVisible(true); canvas.studioView->toFront(true);
         canvas.studioView->open();
     }
+    if (phone) setLayout(portrait, W, H);
     if (s == Screen::Home) homeScreen.grabKeyboardFocus();
     if (s == Screen::Drums) drums->grabKeyboardFocus();
     top.repaint(); repaint();
@@ -296,6 +316,17 @@ void TopBar::resized() {
     int h = getHeight(), y = 10, bh = h - 20;
     home->setBounds(14, y, 52, bh);
     titleR = { 78, 6, 210, h - 12 };
+    if (shell.portrait && getWidth() < 900) {      // an iPhone upright: no title, a smaller display
+        titleR = {};
+        int x = 74, bs = juce::jmin(bh, 44), by = (h - bs) / 2;
+        rew->setBounds(x, by + 3, bs - 6, bs - 6); x += bs - 2; play->setBounds(x, by, bs, bs); x += bs + 6; rec->setBounds(x, by, bs, bs); x += bs + 8;
+        posR = { x, by, 84, bs }; x += 84; bpmR = { x, by, 76, bs }; x += 76; sigR = {}; x += 6;
+        click->setBounds(x, by, 56, bs); count->setVisible(false); meterR = {};
+        int r = getWidth() - 10;
+        r -= 60; setup->setBounds(r, by, 60, bs); r -= 5; r -= 54; save->setBounds(r, by, 54, bs); r -= 5; r -= bs; undo->setBounds(r, by, bs, bs);
+        r -= 5; r -= bs; look->setBounds(r, by, bs, bs);
+        return;
+    }
     if (shell.portrait) {          // an iPad upright: the same bar, tighter
         titleR = { 74, 6, 170, h - 12 };
         int x = 250;
@@ -310,9 +341,12 @@ void TopBar::resized() {
     if (Theme::softUI()) {         // 2.1: round keys, one display (bar · bpm · 4/4 · the beat lights), the words
         titleR = { 74, 8, 230, h - 16 };
         int bs = juce::jmin(bh, 46), by = (h - bs) / 2;
+        bool narrow = getWidth() < 1300;            // an iPhone lying down: the display a little smaller, after the title
+        int pw = narrow ? 108 : 132, bw = narrow ? 92 : 104, sw = narrow ? 100 : 118;
         int cx2 = getWidth() / 2, x = cx2 - 400;
+        if (narrow) { titleR = { 74, 8, 150, h - 16 }; x = 232; }
         rew->setBounds(x, by + 3, bs - 6, bs - 6); x += bs + 4; play->setBounds(x, by, bs, bs); x += bs + 8; rec->setBounds(x, by, bs, bs); x += bs + 14;
-        posR = { x, by, 132, bs }; x += 132; bpmR = { x, by, 104, bs }; x += 104; sigR = { x, by, 118, bs }; x += 118 + 14;
+        posR = { x, by, pw, bs }; x += pw; bpmR = { x, by, bw, bs }; x += bw; sigR = { x, by, sw, bs }; x += sw + 14;
         click->setBounds(x, by, 74, bs); x += 80; count->setBounds(x, by, 104, bs); count->setVisible(true);
         int r = getWidth() - 16;
         r -= 76; setup->setBounds(r, by, 76, bs); r -= 8; r -= 66; save->setBounds(r, by, 66, bs); r -= 8; r -= bs; undo->setBounds(r, by, bs, bs);

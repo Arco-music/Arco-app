@@ -109,7 +109,10 @@ public:
     void layoutCheck() {
         using arco::Screen;
         for (int pal : { 6, 7 }) {
-            for (auto wh : { std::pair<int,int> { 1440, 880 }, { 1180, 820 }, { 1366, 1024 }, { 820, 1180 }, { 1024, 1366 } }) {
+            bool phoneOnly = juce::JUCEApplication::getCommandLineParameters().contains("pocket");
+            std::vector<std::pair<int,int>> sizes = { { 1440, 880 }, { 1180, 820 }, { 1366, 1024 }, { 820, 1180 }, { 1024, 1366 } };
+            if (phoneOnly) { arco::MainComponent::phoneSized = true; sizes = { { 750, 390 }, { 844, 390 }, { 667, 375 }, { 812, 375 } }; }
+            for (auto wh : sizes) {
                 for (int t : { 1, 4, 8 }) lcfg.push_back({ Screen::Workstation, wh.first, wh.second, t, pal, {} });
                 for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys })
                     lcfg.push_back({ sc, wh.first, wh.second, 4, pal, {} });
@@ -142,7 +145,7 @@ public:
                 if (par != nullptr && par != lcmc && !par->getLocalBounds().contains(v[i]->getBounds().reduced(1))) {
                     auto msg = tag + "  OUTSIDE  " + lcName(v[i]) + " " + v[i]->getBounds().toString() + " in " + par->getLocalBounds().toString();
                     if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
-                if (!lcmc->getLocalBounds().contains(a.reduced(1))) {
+                if (v[i]->findParentComponentOfClass<juce::Viewport>() == nullptr && !lcmc->getLocalBounds().contains(a.reduced(1))) {
                     auto msg = tag + "  OFFSCREEN  " + lcName(v[i]) + " " + a.toString();
                     if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
                 for (size_t j = i + 1; j < v.size(); ++j) {
@@ -169,6 +172,7 @@ public:
         juce::File out(args[args.indexOf("--screenshot") + 1]);
         arco::Theme::setPalette(cmd.contains("light") ? 7 : 6);
         if (cmd.contains("palette=")) arco::Theme::setPalette(cmd.fromFirstOccurrenceOf("palette=", false, false).getIntValue());
+        if (cmd.contains("pocket")) arco::MainComponent::phoneSized = true;
         auto* mc = new arco::MainComponent(*host);
         mc->setSize(1440, 880);
         if (cmd.contains("portrait")) mc->setSize(820, 1180);               // an iPad held upright

@@ -173,6 +173,7 @@ void SpatialPanel::paint(juce::Graphics& g) {
 }
 
 void SpatialPanel::mouseDown(const juce::MouseEvent& e) {
+    setViewportIgnoreDragFlag(true);
     if (tab == 0) return;
     auto p = e.position;
     if (!box.contains(p.toInt())) { cv.host.saveSetup(); setVisible(false); return; }
@@ -321,6 +322,7 @@ void RoutingView::paint(juce::Graphics& g) {
         { 0, getHeight() - 30, getWidth(), 24 }, 8.0f, Theme::sub());
 }
 void RoutingView::mouseDown(const juce::MouseEvent& e) {
+    setViewportIgnoreDragFlag(true);
     int s, k; if (!hit(e.position, s, k)) return;
     auto& m = cv.model();
     if (k < 0) { if (s < 12) { auto id = "room" + std::to_string(s); m.set(id, m.get(id) > 0.5 ? 0 : 1); } paintValue = -1; repaint(); return; }

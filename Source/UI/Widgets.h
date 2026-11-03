@@ -409,7 +409,7 @@ public:
             g.drawText(juce::String(v, std::abs(hi - lo) <= 2 ? 2 : 0), getLocalBounds().withY(getHeight() / 2 - 6).withHeight(12), juce::Justification::centred);
         }
     }
-    void mouseDown(const juce::MouseEvent& e) override { start = get ? get() : def; dragging = true; startY = e.position.y; dragDy = 0; repaint(); }
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); start = get ? get() : def; dragging = true; startY = e.position.y; dragDy = 0; repaint(); }
     void mouseDrag(const juce::MouseEvent& e) override {
         dragDy = startY - e.position.y;
         if (!enabled) { repaint(); return; }
@@ -446,7 +446,7 @@ public:
         auto cap = juce::Rectangle<float>(r.getX() - 1, juce::jlimit(r.getY(), r.getBottom() - 8.0f, y - 4.0f), r.getWidth() + 2, 8.0f);
         gr.setColour(Theme::txt()); gr.fillRoundedRectangle(cap, 3.0f);
     }
-    void mouseDown(const juce::MouseEvent& e) override {
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true);
         startV = get(); startY = e.position.y; startX = e.position.x;
         if (horiz) {        // a tap on the track jumps there; a drag on the handle moves it
             float cx = capX(); if (std::abs(e.position.x - cx) > capD() * 0.7f) { double v = valueAtX(e.position.x); set(v); startV = v; repaint(); } } }
@@ -535,7 +535,7 @@ public:
         g.drawText(juce::String(get(), dec), getLocalBounds().reduced(4, 0).withTrimmedLeft(centre ? 0 : 6),
                    centre ? juce::Justification::centred : juce::Justification::centredRight);
     }
-    void mouseDown(const juce::MouseEvent& e) override { startV = get(); startY = e.position.y; }
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true); startV = get(); startY = e.position.y; }
     void mouseDrag(const juce::MouseEvent& e) override {
         if (readOnly) return;
         double step = dec > 0 ? 0.1 : 1.0;
