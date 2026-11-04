@@ -72,38 +72,41 @@ namespace softblur {
 // hundreds of keys on a screen). The layers spread from -sigma to +2 sigma round the edge, like a gaussian blur.
 namespace softlayers {
     // the layers follow a real gaussian edge: a layer at distance e from the edge adds just enough that the stack
-    // matches 0.5 * erfc(e / (sigma * sqrt 2)) - no rings, the same fall-off as the blurred page
-    constexpr int N = 11;
-    struct W { float e[N]; float a[N]; };
-    inline const W& weights() {
-        static W w = [] {
-            W r; const float lo = -2.2f, hi = 2.6f;               // in sigmas
-            for (int k = 0; k < N; ++k) r.e[k] = lo + (hi - lo) * k / (N - 1);
-            float step = (hi - lo) / (N - 1);
-            auto A = [](float t) { return 0.5f * std::erfc(t / std::sqrt(2.0f)); };
-            // from the outside in: layer k covers distances below e[k]
-            float T[N + 1]; for (int k = 0; k < N; ++k) T[k] = A(r.e[k] - step * 0.5f); T[N] = 0.0f;
-            for (int k = N - 1; k >= 0; --k) { float outer = k + 1 < N ? T[k + 1] : 0.0f; r.a[k] = juce::jlimit(0.0f, 1.0f, 1.0f - (1.0f - T[k]) / juce::jmax(1e-4f, 1.0f - outer)); }
-            return r; }();
-        return w;
+    // matches 0.5 * erfc(e / (sigma * sqrt 2)) - no rings, the same fall-off as the blurred page. A big shade gets
+    // more layers (never more than ~1.2 px apart), so its steps can't be seen.
+    struct W { std::vector<float> e, a; };
+    inline const W& weights(int n) {
+        static std::map<int, W> cache;
+        auto it = cache.find(n); if (it != cache.end()) return it->second;
+        W r; r.e.resize((size_t) n); r.a.resize((size_t) n);
+        const float lo = -2.2f, hi = 2.6f; float step = (hi - lo) / (n - 1);
+        for (int k = 0; k < n; ++k) r.e[(size_t) k] = lo + step * k;
+        auto A = [](float t) { return 0.5f * std::erfc(t / std::sqrt(2.0f)); };
+        std::vector<float> T((size_t) n + 1, 0.0f); for (int k = 0; k < n; ++k) T[(size_t) k] = A(r.e[(size_t) k] - step * 0.5f);
+        for (int k = n - 1; k >= 0; --k) r.a[(size_t) k] = juce::jlimit(0.0f, 1.0f, 1.0f - (1.0f - T[(size_t) k]) / juce::jmax(1e-4f, 1.0f - T[(size_t) k + 1]));
+        return cache[n] = r;
+    }
+    inline int layersFor(juce::Graphics& g, float sg) {
+        float sc = std::sqrt(std::abs(g.getInternalContext().getPhysicalPixelScaleFactor()));   // device pixels per unit
+        return juce::jlimit(7, 64, (int) std::ceil(4.8f * sg * juce::jmax(1.0f, sc) / 1.2f));
     }
     inline void outer(juce::Graphics& g, juce::Rectangle<float> r, float radius, float blur, juce::Colour c) {
-        float sg = blur * 0.5f; auto& w = weights(); float ca = c.getFloatAlpha();
-        for (int k = 0; k < N; ++k) {
-            float e = w.e[k] * sg;
-            auto q = r.expanded(e); if (q.getWidth() < 1 || q.getHeight() < 1 || w.a[k] < 0.002f) continue;
-            g.setColour(c.withAlpha(ca * w.a[k]));
+        float sg = blur * 0.5f; int n = layersFor(g, sg); auto& w = weights(n); float ca = c.getFloatAlpha();
+        for (int k = 0; k < n; ++k) {
+            float e = w.e[(size_t) k] * sg;
+            auto q = r.expanded(e); if (q.getWidth() < 1 || q.getHeight() < 1 || w.a[(size_t) k] < 0.001f) continue;
+            g.setColour(c.withAlpha(ca * w.a[(size_t) k]));
             g.fillRoundedRectangle(q, juce::jmax(0.0f, radius + e));
         }
     }
     inline void inner(juce::Graphics& g, juce::Rectangle<float> clip, float radius, float dx, float dy, float blur, juce::Colour c) {
-        float sg = blur * 0.5f; auto& w = weights(); float ca = c.getFloatAlpha();
+        float sg = blur * 0.5f; int n = layersFor(g, sg); auto& w = weights(n); float ca = c.getFloatAlpha();
         auto big = clip.expanded(blur * 3 + std::abs(dx) + std::abs(dy) + 4);
-        for (int k = 0; k < N; ++k) {
-            float e = w.e[k] * sg;                                   // the hole's edge moves inwards: the band fades into the key
-            auto hole = clip.translated(dx, dy).reduced(e); if (hole.getWidth() < 1 || hole.getHeight() < 1 || w.a[k] < 0.002f) continue;
+        for (int k = 0; k < n; ++k) {
+            float e = w.e[(size_t) k] * sg;                         // the hole's edge moves inwards: the band fades into the key
+            auto hole = clip.translated(dx, dy).reduced(e); if (hole.getWidth() < 1 || hole.getHeight() < 1 || w.a[(size_t) k] < 0.001f) continue;
             juce::Path p; p.addRectangle(big); p.addRoundedRectangle(hole, juce::jmax(0.0f, radius - e)); p.setUsingNonZeroWinding(false);
-            g.setColour(c.withAlpha(ca * w.a[k]));
+            g.setColour(c.withAlpha(ca * w.a[(size_t) k]));
             g.fillPath(p);
         }
     }
