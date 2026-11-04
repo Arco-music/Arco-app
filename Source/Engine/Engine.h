@@ -114,6 +114,14 @@ struct Ring { static constexpr int N = 2048; std::array<float, N> d {}; std::ato
 // 1.3: an instrument outside the engine (MODULAR, a sampled instrument, a plug-in): it plays with the SYNTH (adds into it)
 struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) = 0; };
 
+// how long a track can be: 6 minutes on the Mac, 40 s on the iPad / iPhone (memory)
+inline double trackSeconds() {
+   #if JUCE_MAC || JUCE_WINDOWS || JUCE_LINUX
+    return 360.0;
+   #else
+    return 40.0;
+   #endif
+}
 class Engine {
 public:
     std::atomic<Synth2*> synthNow { nullptr };      // 2.4: the synth engine now (its LFOs move the knobs on the screen)

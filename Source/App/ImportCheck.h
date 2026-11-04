@@ -184,6 +184,21 @@ inline int runImportCheck(AudioHost& h) {
         int full = 0; for (int tr = 1; tr <= 8; ++tr) full += h.trackState(tr) != 0;
         check(full == 8, "all 8 tracks hold a file", full);
     }
+    // a long file: 5 minutes into a track (the Mac holds 6), and memory only for what is used
+    if (trackSeconds() >= 300) {
+        auto rss = [] { long pages = 0, res = 0; if (auto* f = std::fopen("/proc/self/statm", "r")) { if (std::fscanf(f, "%ld %ld", &pages, &res) != 2) res = 0; std::fclose(f); } return res * 4096.0 / 1048576.0; };
+        h.newSong(); run(0.4); h.model.set("beats", 4); h.model.set("bpm", 100); h.model.set("countin", 0); run(0.2);
+        double m0 = rss();
+        auto f = writeTestFile(dir, "long.wav", makeGroove({ 120, 150, 4, 48000, 2, 0, 0, true }, 4), 48000);
+        ImportPlan p; juce::String err; prepareImport(f, h.engine.sr, p, fm, err, 4);
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        h.importKeep(p, 1); waitImport();
+        double secs = (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0;
+        double bl = sv("sv_bl"), len = sv("sv_len0");
+        double bars = bl > 16 ? len / (bl * 4) : 0;
+        say("    (5 minutes: %.0f bars, %.1f s of loop, imported in %.1f s, memory +%.0f MB)", bars, len / h.engine.sr, secs, rss() - m0);
+        check(std::abs(bars - 150) < 0.01 || std::abs(bars - 75) < 0.01, "a 5-minute file: the whole of it, 150 bars", bars);
+    }
     say("import check: %d of %d failed", fails, total);
     dir.deleteRecursively();
     return fails;

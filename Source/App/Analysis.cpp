@@ -1,5 +1,6 @@
 // ARCO 1.2: tempo, key, onsets, and the high-quality stretch. (This file is built without -ffast-math: see CMakeLists.txt.)
 #include "Analysis.h"
+#include "../Engine/Engine.h"
 #include "../ThirdParty/signalsmith/signalsmith-stretch.h"
 #include <complex>
 #include <cmath>
@@ -391,7 +392,7 @@ juce::AudioBuffer<float> resample(const juce::AudioBuffer<float>& in, double fro
 juce::String ImportPlan::summary() const {
     juce::String s;
     s << (fileBpm > 0 ? juce::String(fileBpm, 1) + " BPM" : juce::String("no clear beat")) << juce::String::fromUTF8("  ·  ") << key.name();
-    if (cut) s << juce::String::fromUTF8("  ·  its first 42 s (a track holds 40 s; use STUDIO for long files)");
+    if (cut) s << juce::String::fromUTF8("  ·  its first ") << (int) trackSeconds() << juce::String::fromUTF8(" s (a track holds ") << (int) trackSeconds() << " s; use STUDIO for longer files)";
     return s;
 }
 
@@ -400,7 +401,7 @@ bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::Au
     if (r == nullptr) { error = "can't read " + f.getFileName() + " (use WAV, AIFF, MP3, FLAC or M4A)"; return false; }
     p.file = f; p.fileSr = r->sampleRate;
     // a track holds up to 40 s: read only what can be used (a long file read whole filled the iPad's memory and it closed)
-    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * 42.0));
+    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * (trackSeconds() + 2.0)));
     if (n < 32) { error = "the file is empty"; return false; }
     p.cut = r->lengthInSamples > n;
     juce::AudioBuffer<float> tmp((int) juce::jlimit(1u, 2u, r->numChannels), (int) n);
@@ -412,6 +413,15 @@ bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::Au
     std::vector<float> mono((size_t) an);
     for (int i = 0; i < an; ++i) { float s = 0; for (int c = 0; c < p.audio.getNumChannels(); ++c) s += p.audio.getSample(c, i); mono[(size_t) i] = s / p.audio.getNumChannels(); }
     p.tempo = analysis::tempo(mono.data(), an, engineSr, juce::jlimit(2, 12, bpb));
+    // a long file is heard in its first 90 s: is the whole file a whole number of bars at that tempo? (a long loop)
+    if (p.audio.getNumSamples() > an && p.tempo.bpm > 0) {
+        double barS = juce::jlimit(2, 12, bpb) * 60.0 / p.tempo.bpm * engineSr;
+        double nb = p.audio.getNumSamples() / barS; int k = (int) std::round(nb);
+        if (k >= 1 && std::abs(nb - k) * barS < engineSr * 0.03 * juce::jmax(1.0, k / 32.0)) {        // within ~30 ms over the whole file
+            p.tempo.wholeBars = true; p.tempo.bars = k; p.tempo.bpm = k * juce::jlimit(2, 12, bpb) * 60.0 / (p.audio.getNumSamples() / engineSr);
+            p.tempo.downbeatOffset = std::fmod(p.tempo.downbeatOffset, barS) < barS * 0.1 ? 0.0 : p.tempo.downbeatOffset;
+        }
+    }
     p.key = analysis::key(mono.data(), an, engineSr);
     p.fileBpm = p.tempo.bpm;
     return true;

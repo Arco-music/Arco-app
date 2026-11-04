@@ -462,7 +462,7 @@ bool AudioHost::saveSong(const juce::File& folder) {
 }
 
 static void readInto(juce::AudioFormatManager& fm, const juce::File& f, SharedBuffer& b) {
-    std::fill(b.data.begin(), b.data.end(), 0.0f);
+    b.data.zero();
     std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
     if (r == nullptr) return;
     long n = juce::jmin((long) r->lengthInSamples, b.len);

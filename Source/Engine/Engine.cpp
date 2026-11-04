@@ -46,12 +46,12 @@ void Engine::prepare(double sampleRate) {
     // ---- the shared buffers (sizes like the patch: 40 s loops, 2.3 s of pitch, 22 ms wave screens)
     auto mk = [&](const std::string& n, long frames, long ch) { auto& b = bufs[n]; b.name = n; b.resize(frames, ch); };
     for (const char* L : { "A", "B", "C", "D" }) {
-        mk(std::string("st_loops") + L, (long) (40.0 * sr), 8);
+        mk(std::string("st_loops") + L, (long) (trackSeconds() * sr), 8);
         mk(std::string("st_pitch") + L, (long) (2.3 * sr / 1.0), 8);
         mk(std::string("st_wave") + L, (long) (0.022 * sr), 8);
     }
     mk("st_wavel", (long) (0.022 * sr), 4);
-    mk("st_undo", (long) (40.0 * sr), 1);
+    mk("st_undo", (long) (trackSeconds() * sr), 1);
     importBuf = std::make_shared<SharedBuffer>(); importBuf->name = "st_import"; importBuf->resize(16, 2);
 
     auto b = [this](const std::string& n) { return B(n); };
