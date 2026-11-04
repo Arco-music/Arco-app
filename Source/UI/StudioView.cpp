@@ -1,6 +1,7 @@
 #include "StudioView.h"
 #include "MainView.h"
 #include <climits>
+#include <thread>
 
 namespace arco {
 
@@ -60,7 +61,7 @@ void StudioView::open() {
     if (studio.song.clips.empty()) {
         bool loaded = cv.host.songFolder.isDirectory() && studio.load(cv.host.songFolder);
         juce::String why;
-        if (!loaded && !studio.buildFromStation(4, why)) { report = why; const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
+        if (!loaded && !studio.buildFromStation(4, why)) { report = U8("an empty song: + AUDIO LANE and ● records, or drop a file (it keeps its own speed)"); const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
     }
     { const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
     studio.matchRate(cv.host.engine.sr);              // at the sound card's rate (a song from another rate is converted)
@@ -116,10 +117,10 @@ void StudioView::resized() {
         auto put2 = [&](const juce::String& id, int x) { for (auto* k : kids) if (k->getComponentID() == "studio:" + id) { k->setVisible(true); k->setBounds(x, 8, W[id], 36); } return x + W[id] + 6; };
         for (auto* k : kids) if (k->getComponentID().startsWith("studio:")) k->setVisible(false);
         int x2 = 16;
-        x2 = put2("loop", x2); x2 += 14;          // (CLICK and COUNT-IN are on the bar above)
-        x2 = put2("undo", x2); x2 = put2("redo", x2);
+        x2 = put2("loop", x2); x2 += 14;          // (CLICK, COUNT-IN, UNDO and SAVE are on the bar above)
+        x2 = put2("redo", x2);
         int r2 = getWidth() - 12;
-        for (auto& id : juce::StringArray { "export", "save" }) { r2 -= W[id]; put2(id, r2); r2 -= 6; }
+        for (auto& id : juce::StringArray { "export" }) { r2 -= W[id]; put2(id, r2); r2 -= 6; }
         r2 -= 14;
         for (auto& id : juce::StringArray { "mixer", "arrange" }) { r2 -= W[id]; put2(id, r2); r2 -= 6; }
         builtFor = -2; rebuildDetail(); return;
@@ -180,8 +181,12 @@ void StudioView::paintTop(juce::Graphics& g) {
     if (!Theme::softUI()) { g.setColour(Theme::card()); g.fillRect(0, 0, getWidth(), (int) topH); }
     if (embedded) {
         if (!Theme::softUI()) { g.setColour(Theme::line()); g.fillRect(0, (int) topH - 1, getWidth(), 1); }
-        juce::String line = report.isNotEmpty() ? report : hint;
-        if (line.isNotEmpty()) txt(g, line, { 560, 8, juce::jmax(100, getWidth() - 560 - 420), 36 }, 7.5f, report.isNotEmpty() ? Theme::green() : Theme::sub(), 1, juce::Justification::centred);
+        // a message stays 8 s, then the hints come back
+        static juce::String lastReport; static double reportAt = 0; double nowMs = juce::Time::getMillisecondCounterHiRes();
+        if (report != lastReport) { lastReport = report; reportAt = nowMs; }
+        bool fresh = report.isNotEmpty() && (nowMs - reportAt < 8000 || listening.load() > 0);
+        juce::String line = fresh ? report : hint;
+        if (line.isNotEmpty()) txt(g, line, { 360, 8, juce::jmax(100, getWidth() - 360 - 330), 36 }, 7.5f, fresh ? (Theme::softUI() ? Theme::ink(Theme::green()) : Theme::green()) : Theme::sub(), 1, juce::Justification::centred);
         if (isThreadRunning() || (progress > 0 && progress < 1)) {
             auto barR = juce::Rectangle<float>(0, topH - 3, (float) getWidth(), 3);
             g.setColour(Theme::card2()); g.fillRect(barR); g.setColour(Theme::green()); g.fillRect(barR.withWidth(barR.getWidth() * juce::jlimit(0.0f, 1.0f, progress.load())));
@@ -213,6 +218,19 @@ void StudioView::paintTop(juce::Graphics& g) {
     }
 }
 
+// 2.2: a painted key in the silicone skin (the studio draws many small buttons itself): raised; latched = pressed in,
+// lit from below in its colour
+static void studioKey(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, float fs) {
+    float rad = juce::jmin(r.getHeight() * 0.5f, 14.0f);
+    if (Theme::softUI()) {
+        softKeyLite(g, r, rad, on, c, on ? 0.9f : 0.0f);
+        txt(g, t, r.toNearestInt(), fs, on ? Theme::ink(c) : Theme::txt(), 2, juce::Justification::centred);
+        return;
+    }
+    g.setColour(on ? c : Theme::btn()); g.fillRoundedRectangle(r, 5);
+    txt(g, t, r.toNearestInt(), fs, Theme::textOn(on ? c : Theme::btn()), 2, juce::Justification::centred);
+}
+
 void StudioView::paintBrowser(juce::Graphics& g) {
     auto r = browserArea();
     if (Theme::softUI()) softRaised(g, r.toFloat().reduced(10.0f, 6.0f), 22.0f, 8.0f, Theme::card());
@@ -220,8 +238,10 @@ void StudioView::paintBrowser(juce::Graphics& g) {
     browserItems.clear();
     auto& e = cv.host.engine;
     int y = r.getY() + 10;
-    txt(g, "THE STATION", { 14, y, r.getWidth() - 20, 16 }, 9.5f, Theme::txt(), 2); y += 18;
-    txt(g, U8("drag a scene or a loop onto the timeline"), { 14, y, r.getWidth() - 20, 12 }, 7.0f, Theme::sub()); y += 18;
+    int tx = Theme::softUI() ? 26 : 14;
+    if (Theme::softUI()) y += 10;
+    txt(g, "THE STATION", { tx, y, r.getWidth() - 20, 16 }, 9.5f, Theme::txt(), 2); y += 18;
+    txt(g, U8("drag a scene or a loop onto the timeline"), { tx, y, r.getWidth() - 20, 12 }, 7.0f, Theme::sub()); y += 18;
     int smask = (int) e.snap("smask").v.load();
     static const char* LL[4] = { "A", "B", "C", "D" };
     double bl = e.snap("sv_bl").v.load(); int bts = juce::jmax(1, (int) std::round(e.snap("sv_bts").v.load()));
@@ -229,8 +249,9 @@ void StudioView::paintBrowser(juce::Graphics& g) {
         bool has = (smask >> (sc - 1)) & 1;
         long len = (long) e.snap("sv_len" + std::to_string(sc - 1)).v.load(); int mask = (int) e.snap("sv_mask" + std::to_string(sc - 1)).v.load();
         double bars = bl > 16 ? len / bl / bts : 0;
-        auto row = juce::Rectangle<int>(10, y, r.getWidth() - 20, 26);
-        g.setColour(has ? Theme::card2() : Theme::card()); g.fillRoundedRectangle(row.toFloat(), 6);
+        auto row = juce::Rectangle<int>(Theme::softUI() ? 22 : 10, y, r.getWidth() - (Theme::softUI() ? 44 : 20), 26);
+        if (Theme::softUI()) { if (has) softKeyLite(g, row.toFloat(), 13.0f, false); else softWellLite(g, row.toFloat(), 13.0f); }
+        else { g.setColour(has ? Theme::card2() : Theme::card()); g.fillRoundedRectangle(row.toFloat(), 6); }
         txt(g, juce::String("SCENE ") + LL[sc - 1], row.withTrimmedLeft(10).withWidth(70), 9.0f, has ? Theme::txt() : Theme::sub(), 2);
         txt(g, has ? juce::String(juce::roundToInt(bars)) + " bars" : juce::String("empty"), row.withTrimmedLeft(84), 7.5f, Theme::sub(), 1);
         if (has) browserItems.push_back({ sc, -1, juce::String("SCENE ") + LL[sc - 1] + U8(" ▸"), row, 0 });
@@ -250,12 +271,12 @@ void StudioView::paintBrowser(juce::Graphics& g) {
     }
     y += 8;
     auto button = [&](const juce::String& t, int action, juce::Colour c) {
-        auto br = juce::Rectangle<int>(10, y, r.getWidth() - 20, 26);
-        g.setColour(c); g.fillRoundedRectangle(br.toFloat(), 6);
-        txt(g, t, br, 8.5f, Theme::textOn(c), 2, juce::Justification::centred);
-        browserItems.push_back({ 0, -1, t, br, action }); y += 30; };
+        auto br = juce::Rectangle<int>(Theme::softUI() ? 22 : 10, y, r.getWidth() - (Theme::softUI() ? 44 : 20), Theme::softUI() ? 30 : 26);
+        if (Theme::softUI()) studioKey(g, br.toFloat(), t, false, c, 8.5f);
+        else { g.setColour(c); g.fillRoundedRectangle(br.toFloat(), 6); txt(g, t, br, 8.5f, Theme::textOn(c), 2, juce::Justification::centred); }
+        browserItems.push_back({ 0, -1, t, br, action }); y += Theme::softUI() ? 38 : 30; };
     button(U8("LAY OUT ALL SCENES"), 1, Theme::btn());
-    txt(g, "ADD", { 14, y + 4, 100, 14 }, 9.0f, Theme::txt(), 2); y += 22;
+    txt(g, "ADD", { tx, y + 4, 100, 14 }, 9.0f, Theme::txt(), 2); y += 22;
     button(U8("+ AUDIO LANE"), 2, Theme::btn());
     button(U8("+ INSTRUMENT (SYNTH)"), 3, Theme::btn());
     button(U8("+ RECORD THE STATION"), 4, Theme::btn());
@@ -263,7 +284,7 @@ void StudioView::paintBrowser(juce::Graphics& g) {
     y += 6;
     g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(7.0f, 0));
     g.drawFittedText(U8("The station is for playing live; STUDIO turns what you played into a song. Record here too: press ● above - it records into the selected track, or a new one."),
-                     { 14, y, r.getWidth() - 24, juce::jmax(10, juce::jmin(60, r.getBottom() - y - 6)) }, juce::Justification::topLeft, 5, 0.9f);
+                     { tx, y, r.getWidth() - tx - 22, juce::jmax(10, juce::jmin(60, r.getBottom() - y - 12)) }, juce::Justification::topLeft, 5, 0.9f);
 }
 
 void StudioView::paintRuler(juce::Graphics& g) {
@@ -274,8 +295,7 @@ void StudioView::paintRuler(juce::Graphics& g) {
     g.setColour(Theme::card()); g.fillRect(corner);
     {   // the corner: the station drawer, snapping, zoom
         auto cbtn = [&](juce::Rectangle<int> r, const juce::String& t, bool on, std::function<void()> f) {
-            g.setColour(on ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 5);
-            txt(g, t, r, 7.5f, Theme::textOn(on ? Theme::sel() : Theme::btn()), 2, juce::Justification::centred);
+            studioKey(g, r.toFloat(), t, on, Theme::blue(), 7.5f);
             hits.push_back({ r.toFloat(), std::move(f), nullptr, nullptr }); };
         int cx = corner.getX() + 6, cy = ra.getY() + 5, ch = ra.getHeight() - 10;
         cbtn({ cx, cy, 30, ch }, U8("◧"), showBrowser, [this] { showBrowser = !showBrowser; resized(); repaint(); });
@@ -286,9 +306,12 @@ void StudioView::paintRuler(juce::Graphics& g) {
         cbtn({ cx + 160, cy, 26, ch }, "+", false, [this] { pxPerSec = juce::jmin(1200.0, pxPerSec * 1.5); repaint(); });
         float ml = studio.masterMeter.l.load(), mr = studio.masterMeter.r.load();
         int mx = cx + 192, mw = corner.getRight() - mx - 6;
-        g.setColour(Theme::scr()); g.fillRect(mx, ra.getY() + 10, mw, 5); g.fillRect(mx, ra.getY() + 18, mw, 5);
-        g.setColour(ml > 0.95f ? Theme::red() : Theme::green()); g.fillRect((float) mx, (float) ra.getY() + 10, mw * juce::jmin(1.0f, ml), 5.0f);
-        g.setColour(mr > 0.95f ? Theme::red() : Theme::green()); g.fillRect((float) mx, (float) ra.getY() + 18, mw * juce::jmin(1.0f, mr), 5.0f);
+        if (mw > 8) for (int k = 0; k < 2; ++k) {            // the master meter: two thin grooves, lit
+            auto mr2 = juce::Rectangle<float>((float) mx, (float) ra.getY() + 9 + k * 9, (float) mw, 6.0f);
+            if (Theme::softUI()) softWellLite(g, mr2, 3.0f); else { g.setColour(Theme::scr()); g.fillRect(mr2); }
+            float lv = juce::jmin(1.0f, k == 0 ? ml : mr);
+            g.setColour((lv > 0.95f ? Theme::red() : Theme::green()).withAlpha(0.85f)); g.fillRoundedRectangle(mr2.reduced(1.0f).withWidth(juce::jmax(0.0f, (mw - 2) * lv)), 2.5f);
+        }
     }
     g.saveState(); g.reduceClipRegion(ra);
     double barSec = S.barLen() / S.sr;
@@ -340,7 +363,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
         txt(g, kindT + L.name, { (int) hx + 14, (int) y + 6, (int) headW - 104, 20 }, 9.5f, Theme::txt(), 2);
         hits.push_back({ { hx + 14, y + 6, headW - 104, 20 }, [this, li] { selLane = li; detail = DLane; selClip = -1; }, nullptr, [this, li] { rename(li); } });
         auto btn = [&](juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, std::function<void()> f) {
-            g.setColour(on ? c : Theme::btn()); g.fillRoundedRectangle(r, 5); txt(g, t, r.toNearestInt(), 8.0f, Theme::textOn(on ? c : Theme::btn()), 2, juce::Justification::centred);
+            studioKey(g, r, t, on, c, 8.0f);
             hits.push_back({ r, f, nullptr, nullptr }); };
         float bx = hx + headW - 88;
         btn({ bx, y + 6, 24, 20 }, "M", L.mute, Theme::red(), [this, li] { const juce::ScopedLock sl(studio.lock); studio.song.lanes[(size_t) li].mute = !studio.song.lanes[(size_t) li].mute; });
@@ -348,8 +371,8 @@ void StudioView::paintLanes(juce::Graphics& g) {
         if (!ret) btn({ bx + 54, y + 6, 24, 20 }, U8("●"), L.arm, Theme::red(), [this, li] { const juce::ScopedLock sl(studio.lock); auto& l = studio.song.lanes[(size_t) li]; l.arm = !l.arm; });
         float ry = ret ? y + 30 : y + 32;
         auto vb = juce::Rectangle<float>(hx + 14, ry + 2, headW - 104, 8);
-        g.setColour(Theme::scr()); g.fillRoundedRectangle(vb, 4);
-        g.setColour(Theme::arc(col)); g.fillRoundedRectangle(vb.withWidth(vb.getWidth() * juce::jlimit(0.0f, 1.0f, (L.vol + 60.0f) / 66.0f)), 4);
+        if (Theme::softUI()) softWellLite(g, vb, 4.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(vb, 4); }
+        g.setColour(Theme::arc(col)); g.fillRoundedRectangle(vb.reduced(Theme::softUI() ? 1.5f : 0.0f).withWidth((vb.getWidth() - (Theme::softUI() ? 3 : 0)) * juce::jlimit(0.0f, 1.0f, (L.vol + 60.0f) / 66.0f)), 3.5f);
         if (li < 64) { float m = studio.meters[(size_t) li].l.load(); g.setColour(Theme::green().withAlpha(0.85f)); g.fillRect(vb.getX(), vb.getBottom() + 2, vb.getWidth() * juce::jmin(1.0f, m), 2.0f); }
         txt(g, juce::String(L.vol, 1) + " dB", { (int) vb.getRight() + 4, (int) ry - 2, 44, 16 }, 7.0f, Theme::sub(), 1);
         hits.push_back({ vb.expanded(0, 6), [this, li] { selLane = li; detail = DLane; selClip = -1; },
@@ -530,7 +553,7 @@ void StudioView::paintMixer(juce::Graphics& g) {
         txt(g, juce::String(vol, 1) + " dB", { r.getX(), r.getBottom() - 52, r.getWidth(), 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
         if (!master) {
             auto b = [&](juce::Rectangle<float> rr, const juce::String& tt, bool on, juce::Colour c, std::function<void()> f) {
-                g.setColour(on ? c : Theme::btn()); g.fillRoundedRectangle(rr, 5); txt(g, tt, rr.toNearestInt(), 8.0f, Theme::textOn(on ? c : Theme::btn()), 2, juce::Justification::centred); hits.push_back({ rr, f, nullptr, nullptr }); };
+                studioKey(g, rr, tt, on, c, 8.0f); hits.push_back({ rr, f, nullptr, nullptr }); };
             float bx = (float) r.getX() + 8, bw = (r.getWidth() - 24) / 3.0f, by = (float) r.getBottom() - 32;
             b({ bx, by, bw, 22 }, "M", L->mute, Theme::red(), [this, li] { const juce::ScopedLock sl(studio.lock); studio.song.lanes[(size_t) li].mute = !studio.song.lanes[(size_t) li].mute; });
             b({ bx + bw + 4, by, bw, 22 }, "S", L->solo, Theme::blue(), [this, li] { const juce::ScopedLock sl(studio.lock); studio.song.lanes[(size_t) li].solo = !studio.song.lanes[(size_t) li].solo; });
@@ -714,10 +737,17 @@ void StudioView::paintDetail(juce::Graphics& g) {
     else { g.setColour(Theme::card()); g.fillRect(d);
     g.setColour(Theme::line()); g.fillRect(d.getX(), d.getY(), d.getWidth(), 1); }
     auto& S = studio.song;
-    auto tab = [&](juce::Rectangle<int> r, const juce::String& t, bool on, std::function<void()> f) {
-        g.setColour(on ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 5); txt(g, t, r, 7.5f, Theme::textOn(on ? Theme::sel() : Theme::btn()), 2, juce::Justification::centred);
-        hits.push_back({ r.toFloat(), f, nullptr, nullptr }); };
     int tx = d.getRight() - 336;
+    // as the other choices: a groove with the chosen one raised in it (HIDE is a key of its own)
+    if (Theme::softUI()) softWellLite(g, juce::Rectangle<float>((float) tx - 4, (float) d.getY() + 2, 240.0f, 28.0f), 14.0f);
+    auto tab = [&](juce::Rectangle<int> r, const juce::String& t, bool on, std::function<void()> f) {
+        if (Theme::softUI()) {
+            bool own = t.startsWith("HIDE");
+            if (own) studioKey(g, r.toFloat(), t, false, Theme::btn(), 7.5f);
+            else { if (on) softKeyLite(g, r.toFloat(), r.getHeight() * 0.5f, false);
+                   txt(g, t, r, 7.5f, on ? Theme::txt() : Theme::sub(), 2, juce::Justification::centred); }
+        } else { g.setColour(on ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 5); txt(g, t, r, 7.5f, Theme::textOn(on ? Theme::sel() : Theme::btn()), 2, juce::Justification::centred); }
+        hits.push_back({ r.toFloat(), f, nullptr, nullptr }); };
     tab({ tx + 246, d.getY() + 6, 80, 20 }, U8("HIDE ▾"), false, [this] { juce::MessageManager::callAsync([sp = juce::Component::SafePointer<StudioView>(this)] { if (sp) { sp->showDetail = false; sp->builtFor = -2; sp->resized(); sp->repaint(); } }); });
     tab({ tx, d.getY() + 6, 76, 20 }, "CLIP", detail == DClip, [this] { if (selClip >= 0) detail = DClip; });
     tab({ tx + 80, d.getY() + 6, 76, 20 }, "LANE", detail == DLane, [this] { detail = DLane; });
@@ -725,7 +755,7 @@ void StudioView::paintDetail(juce::Graphics& g) {
     for (auto& b : devBoxes) {
         auto& devs = b.master ? S.master : (selLane >= 0 && selLane < (int) S.lanes.size() ? S.lanes[(size_t) selLane].devices : S.master);
         if (b.dev >= (int) devs.size()) continue;
-        g.setColour(Theme::card2()); g.fillRoundedRectangle(b.r.toFloat(), 8);
+        if (Theme::softUI()) softRaised(g, b.r.toFloat(), 16.0f, 6.0f, Theme::card()); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(b.r.toFloat(), 8); }
         txt(g, devInfo()[(size_t) devs[(size_t) b.dev].type].name, { b.r.getX() + 10, b.r.getY() + 4, b.r.getWidth() - 80, 18 }, 8.5f, devs[(size_t) b.dev].on ? Theme::txt() : Theme::sub(), 2);
     }
     for (auto& l : persistentLabels) txt(g, l.text(), l.r, l.title ? 9.5f : 7.0f, l.title ? Theme::txt() : Theme::sub(), l.title ? 2 : 1, l.title ? juce::Justification::centredLeft : juce::Justification::centred);
@@ -737,9 +767,11 @@ void StudioView::stationAction(int a) {
     auto& S = studio.song;
     if (a == 1) juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Lay out every scene?", "The arrangement is made again from the station's scenes, in order (your STUDIO edits go - UNDO brings them back).", "Lay out", "Cancel", nullptr,
                 juce::ModalCallbackFunction::create([this](int r) { if (r == 1) { studio.snapshot(); juce::String why; if (studio.buildFromStation(4, why)) { selClip = -1; builtFor = -2; repaint(); } else report = why; } }));
-            else if (a == 2) { studio.snapshot(); const juce::ScopedLock sl(studio.lock); selLane = studio.addLane(LaneAudio, "AUDIO " + juce::String((int) S.lanes.size() - 1)); detail = DLane; }
-            else if (a == 3) { studio.snapshot(); { const juce::ScopedLock sl(studio.lock); selLane = studio.addLane(LaneInstrument, "SYNTH " + juce::String((int) S.lanes.size() - 1)); detail = DLane; }
-                                       studio.play(); studio.stop();
+            else if (a == 2) { studio.snapshot(); int n = 1; for (auto& L : S.lanes) n += L.kind == LaneAudio;
+                               selLane = studio.addLane(LaneAudio, "AUDIO " + juce::String(n)); selClip = -1; detail = DLane;
+                               report = U8("a new track: ● records into it (choose its input on the lane), or drop a file on it"); }
+            else if (a == 3) { studio.snapshot(); int n = 1; for (auto& L : S.lanes) n += L.kind == LaneInstrument;
+                               selLane = studio.addLane(LaneInstrument, "SYNTH " + juce::String(n)); selClip = -1; detail = DLane;
                                        report = U8("an instrument lane with the SYNTH's sound - play the keys / MIDI, ● arms it for recording, double-click on it for a MIDI clip"); }
             else if (a == 4) { studio.snapshot(); const juce::ScopedLock sl(studio.lock); selLane = studio.addLane(LaneAudio, "THE STATION"); auto& L = studio.song.lanes[(size_t) selLane]; L.input = -1; L.arm = true; detail = DLane;
                                        report = U8("armed: press ● to record what the station plays (loops, live, effects) into STUDIO"); }
@@ -1127,15 +1159,14 @@ void StudioView::laneMenu(int li) {
         if (r == 6) { if (!isThreadRunning()) { jobLane = li; job = JStems; doExport(); } return; }
         studio.snapshot();
         { const juce::ScopedLock sl(studio.lock); auto& S = studio.song;
-          if (r == 2) { auto copy = S.lanes[(size_t) li]; copy.name << " 2"; S.lanes.insert(S.lanes.begin() + li + 1, copy); studio.laneStrip.insert(studio.laneStrip.begin() + juce::jmin(li + 1, (int) studio.laneStrip.size()), -1); studio.laneScene.insert(studio.laneScene.begin() + juce::jmin(li + 1, (int) studio.laneScene.size()), 1);
+          if (r == 2) { int d = studio.duplicateLane(li); if (d >= 0) selLane = d; }
+          else if (false) { auto copy = S.lanes[(size_t) li]; copy.name << " 2"; S.lanes.insert(S.lanes.begin() + li + 1, copy); studio.laneStrip.insert(studio.laneStrip.begin() + juce::jmin(li + 1, (int) studio.laneStrip.size()), -1); studio.laneScene.insert(studio.laneScene.begin() + juce::jmin(li + 1, (int) studio.laneScene.size()), 1);
                         for (auto& c : S.clips) if (c.lane > li) ++c.lane; }
-          else if (r == 3) { S.clips.erase(std::remove_if(S.clips.begin(), S.clips.end(), [li](const StudioClip& c) { return c.lane == li; }), S.clips.end()); for (auto& c : S.clips) if (c.lane > li) --c.lane;
-                             S.lanes.erase(S.lanes.begin() + li); if (li < (int) studio.laneStrip.size()) studio.laneStrip.erase(studio.laneStrip.begin() + li); if (li < (int) studio.laneScene.size()) studio.laneScene.erase(studio.laneScene.begin() + li);
-                             selLane = juce::jmax(0, li - 1); selClip = -1; }
+          else if (r == 3) { studio.deleteLane(li); selLane = juce::jmax(0, li - 1); selClip = -1; }
           else if (r == 4) S.lanes[(size_t) li].height = juce::jmin(300.0f, S.lanes[(size_t) li].height * 1.5f);
           else if (r == 5) S.lanes[(size_t) li].height = juce::jmax(40.0f, S.lanes[(size_t) li].height / 1.5f);
           else if (r >= 100) S.lanes[(size_t) li].colour = r - 100; }
-        studio.play(); studio.stop();                 // the engine takes the new lanes
+        studio.refresh();                             // the engine takes the new lanes (still playing, if it was)
         builtFor = -2; repaint();
     });
 }
@@ -1202,30 +1233,103 @@ void StudioView::rename(int li) {
     w->enterModalState(true, juce::ModalCallbackFunction::create([this, w, li](int ok) { if (ok == 1 && li < (int) studio.song.lanes.size()) { const juce::ScopedLock sl(studio.lock); studio.song.lanes[(size_t) li].name = w->getTextEditorContents("n").substring(0, 30).toUpperCase(); } repaint(); }), true);
 }
 
+int StudioView::pressEverything(juce::StringArray& bad) {
+    auto draw = [this] { juce::Image im(juce::Image::ARGB, juce::jmax(1, getWidth()), juce::jmax(1, getHeight()), true); juce::Graphics g(im); paintEntireComponent(g, false); };
+    auto settle = [] { juce::PopupMenu::dismissAllActiveMenus(); if (auto* m = juce::ModalComponentManager::getInstance()) m->cancelAllModalComponents();
+                       };
+    auto consistent = [this](const juce::String& what, juce::StringArray& b) {
+        auto& S = studio.song;
+        for (auto& c : S.clips) if (c.lane < 0 || c.lane >= (int) S.lanes.size() || (c.source >= (int) S.sources.size())) { b.add(what + ": a clip on a lane that is not there"); return; }
+        if (studio.laneStrip.size() != S.lanes.size() || studio.laneScene.size() != S.lanes.size()) b.add(what + ": lane lists out of step");
+        if (selLane >= (int) S.lanes.size()) b.add(what + ": the chosen lane is gone"); };
+    int pressed = 0;
+    for (int pass = 0; pass < 2; ++pass) {                       // the second time with a clip chosen (its buttons)
+        if (pass == 1) { for (int i = 0; i < (int) studio.song.clips.size(); ++i) if (!studio.song.clips[(size_t) i].isMidi()) { selClip = i; detail = DClip; break; } builtFor = -2; resized(); }
+        draw();
+        std::vector<juce::Rectangle<float>> rects; for (auto& h : hits) if (h.click) rects.push_back(h.r);
+        for (auto& r : rects) {
+            draw();
+            for (auto& h : hits) if (h.click && h.r == r) {
+                auto f = h.click; juce::String what = "the button at " + r.toNearestInt().toString();
+                try { f(); } catch (...) { bad.add(what + " threw"); }
+                ++pressed; settle(); draw(); consistent(what, bad);
+                break;
+            }
+        }
+        // the keys on top (LOOP, redo, ARRANGE, MIXER ...), not the ones that leave the studio or open a file window
+        for (auto* k : kids) if (auto* p = dynamic_cast<Pill*>(k)) {
+            auto id = p->getComponentID();
+            if (!p->isVisible() || !p->onClick || id == "studio:export" || id == "studio:close" || id == "studio:home" || id == "studio:save") continue;
+            try { p->onClick(); } catch (...) { bad.add(id + " threw"); }
+            ++pressed; settle(); draw(); consistent(id, bad);
+            if (id == "studio:mixer" || id == "studio:arrange") { try { p->onClick(); } catch (...) {} settle(); }
+        }
+        mixView = false; studio.stop(); settle();
+    }
+    return pressed;
+}
+
 void StudioView::filesDropped(const juce::StringArray& files, int x, int y) {
-    juce::AudioFormatManager fm; fm.registerBasicFormats();
     int li = laneAt((float) y);
     long at = juce::jmax(0L, snapTo(sampleAt((float) x), false));
-    studio.snapshot();
-    for (auto& f : files) {
-        std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(juce::File(f)));
-        if (!r) continue;
-        juce::AudioBuffer<float> b((int) juce::jmin(2u, r->numChannels), (int) juce::jmin((juce::int64) (r->sampleRate * 1200), r->lengthInSamples));
-        r->read(&b, 0, b.getNumSamples(), 0, true, true);
-        auto rb = analysis::resample(b, r->sampleRate, studio.song.sr);
-        std::vector<float> l(rb.getReadPointer(0), rb.getReadPointer(0) + rb.getNumSamples()), rr;
-        if (rb.getNumChannels() > 1) rr.assign(rb.getReadPointer(1), rb.getReadPointer(1) + rb.getNumSamples());
-        auto src = studio.makeSource(juce::File(f).getFileNameWithoutExtension(), std::move(l), std::move(rr));
-        const juce::ScopedLock sl(studio.lock);
-        auto& S = studio.song;
-        if (li < 0 || li >= (int) S.lanes.size() || S.lanes[(size_t) li].kind != LaneAudio) li = studio.addLane(LaneAudio, juce::File(f).getFileNameWithoutExtension().substring(0, 16).toUpperCase());
-        S.sources.push_back(src);
-        StudioClip c; c.lane = li; c.source = (int) S.sources.size() - 1; c.start = at; c.length = src->size(); c.loop = false; c.name = src->name;
-        c.fadeIn = c.fadeOut = (float) (0.004 * S.sr);
-        S.clips.push_back(c); at += c.length;
+    importFiles(files, li, at);
+}
+
+void StudioView::importFiles(const juce::StringArray& files, int li, long at) {
+    if (files.isEmpty()) return;
+    ++listening; report = U8("listening to ") + juce::File(files[0]).getFileName() + U8(" … (tempo, bars)"); repaint();
+    double sr = cv.host.engine.sr; int bpb = juce::jmax(1, studio.song.beats);
+    juce::Component::SafePointer<StudioView> sp(this);
+    std::thread([sp, files, li, at, sr, bpb] {
+        auto plans = std::make_shared<std::vector<ImportPlan>>();
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        juce::String errs;
+        for (auto& f : files) { ImportPlan p; juce::String err;
+            if (prepareImport(juce::File(f), sr, p, fm, err, bpb, 1200.0)) plans->push_back(std::move(p)); else errs << err << "  "; }
+        juce::MessageManager::callAsync([sp, plans, li, at, errs] {
+            if (sp == nullptr) return;
+            --sp->listening;
+            if (plans->empty()) { sp->report = errs.isNotEmpty() ? errs : U8("can't read that file (WAV, AIFF, MP3, FLAC or M4A)"); sp->repaint(); return; }
+            sp->chooseImport(plans, li, at);
+        });
+    }).detach();
+}
+
+void StudioView::chooseImport(std::shared_ptr<std::vector<ImportPlan>> plans, int li, long at) {
+    auto& p0 = plans->front();
+    bool anyAudio = false; for (auto& c : studio.song.clips) anyAudio |= !c.isMidi();
+    double fb = p0.fileBpm, sb = studio.song.bpm;
+    juce::String heard = fb > 0 ? juce::String(fb, std::abs(fb - std::round(fb)) < 0.05 ? 0 : 1) + " BPM" : juce::String("no clear beat");
+    if (fb > 0 && p0.tempo.wholeBars && p0.tempo.bars > 0) heard << U8(" · ") << p0.tempo.bars << (p0.tempo.bars == 1 ? " bar" : " bars");
+    juce::PopupMenu m;
+    m.addSectionHeader(p0.file.getFileName() + U8(" — ") + heard + (plans->size() > 1 ? U8("  (+") + juce::String((int) plans->size() - 1) + " more)" : juce::String()));
+    if (!anyAudio && fb > 0) m.addItem(1, U8("As it is — the song takes its tempo (") + juce::String(fb, 1) + " BPM)");
+    else m.addItem(1, U8("As it is — its own speed, not changed"));
+    if (anyAudio && fb > 0) m.addItem(2, U8("Fit to the song — ") + juce::String(fb, 1) + U8(" → ") + juce::String(sb, 1) + U8(" BPM (stretched, same pitch)"));
+    if (fb > 0) {
+        juce::PopupMenu t;
+        t.addItem(11, U8("It is ") + juce::String(fb * 0.5, 1) + U8(" BPM (half)"));
+        t.addItem(12, U8("It is ") + juce::String(fb * 2.0, 1) + U8(" BPM (double)"));
+        m.addSubMenu(U8("The tempo is wrong …"), t);
     }
-    studio.play(); studio.stop();
-    repaint();
+    m.addSeparator(); m.addItem(9, "Cancel");
+    juce::Component::SafePointer<StudioView> sp(this);
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(juce::Desktop::getMousePosition().x, juce::Desktop::getMousePosition().y, 1, 1)),
+                    [sp, plans, li, at, anyAudio](int r) {
+        if (sp == nullptr || r <= 0 || r == 9) { if (sp) { sp->report = {}; sp->repaint(); } return; }
+        if (r == 11 || r == 12) { for (auto& p : *plans) if (p.fileBpm > 0) { p.fileBpm *= r == 11 ? 0.5 : 2.0; p.tempo.bars = r == 11 ? p.tempo.bars / 2 : p.tempo.bars * 2; }
+                                  sp->chooseImport(plans, li, at); return; }
+        bool fit = r == 2;
+        long pos = at; int lane = li; juce::String last;
+        for (auto& p : *plans) {
+            juce::String why; int ci = sp->studio.importAudio(p, lane, pos, fit, why);
+            if (ci < 0) { last = why; continue; }
+            auto& c = sp->studio.song.clips[(size_t) ci]; lane = c.lane; pos = c.start + c.length; sp->selClip = ci; sp->selLane = c.lane;
+            last = U8("✓ ") + p.file.getFileName() + (fit ? U8(" fitted to ") + juce::String(sp->studio.song.bpm, 1) + " BPM"
+                                                           : (anyAudio ? U8(" as it is") : U8(" — the song is at ") + juce::String(sp->studio.song.bpm, 1) + " BPM"));
+        }
+        sp->report = last; sp->builtFor = -2; sp->resized(); sp->repaint();
+    });
 }
 
 void StudioView::doExport() {

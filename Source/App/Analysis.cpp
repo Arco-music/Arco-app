@@ -156,6 +156,12 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     double bestPh = 0, bestS = -1;
     double lowMean0 = std::accumulate(e.low.begin(), e.low.end(), 0.0) / F + 1e-9, vMean0 = mean + 1e-9;
     for (double ph = 0; ph < P; ph += 0.25) { double s = gridSum(ph, P, v) / vMean0 + 1.5 * gridSum(ph, P, e.low) / lowMean0; if (s > bestS) { bestS = s; bestPh = ph; } }
+    // the beat or the off-beat? (hi-hats on the "and"): the beat is where the low notes and the chord changes are
+    {
+        double alt = std::fmod(bestPh + P * 0.5, P);
+        double lowA = gridSum(bestPh, P, e.low), lowB = gridSum(alt, P, e.low);
+        if (lowB > lowA * 1.25) bestPh = alt;
+    }
     // a loop that starts on its beat: keep the start
     bool snapped = t.wholeBars && (bestPh < 4.0 || P - bestPh < 4.0);
     if (snapped) bestPh = 0;
@@ -220,6 +226,8 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     }
     // a loop is usually cut on its bar line: keep its start unless another beat is clearly the "one"
     if (t.wholeBars && bestPh == 0 && bestD < s0 * 1.3) bestB = 0;
+    // a loop cut on its beat starts on its "one": it was cut on the bar line (a 2-bar loop's chords can't tell 1 from 3)
+    if (t.wholeBars && snapped) bestB = 0;
     t.downbeatOffset = (bestPh + bestB * P) * e.hop + (snapped ? 0.0 : centre);
     if (std::getenv("ARCO_DBG")) std::fprintf(stderr, "  bestB %d bestD %.2f s0 %.2f whole %d down %.0f\n", bestB, bestD, s0, (int) t.wholeBars, t.downbeatOffset);
     return t;
@@ -396,12 +404,12 @@ juce::String ImportPlan::summary() const {
     return s;
 }
 
-bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::AudioFormatManager& fm, juce::String& error, int bpb) {
+bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::AudioFormatManager& fm, juce::String& error, int bpb, double maxSeconds) {
     std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
     if (r == nullptr) { error = "can't read " + f.getFileName() + " (use WAV, AIFF, MP3, FLAC or M4A)"; return false; }
     p.file = f; p.fileSr = r->sampleRate;
     // a track holds up to 40 s: read only what can be used (a long file read whole filled the iPad's memory and it closed)
-    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * (trackSeconds() + 2.0)));
+    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * (maxSeconds > 0 ? maxSeconds : trackSeconds() + 2.0)));
     if (n < 32) { error = "the file is empty"; return false; }
     p.cut = r->lengthInSamples > n;
     juce::AudioBuffer<float> tmp((int) juce::jlimit(1u, 2u, r->numChannels), (int) n);

@@ -45,13 +45,15 @@ void Studio::ensureReturns() {
         laneStrip.push_back(-1); laneStrip.push_back(-1); laneScene.push_back(1); laneScene.push_back(1);
     }
     if (song.master.empty()) {
-        auto c = StudioDevice::make(DevComp); c.p = { -14, 2, 30, 200, 0, 6, 100 };   // glue
-        auto l = StudioDevice::make(DevLimiter);
-        song.master.push_back(c); song.master.push_back(l);
+        // 2.2: a clean master - only a limiter at -0.3 dB that touches nothing below it (a glue compressor at -14 dB
+        // squashed every imported file); add a compressor on MASTER when you want one
+        auto l = StudioDevice::make(DevLimiter); l.p[1] = -0.3f;
+        song.master.push_back(l);
     }
 }
 
 int Studio::addLane(int kind, const juce::String& name) {
+    const juce::ScopedLock sl(lock);            // 2.2: the audio thread never sees half a new lane
     StudioLane L; L.kind = kind; L.name = name;
     int nOwn = 0; for (auto& x : song.lanes) if (x.kind != LaneReturn) ++nOwn;
     L.colour = 4 + nOwn % 8;
@@ -63,6 +65,7 @@ int Studio::addLane(int kind, const juce::String& name) {
     laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1);
     laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
     for (auto& c : song.clips) if (c.lane >= at) ++c.lane;
+    prepareRuntime(rt, song);                   // heard at once, even while playing (no stop / start)
     return at;
 }
 
@@ -139,6 +142,80 @@ bool Studio::addStationLoop(int scene, int track, long at, int lane, juce::Strin
     c.fadeIn = c.fadeOut = (float) (0.004 * song.sr); c.name = juce::String(LL[scene - 1]) + juce::String(track + 1);
     song.clips.push_back(c);
     return true;
+}
+
+void Studio::refresh() { const juce::ScopedLock sl(lock); laneStrip.resize(song.lanes.size(), -1); laneScene.resize(song.lanes.size(), 1); prepareRuntime(rt, song); }
+
+bool Studio::deleteLane(int li) {
+    const juce::ScopedLock sl(lock);
+    if (li < 0 || li >= (int) song.lanes.size()) return false;
+    song.clips.erase(std::remove_if(song.clips.begin(), song.clips.end(), [li](const StudioClip& c) { return c.lane == li; }), song.clips.end());
+    for (auto& c : song.clips) if (c.lane > li) --c.lane;
+    song.lanes.erase(song.lanes.begin() + li);
+    if (li < (int) laneStrip.size()) laneStrip.erase(laneStrip.begin() + li);
+    if (li < (int) laneScene.size()) laneScene.erase(laneScene.begin() + li);
+    if (li < (int) rt.lanes.size()) rt.lanes.erase(rt.lanes.begin() + li);    // the others keep their running effects
+    prepareRuntime(rt, song);
+    return true;
+}
+
+int Studio::duplicateLane(int li) {
+    const juce::ScopedLock sl(lock);
+    if (li < 0 || li >= (int) song.lanes.size() || song.lanes[(size_t) li].kind == LaneReturn) return -1;
+    auto copy = song.lanes[(size_t) li]; copy.name = (copy.name + " 2").substring(0, 20); copy.arm = false;
+    int at = li + 1;
+    song.lanes.insert(song.lanes.begin() + at, copy);
+    laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1);
+    laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
+    for (auto& c : song.clips) if (c.lane >= at) ++c.lane;
+    std::vector<StudioClip> add; for (auto& c : song.clips) if (c.lane == li) { auto d = c; d.lane = at; add.push_back(d); }   // with its clips
+    for (auto& d : add) song.clips.push_back(d);
+    if (at <= (int) rt.lanes.size()) rt.lanes.insert(rt.lanes.begin() + at, LaneRt());
+    prepareRuntime(rt, song);
+    return at;
+}
+
+int Studio::importAudio(const ImportPlan& plan, int lane, long at, bool fit, juce::String& why) {
+    const double esr = host.engine.sr;
+    if (plan.audio.getNumSamples() < 64) { why = "the file is empty"; return -1; }
+    // the song at the sound card's rate (the file was read at it)
+    bool anyAudio = false; for (auto& c : song.clips) anyAudio |= !c.isMidi();
+    if (!anyAudio || song.clips.empty()) { const juce::ScopedLock sl(lock); song.sr = esr; } else matchRate(esr);
+    snapshot();
+    double fb = plan.fileBpm;
+    juce::AudioBuffer<float> a;
+    double down = fb > 0 ? plan.tempo.downbeatOffset : 0.0;
+    if (plan.tempo.wholeBars || down < 0.06 * esr) down = 0.0;               // a loop, or a file that starts on its "one"
+    bool first = !anyAudio;
+    if (fit && fb > 0 && !first && std::abs(fb / song.bpm - 1.0) > 1e-4) {
+        double ratio = fb / song.bpm;                                       // > 1: the file is faster than the song, it gets longer
+        int outLen = (int) std::llround(plan.audio.getNumSamples() * ratio);
+        a = analysis::stretch(plan.audio, esr, outLen, 0.0);
+        down *= ratio;
+    } else a.makeCopyOf(plan.audio);                                       // sample for sample
+    const juce::ScopedLock sl(lock);
+    if (first && fb > 0) { song.bpm = std::round(fb * 100.0) / 100.0; }   // the first audio gives the song its tempo
+    ensureReturns();
+    // its first bar line on a bar line of the song (when the tempo is the song's)
+    long start = std::max(0L, at);
+    if (fb > 0 && (first || fit) && down > 0) {
+        double bar = song.barLen();
+        double s = start - down;
+        while (s < 0) s += bar;
+        start = (long) std::llround(s);
+    }
+    if (lane < 0 || lane >= (int) song.lanes.size() || song.lanes[(size_t) lane].kind != LaneAudio) {
+        lane = addLane(LaneAudio, plan.file.getFileNameWithoutExtension().substring(0, 16).toUpperCase());
+    }
+    std::vector<float> l(a.getReadPointer(0), a.getReadPointer(0) + a.getNumSamples()), r;
+    if (a.getNumChannels() > 1) r.assign(a.getReadPointer(1), a.getReadPointer(1) + a.getNumSamples());
+    auto src = makeSource(plan.file.getFileNameWithoutExtension(), std::move(l), std::move(r));
+    song.sources.push_back(src);
+    StudioClip c; c.lane = lane; c.source = (int) song.sources.size() - 1; c.start = start; c.length = (long) src->size(); c.loop = false;
+    c.name = src->name; c.fadeIn = c.fadeOut = (float) (0.002 * song.sr);
+    song.clips.push_back(c);
+    prepareRuntime(rt, song);
+    return (int) song.clips.size() - 1;
 }
 
 bool Studio::addStationScene(int scene, long at, int repeats, juce::String& why) {
@@ -388,7 +465,8 @@ bool Studio::renderBlock(float* l, float* r, int n) {
         pos = p;
     }
     float pkL = 0, pkR = 0;
-    for (int i = 0; i < n; ++i) { float a = std::tanh(tl[(size_t) i]), b = std::tanh(tr[(size_t) i]); l[i] += a; r[i] += b; pkL = std::max(pkL, std::abs(a)); pkR = std::max(pkR, std::abs(b)); }
+    // 2.2: transparent - the sound as it is (a tanh here bent every sound, even quiet ones); only overs are held at 0 dBFS
+    for (int i = 0; i < n; ++i) { float a = juce::jlimit(-1.0f, 1.0f, tl[(size_t) i]), b = juce::jlimit(-1.0f, 1.0f, tr[(size_t) i]); l[i] += a; r[i] += b; pkL = std::max(pkL, std::abs(a)); pkR = std::max(pkR, std::abs(b)); }
     masterMeter.l.store(std::max(pkL, masterMeter.l.load() * 0.9f)); masterMeter.r.store(std::max(pkR, masterMeter.r.load() * 0.9f));
     return true;
 }

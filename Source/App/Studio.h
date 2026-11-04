@@ -16,6 +16,7 @@
 #include "../Engine/Synth2.h"
 #include "StudioFx.h"
 #include "Render.h"
+#include "Analysis.h"
 
 namespace arco {
 class AudioHost;
@@ -94,6 +95,13 @@ public:
     bool addStationScene(int scene, long at, int repeats, juce::String& why);
     void ensureReturns();                           // RETURN A (reverb) and RETURN B (delay), a master chain
     int addLane(int kind, const juce::String& name);
+    bool deleteLane(int lane);                      // with its clips
+    int duplicateLane(int lane);                    // with its clips, right below it
+    void refresh();                                 // the engine takes the song's lanes and clips as they are now (no stop)
+    // 2.2: an audio file (already listened to: prepareImport) into the song at `at` on `lane` (-1: a new lane).
+    // keep: its own speed and pitch, sample for sample (the first audio in an empty song gives the song its tempo);
+    // fit: stretched to the song's tempo, same pitch. Its first bar line lands on a bar line. Returns the clip (-1: failed)
+    int importAudio(const ImportPlan& plan, int lane, long at, bool fit, juce::String& why);
     // play
     std::atomic<bool> playing { false }, recording { false };
     std::atomic<long> pos { 0 };

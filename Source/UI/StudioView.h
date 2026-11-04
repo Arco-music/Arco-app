@@ -28,6 +28,13 @@ public:
     void visibilityChanged() override;
     bool isInterestedInFileDrag(const juce::StringArray&) override { return true; }
     void filesDropped(const juce::StringArray& files, int x, int y) override;
+    // 2.2: files are listened to first (tempo, bars) on their own thread, then you choose: as it is, or fitted to the song
+    void importFiles(const juce::StringArray& files, int lane, long at);
+    void chooseImport(std::shared_ptr<std::vector<ImportPlan>> plans, int lane, long at);
+    std::atomic<int> listening { 0 };
+    // tests: press every button the studio shows, one by one (drawn again between); menus and dialogs are closed.
+    // Returns how many were pressed; `bad` gets what went wrong
+    int pressEverything(juce::StringArray& bad);
     std::function<void()> onClose;
     // 2.0: inside the app shell - its top bar has the transport, the position and the tempo; here: the tools
     bool embedded = false;

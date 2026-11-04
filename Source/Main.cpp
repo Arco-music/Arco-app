@@ -7,6 +7,7 @@
 #include "App/SelfTest.h"
 #include "App/Probe.h"
 #include "App/ImportCheck.h"
+#include "App/StudioCheck.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 #include "UI/StudioView.h"
@@ -19,7 +20,7 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -47,6 +48,7 @@ public:
                 std::fflush(stdout); quit(); };
             if (cmd.contains("--install")) { updater->onProgress = [](const juce::String& m) { std::printf("  %s\n", m.toRawUTF8()); std::fflush(stdout); }; updater->install(); } else updater->check(); return;
         }
+        if (cmd.contains("--studiocheck")) { int f = arco::runStudioCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--importcheck")) { int f = arco::runImportCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--probe")) { int f = arco::runProbe(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--selftest")) {
