@@ -142,6 +142,8 @@ public:
     std::atomic<int> phonesFirst { 2 };                            // device output of headphones L (R = +1); -1 = none
     std::atomic<ExtInstrument*> ext { nullptr };                    // 1.3: the KEYBOARD's instrument (plays with the SYNTH)
     std::atomic<int> synthInto { 0 };                              // 0 off, 1 = LIVE 2, 2 = LIVE 3, 3 = LIVE 4
+    std::atomic<int> drumsInto { 0 };                              // 2.2: the DRUM MACHINE through a LIVE strip too (so a track records it)
+    float dmDirect = 1.0f;                                         // its direct sound (fades out while it plays through a strip)
     std::atomic<float> grid[14][NSPK];                             // direct outs: source x speaker
     // ---- what the interface reads
     Snap& snap(const std::string& bus);
@@ -196,7 +198,8 @@ private:
     int accN = 0, outQ = 0;
     std::vector<float> accIn[MAXIO], accPhone[4], qOut[MAXIO];
     void processFifo(const float* const* in, int numIn, float* const* out, int numOut, int numSamples);
-    float tuneMix = 0, synG[3] = { 0, 0, 0 };
+    float tuneMix = 0, synG[3] = { 0, 0, 0 }, dmG[3] = { 0, 0, 0 };
+    std::vector<float> dmPrev;                                     // the drum machine's last block, mono (a LIVE strip takes it)
     std::vector<float> beatPrev;
     double tuneAmt = 0;
     void runSub(const float* const* in, int numIn, float* const* out, int numOut, int off, int n);

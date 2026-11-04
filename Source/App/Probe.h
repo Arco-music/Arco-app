@@ -211,6 +211,49 @@ inline int runProbe(AudioHost& h) {
         check(syn != nullptr && hi - lo > 1.2f, "SYNTH: LFO 1 swings (the knobs it is on move with it)", hi - lo);
         h.model.set("m0_src", 0); h.model.set("m0_dst", 0); h.model.set("m0_amt", 0);
     }
+    // ---- 2.2: the DRUM MACHINE recorded on a track (through a LIVE strip), then LIVE LOOPS records that track and the SYNTH
+    {
+        auto blocks = [&](double sec, std::function<void()> each = nullptr) { for (int b = 0; b < (int) (sec * 48000 / N); ++b) {
+            for (auto& v : ib) std::fill(v.begin(), v.end(), 0.0f);
+            if (each) each();
+            h.audioDeviceIOCallbackWithContext(ins, NI, outs, NO, N, ctx); h.model.tick(); } };
+        h.model.press("st_looper", "stopall"); h.model.set("dm_run", 0); blocks(0.3);
+        h.model.press("st_looper", "rstall"); blocks(0.3);
+        h.model.set("countin", 0); h.model.set("bars", 1); h.model.set("bpm", 120); h.model.set("beats", 4);
+        auto& D = h.engine.drumMachine;
+        for (int st = 0; st < 16; ++st) D.setStep(0, 0, st, { 0, 0, 0, 0 });
+        for (int st : { 0, 4, 8, 12 }) D.setStep(0, 0, st, { 120, 100, 1, 0 });
+        int before = h.trackState(3);
+        h.recordDrumsOn(3);
+        int stt = 0; for (int k = 0; k < 120 && (stt = h.trackState(3)) != 3 && stt != 9; ++k) blocks(0.05);
+        blocks(0.3);
+        stt = h.trackState(3);
+        auto& lb = h.engine.buffer("st_loopsA"); long len = (long) h.engine.snap("sv_len0").v.load();
+        float pk = 0; if (len > 0 && lb.len >= len) for (long i = 0; i < len; ++i) pk = juce::jmax(pk, std::abs(lb.chan(2)[i]));
+        say("  drums on track 3: state %d -> %d, %.2f s, peak %.3f, through LIVE %d", before, stt, len / 48000.0, pk, h.drumsInto + 1);
+        check((stt == 3 || stt == 9) && pk > 0.1f && std::abs(len - 96000) < 600, "DRUM MACHINE: recorded on track 3 (one bar, its kicks)", pk);
+        // the direct drums go quiet while they play through the strip (not heard twice)
+        check(h.engine.dmDirect < 0.05f, "  ... heard through its strip only (not twice)", h.engine.dmDirect);
+        // LIVE LOOPS: a cell from TRACK 3
+        auto& G = h.engine.loopGrid; G.stopAll(); G.recState.store(0);
+        if ((int) h.engine.snap("transport").v.load() != 1) h.model.press("st_looper", "playall");
+        h.model.set("dm_run", 0); h.setDrumsInto(0); blocks(0.3);
+        G.src[1].store(LoopGrid::SrcTrack1 + 2); G.recBars.store(1); G.record(1, 0);
+        for (int k = 0; k < 120 && G.recState.load() != 3; ++k) blocks(0.05);
+        float cp = 0; for (long i = 0; i < G.recClip.len; ++i) cp = juce::jmax(cp, std::abs(G.recClip.l[(size_t) i]));
+        check(G.recState.load() == 3 && cp > 0.05f, "LIVE LOOPS: a cell recorded from TRACK 3 (what the track plays)", cp);
+        G.stopAll(); G.recState.store(0);
+        // LIVE LOOPS: a cell from the SYNTH, played while it records
+        G.src[2].store(LoopGrid::SrcSynth); G.recBars.store(1); G.record(2, 0);
+        bool on = false;
+        for (int k = 0; k < 120 && G.recState.load() != 3; ++k) blocks(0.05, [&] { if (!on && G.recState.load() >= 1) { h.synth.noteOn(57, 0.9f); on = true; } });
+        h.synth.noteOff(57);
+        float sp2 = 0; for (long i = 0; i < G.recClip.len; ++i) sp2 = juce::jmax(sp2, std::abs(G.recClip.l[(size_t) i]));
+        check(G.recState.load() == 3 && sp2 > 0.02f, "LIVE LOOPS: a cell recorded from the SYNTH", sp2);
+        G.stopAll(); G.recState.store(0);
+        h.model.press("st_looper", "stopall"); blocks(0.2);
+        h.model.set("bars", 0);
+    }
     say("probe: %d failed", fails);
     return fails;
 }

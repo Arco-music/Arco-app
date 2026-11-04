@@ -20,7 +20,7 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck") || cmd.contains("--clickcheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -41,6 +41,7 @@ public:
         host = std::make_unique<arco::AudioHost>(!test);
         if (cmd.contains("--screenshot")) { screenshot(cmd); return; }
         if (cmd.contains("--layoutcheck")) { layoutCheck(); return; }
+        if (cmd.contains("--clickcheck")) { clickCheck(); return; }
         if (cmd.contains("--update-check")) {          // for testing the UPDATE button
             updater = std::make_unique<arco::Updater>();
             updater->onChecked = [this](const juce::String& m, int b, const juce::String& n) {
@@ -109,6 +110,60 @@ public:
         if (!c->isVisible()) return;
         if (lcControl(c)) { out.push_back(c); return; }
         for (auto* ch : c->getChildren()) lcCollect(ch, out);
+    }
+    // ARCO --clickcheck: every screen, every key on it pressed one by one (the app runs between presses), menus and
+    // dialogs closed - nothing may throw or crash, and the screen must still be the app's afterwards
+    std::vector<arco::Screen> ccScreens; size_t ccS = 0; std::vector<juce::Component::SafePointer<juce::Component>> ccKeys; size_t ccI = 0;
+    int ccPressed = 0, ccBad = 0; arco::MainComponent* ccmc = nullptr;
+    void clickCheck() {
+        using arco::Screen;
+        ccScreens = { Screen::Home, Screen::Workstation, Screen::Loops, Screen::Drums, Screen::Synth, Screen::Keys, Screen::Phrase, Screen::Studio, Screen::Workstation };
+        arco::Theme::setPalette(6);
+        ccmc = new arco::MainComponent(*host); ccmc->setVisible(true); ccmc->setSize(1440, 900);
+        ccNextScreen();
+    }
+    void ccCollect(juce::Component* c) {
+        if (!c->isVisible()) return;
+        if (dynamic_cast<arco::Pill*>(c) || dynamic_cast<arco::Segments*>(c)) { ccKeys.push_back(c); return; }
+        for (auto* ch : c->getChildren()) ccCollect(ch);
+    }
+    void ccNextScreen() {
+        if (ccS >= ccScreens.size()) {
+            printf("click check: %d keys pressed, %d problems\n", ccPressed, ccBad); fflush(stdout);
+            delete ccmc; ccmc = nullptr; setApplicationReturnValue(ccBad ? 1 : 0); quit(); return; }
+        auto sc = ccScreens[ccS++];
+        ccmc->shell.show(sc);
+        juce::Timer::callAfterDelay(250, [this, sc] {
+            ccKeys.clear(); ccCollect(ccmc); ccI = 0;
+            printf("  %s: %d keys\n", arco::screenTitle(sc), (int) ccKeys.size()); fflush(stdout);
+            ccStep(sc); });
+    }
+    void ccStep(arco::Screen sc) {
+        auto settle = [] { juce::PopupMenu::dismissAllActiveMenus(); if (auto* m = juce::ModalComponentManager::getInstance()) m->cancelAllModalComponents(); };
+        while (ccI < ccKeys.size()) {
+            auto* c = ccKeys[ccI++].getComponent();
+            if (c == nullptr) continue;
+            bool vis = true; for (auto* q = c; q != nullptr && q != ccmc; q = q->getParentComponent()) vis &= q->isVisible();
+            if (!vis) continue;
+            juce::String label = lcName(c);
+            // not the ones that open the computer's file windows, write files or start the show recording
+            bool skip = false;
+            for (auto* w : { "Save", "SAVE", "Open", "OPEN", "Import", "IMPORT", "File", "FILE", "Export", "EXPORT", "Rec show", "MIDI learn", "CHOOSE", "Choose", "LOAD", "Load", "PLUG-IN", "SHARE", "Share" })
+                if (label.contains(w)) skip = true;
+            if (skip) continue;
+            try {
+                if (auto* p = dynamic_cast<arco::Pill*>(c)) { if (p->onClick) p->onClick(); }
+                else if (auto* sg = dynamic_cast<arco::Segments*>(c)) { int was = sg->get ? sg->get() : 0; for (int k = 0; k < sg->items.size(); ++k) if (sg->set) sg->set(k); if (sg->set) sg->set(was); }
+            } catch (...) { ++ccBad; printf("    THREW: %s\n", label.toRawUTF8()); }
+            ++ccPressed;
+            settle();
+            // back to the screen being tested (a key may have opened another one)
+            if (ccmc->shell.screen != sc) ccmc->shell.show(sc);
+            juce::Timer::callAfterDelay(12, [this, sc] { ccStep(sc); });
+            return;
+        }
+        host->model.press("st_looper", "stopall"); host->model.set("dm_run", 0); host->studio.stop();
+        ccNextScreen();
     }
     void layoutCheck() {
         using arco::Screen;

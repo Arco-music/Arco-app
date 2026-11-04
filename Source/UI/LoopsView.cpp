@@ -6,7 +6,8 @@ static void say(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r
                 juce::Justification j = juce::Justification::centredLeft) {
     g.setColour(c); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 1, 0.8f);
 }
-static const char* SRCNAME[LoopGrid::NSrc] = { "LIVE 1", "LIVE 2", "LIVE 3", "LIVE 4", "DRUMS", "SYNTH", "PHRASE" };
+static const char* SRCNAME[LoopGrid::NSrc] = { "LIVE 1", "LIVE 2", "LIVE 3", "LIVE 4", "DRUMS", "SYNTH", "PHRASE",
+                                                "TRACK 1", "TRACK 2", "TRACK 3", "TRACK 4", "TRACK 5", "TRACK 6", "TRACK 7", "TRACK 8" };
 static juce::Colour rowColour(int r) { static const int O[8] = { 3, 1, 2, 4, 0, 5, 6, 7 }; return Theme::pal().acc[(size_t) O[r % 8]]; }
 
 LoopGrid& LoopsView::lg() { return shell.host.engine.loopGrid; }
@@ -111,7 +112,7 @@ void LoopsView::paint(juce::Graphics& g) {
             say(g, "Row " + juce::String(rw + 1), { r.getX() + 22, r.getY() + 6, 80, 18 }, 10.5f, Theme::txt(), 2);
             softWellLite(g, sr.toFloat(), sr.getHeight() * 0.5f);
             g.setColour(Theme::sub()); g.setFont(Theme::mono(7.5f));
-            g.drawText((juce::String::fromUTF8("‹ ") + SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())] + juce::String::fromUTF8(" ›")).toUpperCase(), sr, juce::Justification::centred);
+            g.drawText(juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())]) + juce::String::fromUTF8(" ▾"), sr, juce::Justification::centred);
             softKeyLite(g, mr.toFloat(), mr.getHeight() * 0.5f, mu, Theme::red(), mu ? 0.5f : 0.0f);
             say(g, "M", mr, 9.0f, mu ? Theme::txt() : Theme::sub(), 2, juce::Justification::centred);
             softKeyLite(g, st.toFloat(), st.getHeight() * 0.5f, false);
@@ -125,7 +126,7 @@ void LoopsView::paint(juce::Graphics& g) {
         say(g, "ROW " + juce::String(rw + 1), { r.getX() + 22, r.getY() + 6, 80, 18 }, 9.0f, Theme::txt(), 2);
         // the source (click: the next one)
         g.setColour(Theme::card2()); g.fillRoundedRectangle(sr.toFloat(), 6.0f);
-        say(g, juce::String::fromUTF8("◂ ") + SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())] + juce::String::fromUTF8(" ▸"), sr, 7.6f, Theme::txt(), 2, juce::Justification::centred);
+        say(g, juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())]) + juce::String::fromUTF8(" ▾"), sr, 7.6f, Theme::txt(), 2, juce::Justification::centred);
         // mute, the level, stop
         g.setColour(mu ? Theme::red() : Theme::btn()); g.fillRoundedRectangle(mr.toFloat(), 6.0f);
         say(g, "M", mr, 8.5f, mu ? Theme::textOn(Theme::red()) : Theme::sub(), 2, juce::Justification::centred);
@@ -241,7 +242,28 @@ void LoopsView::mouseDown(const juce::MouseEvent& e) {
     for (int c = 0; c < LoopGrid::COLS; ++c) if (colHead(c).contains(p)) { L.launchColumn(c); return; }
     for (int rw = 0; rw < LoopGrid::ROWS; ++rw) {
         auto r = rowRect(rw); if (!r.contains(p)) continue;
-        if (juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22).contains(p)) { int s = L.src[rw].load(); L.src[rw].store((s + (p.x < r.getX() + 68 ? LoopGrid::NSrc - 1 : 1)) % LoopGrid::NSrc); repaint(); return; }
+        if (juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22).contains(p)) {
+            // 2.2: where this row records from - a short menu (it was a long ‹ › round of every source)
+            int now = L.src[rw].load();
+            juce::PopupMenu m;
+            m.addSectionHeader("ROW " + juce::String(rw + 1) + U(" RECORDS …"));
+            juce::PopupMenu live; for (int s = 0; s < 4; ++s) live.addItem(1 + s, SRCNAME[s], true, now == s);
+            m.addSubMenu("a LIVE input", live, true, nullptr, now < 4);
+            juce::PopupMenu trk;
+            for (int t = 0; t < 8; ++t) { int st = shell.host.trackState(t + 1);
+                trk.addItem(1 + LoopGrid::SrcTrack1 + t, juce::String("TRACK ") + juce::String(t + 1) + (st == 0 ? U("  (empty)") : U("  ♪")), true, now == LoopGrid::SrcTrack1 + t); }
+            m.addSubMenu("a track of the station (as you hear it)", trk, true, nullptr, now >= LoopGrid::SrcTrack1);
+            m.addItem(1 + LoopGrid::SrcSynth, "the SYNTH (play it while it records)", true, now == LoopGrid::SrcSynth);
+            m.addItem(1 + LoopGrid::SrcDrums, "the DRUM MACHINE", true, now == LoopGrid::SrcDrums);
+            m.addItem(1 + LoopGrid::SrcPhrase, "PHRASE", true, now == LoopGrid::SrcPhrase);
+            juce::Component::SafePointer<LoopsView> sp(this);
+            m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22))), [sp, rw](int res) {
+                if (sp == nullptr || res <= 0) return;
+                sp->lg().src[rw].store(juce::jlimit(0, LoopGrid::NSrc - 1, res - 1));
+                sp->message = U("row ") + juce::String(rw + 1) + U(" records ") + SRCNAME[res - 1] + U(" - tap an empty cell to record");
+                sp->repaint(); });
+            return;
+        }
         if (juce::Rectangle<int>(r.getRight() - 84, r.getY() + 8, 34, 22).contains(p)) { L.mute[rw].store(L.mute[rw].load() ? 0 : 1); return; }
         if (juce::Rectangle<int>(r.getRight() - 44, r.getY() + 8, 34, 22).contains(p)) { L.stopRow(rw); return; }
         if (p.y > r.getY() + 32 && p.x > r.getRight() - 90) { dragFromRow = 100 + rw; return; }      // the volume bar

@@ -151,7 +151,8 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     double P = fps * 60.0 / bestBpm;
     auto gridSum = [&](double ph, double step, const std::vector<float>& env) {
         double s = 0; int cnt = 0;
-        for (double p = ph; p < F - 1; p += step) { int i = (int) std::round(p); s += env[(size_t) i] + 0.5 * (i > 0 ? env[(size_t) i - 1] : 0) + 0.5 * env[(size_t) i + 1]; ++cnt; }
+        for (double p = ph; p < F - 1; p += step) { int i = juce::jlimit(0, F - 1, (int) std::round(p));     // (it read one past the end: a random result now and then)
+            s += env[(size_t) i] + 0.5 * (i > 0 ? env[(size_t) i - 1] : 0) + 0.5 * (i + 1 < F ? env[(size_t) i + 1] : 0); ++cnt; }
         return cnt ? s / cnt : 0.0; };
     double bestPh = 0, bestS = -1;
     double lowMean0 = std::accumulate(e.low.begin(), e.low.end(), 0.0) / F + 1e-9, vMean0 = mean + 1e-9;

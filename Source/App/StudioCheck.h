@@ -103,7 +103,12 @@ inline int runStudioCheck(AudioHost& h) {
         fresh();
         TestFile tf { bpm, bars, 4, (bars + (int) bpm) % 2 ? 44100.0 : 48000.0, (int) bpm % 3, pre, pre > 0 ? 0.5 : 0.0, false };
         auto f = writeTestFile(dir, "t.wav", makeGroove(tf, (int) bpm + bars), tf.sr);
+        if (auto* kd = std::getenv("ARCO_KEEP")) f.copyFileTo(juce::File(kd).getChildFile("keep_" + juce::String((int) bpm) + "_" + juce::String(bars) + "_" + juce::String((int) pre) + ".wav"));
         auto p = plan(f); juce::String why;
+        if (std::getenv("ARCO_REPEAT2")) { std::vector<float> mono((size_t) p.audio.getNumSamples()); for (int i = 0; i < p.audio.getNumSamples(); ++i) mono[(size_t) i] = p.audio.getSample(0, i);
+            juce::String r; for (int k = 0; k < 6; ++k) { auto t = analysis::tempo(mono.data(), (int) mono.size(), sr, 4); r << juce::String(t.downbeatOffset, 0) << "/" << (int) t.wholeBars << " "; } say("    T %.0f-%d-%.0f: %s", bpm, bars, pre, r.toRawUTF8()); }
+        if (std::getenv("ARCO_REPEAT")) { juce::String r; for (int k = 0; k < 6; ++k) { auto q = plan(f); double cs = 0; for (int c = 0; c < q.audio.getNumChannels(); ++c) for (int i = 0; i < q.audio.getNumSamples(); i += 7) cs += q.audio.getSample(c, i) * (1 + (i % 13));
+            r << juce::String(q.tempo.downbeatOffset, 0) << "/" << juce::String(cs, 6) << "/" << q.audio.getNumSamples() << " "; } say("    %.0f-%d-%.0f: %s", bpm, bars, pre, r.toRawUTF8()); }
         int ci = S.importAudio(p, -1, 0, false, why);
         ++tN;
         double fam = std::abs(S.song.bpm / bpm - 1) < 0.003 ? 1 : (std::abs(S.song.bpm / bpm - 0.5) < 0.002 || std::abs(S.song.bpm / bpm - 2) < 0.006 ? 2 : 0);

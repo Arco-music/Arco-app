@@ -88,6 +88,27 @@ DrumView::DrumView(AppShell& s) : shell(s) {
     auto* recb = add<Pill>("REC", [&m] { return m.get("dm_rec") > 0.5 ? Theme::red() : Theme::btn(); }, 9.0f, 10.0f);
     recb->tint = true; recb->icon = 3; recb->onClick = [&m] { m.set("dm_rec", m.get("dm_rec") > 0.5 ? 0 : 1); }; recb->setComponentID("dv:rec");
     recb->setTooltip("pads played while it runs are written into the pattern");
+    // 2.2: as on the SYNTH - which LIVE strip it plays through, and a track that records it
+    auto& host = shell.host;
+    const char* INTO[4] = { "OFF", "LIVE 2", "LIVE 3", "LIVE 4" };
+    for (int i = 0; i < 4; ++i) {
+        auto* p = add<Pill>(INTO[i], [&host, i] { return host.drumsInto == i ? Theme::violet() : Theme::btn(); }, 8.5f, 10.0f);
+        p->onFn = [&host, i] { return host.drumsInto == i; }; p->tint = true;
+        p->onClick = [&host, i] { host.setDrumsInto(i); };
+        p->setComponentID("dv:into" + juce::String(i)); intoBtns.push_back(p);
+    }
+    for (int t = 0; t < 8; ++t) {
+        auto* p = add<Pill>(juce::String(t + 1), [this, t] {
+            auto& h = shell.host;
+            int st = ((int) h.engine.snap(t < 4 ? "statA" : "statB").v.load() >> (4 * (t % 4))) & 15;
+            bool mine = h.drumsInto > 0 && (int) h.model.get("src" + std::to_string(t + 1)) == h.drumsInto + 1;
+            if (mine && (st == 2 || st == 5 || st == 7)) return Theme::red();
+            if (mine && st == 6) return Theme::amber();
+            return Theme::strip(t + 4).withMultipliedBrightness(0.75f); }, 9.0f, 10.0f);
+        p->onClick = [this, t] { shell.host.recordDrumsOn(t + 1); repaint(); };
+        p->setTooltip("TRACK " + juce::String(t + 1) + " records the drum machine");
+        p->setComponentID("dv:rt" + juce::String(t + 1)); trackBtns.push_back(p);
+    }
     startTimerHz(30);
 }
 DrumView::~DrumView() { shell.host.drumKeys = false; }
@@ -162,6 +183,16 @@ void DrumView::resized() {
         const char* bus[4] = { "dv:vol", "dv:drive", "dv:glue", "dv:space" };
         for (int k = 0; k < 4; ++k) if (auto* c = byId(bus[k])) c->setBounds(rx + k * 100, py, 100, 90);
     }
+    {   // PLAYS INTO · RECORD ON TRACK: a row of its own under the grid (two rows when it is narrow)
+        bool two = gridR.getWidth() < 720;
+        int rh = two ? 96 : 58;
+        recR = gridR.removeFromBottom(rh); gridR.removeFromBottom(14);
+        int x = recR.getX() + 16 + 84, y = recR.getY() + (two ? 12 : (rh - 30) / 2), bh = 30;
+        for (auto* b : intoBtns) { b->setBounds(x, y, 54, bh); x += 58; }
+        if (two) { x = recR.getX() + 16 + 120; y += 42; } else x += 24 + 116;
+        int tw = juce::jlimit(28, 36, (recR.getRight() - 16 - x) / 8 - 4);
+        for (auto* b : trackBtns) { b->setBounds(x, y, tw, bh); x += tw + 4; }
+    }
     if (auto* c = byId("dv:rec")) c->setBounds(rightR.getRight() - 16 - 80, rightR.getY() + 8, 80, 28);
     int ew = juce::jmin(410, gridR.getWidth() / 2 - 24);
     segs[3]->setBounds(gridR.getX() + 16, gridR.getY() + 12, ew, 32);
@@ -193,6 +224,14 @@ void DrumView::paint(juce::Graphics& g) {
     struct ShadeAtEnd { juce::Graphics& g; juce::Component& c; ~ShadeAtEnd() { drawSoftShades(g, c); } } shadeAtEnd { g, *this };
     Theme::backdrop(g, getLocalBounds());
     drawPanel(g, leftR.toFloat(), 18); drawPanel(g, gridR.toFloat(), 18); drawPanel(g, rightR.toFloat(), 18);
+    if (!recR.isEmpty()) {
+        drawPanel(g, recR.toFloat(), 18);
+        bool two = recR.getHeight() > 70;
+        auto lab = [&](const juce::String& t, juce::Rectangle<int> r) { say(g, t, r, 8.0f, Theme::txt(), 2, juce::Justification::centredLeft); };
+        int y0 = two ? recR.getY() + 12 : recR.getY() + (recR.getHeight() - 30) / 2;
+        lab("PLAYS INTO", { recR.getX() + 16, y0, 84, 30 });
+        if (!trackBtns.empty()) { auto tb = trackBtns.front()->getBounds(); lab("RECORD ON TRACK", { tb.getX() - 120, tb.getY(), 116, 30 }); }
+    }
     auto& D = dm(); auto& m = shell.host.model;
     int lx = leftR.getX() + 16;
     say(g, "KIT", { lx, leftR.getY() + 12, 200, 20 }, 9.5f, Theme::sub(), 2);

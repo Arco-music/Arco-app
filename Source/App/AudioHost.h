@@ -40,7 +40,11 @@ public:
     std::atomic<int> testTone { 0 };          // samples of test tone left
     std::atomic<int> testSpeaker { -1 }, testSpkLeft { 0 };   // SPEAKERS & SPACE: a soft noise on one speaker
     double testPhase = 0; juce::Random rnd; float pinkS = 0;
-    void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
+    void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); if (v > 0 && drumsInto == v) setDrumsInto(0); }
+    // 2.2: the DRUM MACHINE through a LIVE strip (as the SYNTH), so a track records it
+    void setDrumsInto(int v) { drumsInto = v; engine.drumsInto.store(v); if (v > 0 && synthInto == v) { synthInto = 0; engine.synthInto.store(0); } }
+    int drumsInto = 0;
+    void recordDrumsOn(int track);
     int synthInto = 0;
     // 2.0: the SYNTH (or the KEYBOARD's instrument) plays through a LIVE strip that is not an input in use:
     // LIVE 2 when only LIVE 1 is used, LIVE 3 when two are used ... (before, it always took LIVE 2 - and a second

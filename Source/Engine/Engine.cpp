@@ -80,8 +80,12 @@ void Engine::prepare(double sampleRate) {
         for (int j = 0; j < 3; ++j) {
             float* raw = B("live_in" + std::to_string(j + 2)); float* lv = B("live" + std::to_string(j + 2));
             float tg = synthInto.load() == j + 1 ? 1.0f : 0.0f; float kk = 1.0f / (float) (0.03 * sr);
+            float td = drumsInto.load() == j + 1 ? 1.0f : 0.0f;
+            if (dmPrev.size() < (size_t) SUB) dmPrev.assign(SUB, 0.0f);
             for (int i = 0; i < SUB; ++i) { synG[j] += (synG[j] < tg ? 1 : -1) * std::min(kk, std::abs(tg - synG[j]));
-                lv[i] = raw[i] * (1 - synG[j]) + sy[i] * synG[j]; }
+                dmG[j] += (dmG[j] < td ? 1 : -1) * std::min(kk, std::abs(td - dmG[j]));
+                float keep = 1.0f - std::max(synG[j], dmG[j]);
+                lv[i] = raw[i] * keep + sy[i] * synG[j] + dmPrev[(size_t) i] * dmG[j]; }
         }
     });
     auto LOUT = cat({ T, TP, { "click", "statA", "statB", "beat", "barno", "beatno", "loopbars", "scenes", "transport", "smask", "ebpm",
@@ -120,7 +124,13 @@ void Engine::prepare(double sampleRate) {
     {   // 2.0: the DRUM MACHINE (into the drums' buses, its SPACE send into SPACE) and PHRASE
         auto* dm = new RefMod<DrumMachine>(); dm->t = &drumMachine; mods.emplace_back(dm); busToMod["st_dm"] = (int) mods.size() - 1; drumMachine.init(sr);
         float* gb = B("gbeat"); float* gt = B("gbpm"); float* gr = B("grun"); float* L = B("drmL"); float* R = B("drmR"); float* sp = B("to_spc");
-        graph.push_back([this, gb, gt, gr, L, R, sp]() { drumMachine.process(gb, gt, gr, L, R, sp, SUB); });
+        graph.push_back([this, gb, gt, gr, L, R, sp]() {
+            drumMachine.process(gb, gt, gr, L, R, sp, SUB);
+            // through a LIVE strip (a track can record it): the strip plays it next block, the direct sound fades out
+            if (dmPrev.size() < (size_t) SUB) dmPrev.assign(SUB, 0.0f);
+            float tgt = drumsInto.load() > 0 ? 0.0f : 1.0f, kk = 1.0f / (float) (0.03 * sr);
+            for (int i = 0; i < SUB; ++i) { dmPrev[(size_t) i] = 0.5f * (L[i] + R[i]);
+                dmDirect += (dmDirect < tgt ? 1 : -1) * std::min(kk, std::abs(tgt - dmDirect)); L[i] *= dmDirect; R[i] *= dmDirect; } });
         auto* ph = new RefMod<Phrase>(); ph->t = &phrase; mods.emplace_back(ph); busToMod["st_phr"] = (int) mods.size() - 1; phrase.init(sr);
         std::array<const float*, 4> lv; for (int i = 0; i < 4; ++i) lv[(size_t) i] = B("live" + std::to_string(i + 1));
         float* pl = B("phrL"); float* pr = B("phrR");
@@ -130,7 +140,8 @@ void Engine::prepare(double sampleRate) {
             for (int i = 0; i < SUB; ++i) { dl[i] += pl[i]; dr[i] += pr[i]; } });
         // LIVE LOOPS: records from the live inputs, the drums, the synth, PHRASE; plays into the mix
         loopGrid.init(sr);
-        std::array<const float*, 10> li { B("live1"), B("live2"), B("live3"), B("live4"), L, R, B("synL"), B("synR"), pl, pr };
+        std::array<const float*, 18> li { B("live1"), B("live2"), B("live3"), B("live4"), L, R, B("synL"), B("synR"), pl, pr,
+                                          B("ch4"), B("ch5"), B("ch6"), B("ch7"), B("ch8"), B("ch9"), B("ch10"), B("ch11") };
         graph.push_back([this, li, gb, gt, dl, dr]() mutable { loopGrid.process(li.data(), gb, gt, phrase.p.bpb, dl, dr, SUB); });
     }
     addNode<Shadow>(this, mods, busToMod, graph, b, "st_shd", { "to_shd", "pitch", "halo_key" }, { "shdL", "shdR" });

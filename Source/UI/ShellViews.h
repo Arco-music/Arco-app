@@ -34,6 +34,8 @@ private:
     std::vector<juce::Component*> padKnobs;
     Segments* lenSeg = nullptr; Segments* pageSeg = nullptr;
     std::vector<Pill*> patBtns, kitBtns;
+    std::vector<Pill*> intoBtns, trackBtns;      // 2.2: PLAYS INTO (OFF, LIVE 2-4) and RECORD ON TRACK 1-8, as on the SYNTH
+    juce::Rectangle<int> recR;
     // a drag across the grid
     int dragPad = -1, dragStep = -1, paintVel = -1; float dragY0 = 0; int dragV0 = 0;
     std::vector<std::vector<uint32_t>> undoStack;

@@ -313,12 +313,26 @@ void AudioHost::recordSynthOn(int track) {
     status = "TRACK " + juce::String(track) + U(" records the SYNTH");
 }
 
+void AudioHost::recordDrumsOn(int track) {
+    if (track < 1 || track > 8) return;
+    if (drumsInto <= 0 || drumsInto < nLive) {                  // a LIVE strip that is not an input in use, and not the SYNTH's
+        int v = 3; for (int c = juce::jmax(1, nLive); c <= 3; ++c) if (c != synthInto && phoneOnLive(c + 1).isEmpty()) { v = c; break; }
+        setDrumsInto(v);
+    }
+    if (model.get("dm_run") < 0.5) model.set("dm_run", 1);      // it plays while it is recorded
+    model.set("src" + std::to_string(track), drumsInto + 1);    // that track listens to the drums' LIVE strip
+    model.press("st_looper", "rec" + std::to_string(track));
+    status = "TRACK " + juce::String(track) + U(" records the DRUM MACHINE (through LIVE ") + juce::String(drumsInto + 1) + ")";
+}
+
 void AudioHost::scanMidi() {                     // every MIDI keyboard / pedal that is plugged in is listened to
     for (auto& d : juce::MidiInput::getAvailableDevices())
         if (!devices.isMidiInputDeviceEnabled(d.identifier)) devices.setMidiInputDeviceEnabled(d.identifier, true);
 }
 
 void AudioHost::applyRouting() {
+    // a LIVE strip that became an input in use is given back by the drum machine (or the input would be muted)
+    if (drumsInto > 0 && drumsInto < nLive) setDrumsInto(0);
     // every channel of the sound card is open (openAllChannels), so the callback's channel k is the card's channel k:
     // choosing a live input or the headphone outputs never has to reopen the card
     auto setup = devices.getAudioDeviceSetup();
@@ -413,6 +427,7 @@ static bool writeBuffer(SharedBuffer& b, const juce::File& f, double sr, long fr
 // a fresh song: no loops, every song and scene setting back to its start (this computer's settings stay)
 void AudioHost::newSong() {
     studio.playing = false; { const juce::ScopedLock sl(studio.lock); studio.song = StudioSong(); }
+    setDrumsInto(0);                          // a new song: the drum machine plays on its own again
     model.press("st_looper", "rstall");
     model.resetSong();
     rack.fromVar({});

@@ -19,7 +19,9 @@ struct LoopClip { std::vector<float> l, r; long len = 0; double beats = 4; };
 class LoopGrid {
 public:
     static constexpr int ROWS = 8, COLS = 8;
-    enum Src { SrcLive1 = 0, SrcLive2, SrcLive3, SrcLive4, SrcDrums, SrcSynth, SrcPhrase, NSrc };
+    // 2.2: the station's tracks too (as you hear them: their strip, effects and volume) - after the old ones, so saved
+    // songs keep their sources
+    enum Src { SrcLive1 = 0, SrcLive2, SrcLive3, SrcLive4, SrcDrums, SrcSynth, SrcPhrase, SrcTrack1, NSrc = SrcTrack1 + 8 };
     std::atomic<const LoopClip*> cell[ROWS][COLS];
     // per row
     std::atomic<int> playing[ROWS];                  // the column playing (-1 none)
@@ -81,6 +83,7 @@ public:
                 int rr = std::clamp(recRow.load(), 0, ROWS - 1), s = std::clamp(src[rr].load(), 0, NSrc - 1);
                 float xl = 0, xr = 0;
                 if (s < 4) { xl = xr = in[s] ? in[s][i] : 0.0f; }
+                else if (s >= SrcTrack1) { int k = 10 + (s - SrcTrack1); xl = xr = in[k] ? in[k][i] : 0.0f; }   // a track (its strip, mono)
                 else { int k = 4 + (s - 4) * 2; xl = in[k] ? in[k][i] : 0.0f; xr = in[k + 1] ? in[k + 1][i] : xl; }
                 if (recClip.len < (long) recClip.l.size()) { recClip.l[(size_t) recClip.len] = xl; recClip.r[(size_t) recClip.len] = xr; ++recClip.len; }
                 double bar = std::max(1.0, (double) bpb), el = gb - recStart;
