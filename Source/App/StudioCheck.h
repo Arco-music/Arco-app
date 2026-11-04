@@ -8,6 +8,7 @@
 #include "../UI/Shell.h"
 #include "../UI/StudioView.h"
 #include <cstdio>
+#include <thread>
 
 namespace arco {
 
@@ -249,6 +250,49 @@ inline int runStudioCheck(AudioHost& h) {
         // and a song still plays after all that
         S.pos = 0; S.play(); run(0.5); bool playsOk = S.playing.load(); S.stop();
         check(playsOk, "  ... and it still plays", 1);
+        delete mc;
+    }
+    // ---------------------------------------------------------------- 6 playing while the screen draws (the real app)
+    say("== 6. playing in real time while the STUDIO screen draws itself");
+    {
+        fresh();
+        auto b = makeGroove({ 110, 4, 4, 44100, 0, 0, 0, false }, 77); b.applyGain(0.8f / b.getMagnitude(0, b.getNumSamples()));
+        auto p = plan(writeTestFile(dir, "rt.wav", b, 44100)); juce::String why;
+        S.importAudio(p, -1, 0, false, why);
+        auto p2 = plan(writeTestFile(dir, "rt2.wav", makeGroove({ 110, 2, 4, 48000, 2, 0, 0, true }, 8), 48000));
+        S.importAudio(p2, -1, 0, false, why);
+        juce::AudioBuffer<float> ref; render(ref);
+        auto* mc = new MainComponent(h); mc->setVisible(true); mc->setSize(1440, 900);
+        mc->shell.show(Screen::Studio);
+        auto* sv = mc->shell.studioView();
+        S.missedBlocks = 0; capL.clear(); capR.clear();
+        S.pos = 0; S.play();
+        std::atomic<bool> stopA { false };
+        std::vector<float> cl, cr;
+        std::thread audio([&] {
+            std::vector<float> o[8]; float* op[8]; for (int i = 0; i < 8; ++i) { o[i].assign(N, 0); op[i] = o[i].data(); }
+            std::vector<float> z(N, 0.0f); const float* ip[2] = { z.data(), z.data() };
+            auto t0 = juce::Time::getMillisecondCounterHiRes(); long done = 0;
+            while (!stopA.load()) {
+                h.audioDeviceIOCallbackWithContext(ip, 2, op, 8, N, ctx);
+                cl.insert(cl.end(), o[0].begin(), o[0].end()); cr.insert(cr.end(), o[1].begin(), o[1].end());
+                done += N;
+                double due = t0 + done / sr * 1000.0;                 // at the pace of a sound card
+                while (juce::Time::getMillisecondCounterHiRes() < due) juce::Thread::sleep(1);
+            } });
+        auto tEnd = juce::Time::getMillisecondCounterHiRes() + 4000; int frames = 0;
+        while (juce::Time::getMillisecondCounterHiRes() < tEnd) {
+            if (sv) { juce::Image im(juce::Image::ARGB, sv->getWidth(), sv->getHeight(), true); juce::Graphics g(im); sv->paintEntireComponent(g, false); ++frames; }
+            h.model.tick(); S.collectRecordings();
+        }
+        stopA = true; audio.join(); S.stop();
+        int best = 0; double bs = -1;
+        for (int off = 0; off < 6000 && off + 9000 < (int) cl.size(); ++off) { double sm = 0; for (int i = 0; i < 6000; i += 3) sm += cl[(size_t) (off + i + 3000)] * ref.getSample(0, i + 3000); if (sm > bs) { bs = sm; best = off; } }
+        int n = juce::jmin((int) cl.size() - best - 100, ref.getNumSamples()) - 6000;
+        double q = n > 1000 ? snr(ref.getReadPointer(0) + 3000, cl.data() + best + 3000, n) : 0;
+        say("    (%d screens drawn in 4 s, %d blocks missed, %.1f s played)", frames, S.missedBlocks.load(), cl.size() / sr);
+        check(S.missedBlocks.load() == 0, "while the screen draws, not one block of sound is lost", S.missedBlocks.load());
+        check(q > 60, "  what you hear is the song, exactly (dB of difference)", q);
         delete mc;
     }
     say("studio check: %d of %d failed", fails, total);

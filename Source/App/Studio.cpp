@@ -416,6 +416,14 @@ bool Studio::matchRate(double newSr) {
 
 void Studio::play() {
     matchRate(host.engine.sr);
+    // 2.2: the song alone (as in any DAW): the station's loops, drum machine and LIVE LOOPS stop - unless a lane is
+    // armed to record the station itself
+    bool recordsStation = false; for (auto& L : song.lanes) recordsStation |= L.arm && L.input < 0;
+    if (!recordsStation) {
+        if ((int) host.engine.snap("transport").v.load() == 1) host.model.press("st_looper", "stopall");
+        if (host.model.get("dm_run") > 0.5) host.model.set("dm_run", 0);
+        host.engine.loopGrid.stopAll();
+    }
     const juce::ScopedLock sl(lock);
     prepareRuntime(rt, song);
     if (song.loopOn && song.loopEnd > song.loopStart && (pos.load() < song.loopStart || pos.load() >= song.loopEnd)) pos = song.loopStart;
@@ -432,10 +440,12 @@ bool Studio::renderBlock(float* l, float* r, int n) {
     bool keys = juce::Time::getMillisecondCounter() < keysUntil.load();
     if (!playing.load() && countInLeft.load() <= 0 && !monitorFresh.load() && !keys) return false;
     const juce::ScopedTryLock sl(lock);
-    if (!sl.isLocked()) return false;
+    if (!sl.isLocked()) { missedBlocks.fetch_add(1); return false; }
     const float* liveIn[64] = {};
     if (monitorFresh.exchange(false)) for (int i = 0; i < (int) song.lanes.size() && i < 64; ++i) if (song.lanes[(size_t) i].arm && song.lanes[(size_t) i].monitor && (int) monitorBuf[i].size() >= n) liveIn[i] = monitorBuf[i].data();
-    std::vector<float> tl((size_t) n, 0.0f), tr((size_t) n, 0.0f);
+    if ((int) tlBuf.size() < n) { tlBuf.resize((size_t) n); trBuf.resize((size_t) n); }      // (sized when the card starts; never here in practice)
+    std::fill(tlBuf.begin(), tlBuf.begin() + n, 0.0f); std::fill(trBuf.begin(), trBuf.begin() + n, 0.0f);
+    auto& tl = tlBuf; auto& tr = trBuf;
     long ci = countInLeft.load();
     if (ci > 0) {                                           // the count-in: one bar of click before recording
         double bl = song.beatLen();

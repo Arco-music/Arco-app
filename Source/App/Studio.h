@@ -111,6 +111,8 @@ public:
     // its audio resampled, its times moved (before, it played too slow or too fast). Message thread.
     bool matchRate(double newSr);
     bool renderBlock(float* l, float* r, int n);                       // audio thread: adds into l / r (false: nothing to play)
+    std::atomic<int> missedBlocks { 0 };                               // blocks the audio thread found the song locked (it must stay 0)
+    std::vector<float> tlBuf = std::vector<float>(8192), trBuf = std::vector<float>(8192);
     void input(const float* const* in, int numIn, const float* live[4], const float* mixL, const float* mixR, int n);   // audio thread: what can be recorded
     void collectRecordings();                                           // message thread, often: the recorded audio into clips
     long recordLatency = 0;                                              // samples the recording is moved earlier (the sound card's delay)

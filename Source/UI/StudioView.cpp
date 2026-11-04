@@ -154,7 +154,8 @@ void StudioView::paint(juce::Graphics& g) {
     hits.clear(); dynLabels.clear();
     rebuildDetail();
     Theme::backdrop(g, getLocalBounds());
-    const juce::ScopedLock sl(studio.lock);
+    // 2.2: drawing only reads the song, on the same thread that edits it - it needs no lock. (Holding the lock while
+    // drawing made the sound skip every time the screen was drawn: the audio thread found it locked and played silence.)
     paintTop(g);
     if (showBrowser) paintBrowser(g);
     if (mixView) paintMixer(g);
