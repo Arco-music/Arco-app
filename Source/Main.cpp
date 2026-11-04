@@ -6,6 +6,7 @@
 #include "UI/ShellViews.h"
 #include "App/SelfTest.h"
 #include "App/Probe.h"
+#include "App/ImportCheck.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 #include "UI/StudioView.h"
@@ -18,7 +19,7 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -46,6 +47,7 @@ public:
                 std::fflush(stdout); quit(); };
             if (cmd.contains("--install")) { updater->onProgress = [](const juce::String& m) { std::printf("  %s\n", m.toRawUTF8()); std::fflush(stdout); }; updater->install(); } else updater->check(); return;
         }
+        if (cmd.contains("--importcheck")) { int f = arco::runImportCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--probe")) { int f = arco::runProbe(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--selftest")) {
             auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("ARCO selftest");
@@ -145,6 +147,15 @@ public:
                 if (par != nullptr && par != lcmc && !par->getLocalBounds().contains(v[i]->getBounds().reduced(1))) {
                     auto msg = tag + "  OUTSIDE  " + lcName(v[i]) + " " + v[i]->getBounds().toString() + " in " + par->getLocalBounds().toString();
                     if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                {   // something else on top catches the touch
+                    auto cp = a.getCentre();
+                    if (lcmc->getLocalBounds().contains(cp)) {
+                        auto* hit = lcmc->getComponentAt(cp);
+                        bool mine = hit == v[i] || (hit && v[i]->isParentOf(hit));
+                        if (!mine) { auto msg = tag + "  COVERED  " + lcName(v[i]) + " by " + (hit ? juce::String(typeid(*hit).name()) + " " + hit->getComponentID() : juce::String("nothing"));
+                                     if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                    }
+                }
                 if (v[i]->findParentComponentOfClass<juce::Viewport>() == nullptr && !lcmc->getLocalBounds().contains(a.reduced(1))) {
                     auto msg = tag + "  OFFSCREEN  " + lcName(v[i]) + " " + a.toString();
                     if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
@@ -189,6 +200,13 @@ public:
             for (auto& p : S) if (nm == p.first) sc = p.second;
             mc->shell.show(sc);
             if (cmd.contains("demo2")) demo2(mc, sc);
+        }
+        if (cmd.contains("bench")) {
+            mc->setVisible(true);
+            auto frame = [&] { juce::Image im(juce::Image::ARGB, mc->getWidth(), mc->getHeight(), true); juce::Graphics g(im); mc->paintEntireComponent(g, false); };
+            auto t0 = juce::Time::getMillisecondCounterHiRes(); frame(); auto t1 = juce::Time::getMillisecondCounterHiRes();
+            for (int k = 0; k < 10; ++k) frame();
+            std::printf("bench: first frame %.1f ms, then %.1f ms per full frame\n", t1 - t0, (juce::Time::getMillisecondCounterHiRes() - t1) / 10.0); std::fflush(stdout);
         }
         if (cmd.contains("setup")) mc->canvas.openSetup(true);
         if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue());

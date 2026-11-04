@@ -215,7 +215,7 @@ void ImportSheet::run() {
     juce::String err;
     ImportPlan p;
     bool ok = false;
-    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err); }
+    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err, piece.beats); }
     catch (...) { err = "the file is too big to read"; ok = false; }
     if (!ok) { error = err; jobDone = true; return; }
     cv.host.listenKey(piece);
@@ -262,7 +262,7 @@ void ImportSheet::doImport() {
     if (stage != Ready) return;
     if (!match || (!plan.matchTempo && (plan.semitones == 0 || !plan.matchKey))) {
         // as it is: the looper reads the file itself
-        cv.host.importFile(file, track);
+        cv.host.importKeep(plan, track);
         setVisible(false); plan = {}; stage = Idle; return;
     }
     stage = Rendering; wantRender = true; progress = 0.02f; jobDone = false;

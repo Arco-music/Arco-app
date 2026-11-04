@@ -73,7 +73,7 @@ struct ImportPlan {
     juce::String fitText(const struct PieceInfo& piece) const;
 };
 // analyse the file (on any thread)
-bool prepareImport(const juce::File& f, double engineSr, ImportPlan& plan, juce::AudioFormatManager& fm, juce::String& error);
+bool prepareImport(const juce::File& f, double engineSr, ImportPlan& plan, juce::AudioFormatManager& fm, juce::String& error, int beatsPerBar = 4);
 // the key move and the bar count, from the current choices
 void planImport(ImportPlan& plan, const PieceInfo& piece);
 // make the fitted audio: from the first bar line, stretched + transposed, exactly whole bars (tiled to the loop if it fits)

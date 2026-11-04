@@ -42,7 +42,7 @@ public:
 private:
     void timerCallback() override { repaint(); for (auto* c : owned) c->repaint(); }
     juce::OwnedArray<juce::Component> owned;
-    Pill *home = nullptr, *rew = nullptr, *play = nullptr, *rec = nullptr, *click = nullptr, *count = nullptr, *undo = nullptr, *save = nullptr, *setup = nullptr, *look = nullptr;
+    Pill *home = nullptr, *rew = nullptr, *play = nullptr, *rec = nullptr, *click = nullptr, *count = nullptr, *undo = nullptr, *save = nullptr, *setup = nullptr, *look = nullptr, *bars = nullptr;
     juce::Rectangle<int> posR, bpmR, sigR, titleR, meterR;
     float bpmStart = 0, dragY = 0; bool bpmDrag = false;
     void mouseDown(const juce::MouseEvent& e) override;
@@ -73,6 +73,7 @@ private:
     juce::Rectangle<int> dockR;
     void drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juce::Colour c);
     float downX = 0, downPos = 0, lastX = 0; double lastT = 0; bool dragged = false;
+    double lastWheel = 0, lastStep = 0; bool wheeling = false;      // a trackpad glides the cards; a mouse wheel steps one by one
     juce::OwnedArray<juce::Component> owned;
     std::unique_ptr<Pill> lookBtn;      // 2.3: light / dark, top right
 };

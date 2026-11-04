@@ -92,7 +92,9 @@ inline int runProbe(AudioHost& h) {
             for (long i = 0; i < 96000; ++i) b.chan(0)[i] = 0.3f * (float) std::sin(i * 0.05);
             float l0 = e.snap("sv_len0").v.load(), m0 = e.snap("sv_mask0").v.load(), bl0 = e.snap("sv_bl").v.load();
             e.snap("sv_len0").v.store(96000.0f); e.snap("sv_mask0").v.store(1.0f); e.snap("sv_bl").v.store(24000.0f);
+            S.song.sr = 44100;          // a song left at another rate (the iPad's sound card can be 44.1 or 48 kHz)
             S.song.bpm = 97; juce::String why; bool ok = S.addStationLoop(1, 0, 0, -1, why);
+            check(std::abs(S.song.sr - e.sr) < 0.5, "STUDIO: the song is at the sound card's rate when a station loop comes in (no slow-down)", (float) S.song.sr);
             e.snap("sv_len0").v.store(l0); e.snap("sv_mask0").v.store(m0); e.snap("sv_bl").v.store(bl0);
             long cl = 0, sl = 0; double diff = 1;
             if (ok && !S.song.clips.empty()) { auto& c = S.song.clips.back(); cl = c.length; auto& src = *S.song.sources[(size_t) c.source]; sl = (long) src.size();

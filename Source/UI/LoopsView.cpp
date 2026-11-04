@@ -264,6 +264,7 @@ void LoopsView::mouseDown(const juce::MouseEvent& e) {
             if (r == 3) for (int k = c + 1; k < LoopGrid::COLS; ++k) if (!L2.cell[rw][k].load()) { setClip(rw, k, clips[rw][c]); names[rw][k] = names[rw][c]; break; }
             if (r == 4 && clips[rw][c]) {
                 auto& st = shell.host.studio; auto cl = clips[rw][c];
+                if (st.song.clips.empty()) st.song.sr = shell.host.engine.sr; else st.matchRate(shell.host.engine.sr);   // the loop is at the sound card's rate
                 const juce::ScopedLock sl(st.lock); st.snapshot();
                 int lane = st.addLane(LaneAudio, "LOOP " + juce::String(rw + 1) + "." + juce::String(c + 1));
                 st.song.sources.push_back(st.makeSource("live loop " + juce::String(rw + 1) + "." + juce::String(c + 1), std::vector<float>(cl->l.begin(), cl->l.begin() + cl->len), std::vector<float>(cl->r.begin(), cl->r.begin() + cl->len)));

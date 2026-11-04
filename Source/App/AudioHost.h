@@ -142,6 +142,9 @@ public:
     std::function<void(const juce::File&)> onSaveExtra, onOpenExtra;     // 2.0: the shell's screens save with the song (LIVE LOOPS)
     // import an audio file into a track (1-8)
     bool importFile(const juce::File& f, int track);
+    // a file that was listened to (the IMPORT sheet), kept at its own tempo and key. The first file of a piece sets the
+    // piece's tempo: the station takes the file's BPM and the file becomes exactly whole bars from its first bar line
+    bool importKeep(const struct ImportPlan& plan, int track);
     // ... or audio already at the engine rate (the smart import: fitted to the piece)
     bool importBuffer(const juce::AudioBuffer<float>& b, int track, const juce::String& name);
     void pollImport();                               // ~30 x a second: hands queued imports to the looper, one by one

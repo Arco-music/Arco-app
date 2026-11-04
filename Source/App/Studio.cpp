@@ -119,12 +119,15 @@ bool Studio::addStationLoop(int scene, int track, long at, int lane, juce::Strin
     if (!((mask >> track) & 1) || len < 64) { why = juce::String("Scene ") + LL[scene - 1] + " has nothing on track " + juce::String(track + 1); return false; }
     auto& b = e.buffer(std::string("st_loops") + LL[scene - 1]);
     len = std::min(len, b.len);
+    // the station's audio is at the sound card's rate: the song must be at that rate before it comes in
+    // (a song left at another rate was "converted" again on PLAY: the loops played slower or faster)
+    if (song.lanes.empty() || song.clips.empty()) { const juce::ScopedLock sl(lock); song.sr = e.sr; } else matchRate(e.sr);
     snapshot();
     const juce::ScopedLock sl(lock);
     // the song takes the station's tempo while nothing from the station is in it yet (recorded or imported lanes
     // don't lock it), so the grid, the click and the bars match the loops; the loops themselves are never resampled
     bool fromStation = false; for (int st : laneStrip) fromStation |= st >= 4;
-    if (song.lanes.empty() || !fromStation) { if (song.lanes.empty()) song.sr = e.sr; double bl = e.snap("sv_bl").v.load(); if (bl > 16) song.bpm = 60.0 * e.sr / bl; song.beats = juce::jmax(1, (int) std::round(e.snap("sv_bts").v.load())); }
+    if (song.lanes.empty() || !fromStation) { double bl = e.snap("sv_bl").v.load(); if (bl > 16) song.bpm = 60.0 * e.sr / bl; song.beats = juce::jmax(1, (int) std::round(e.snap("sv_bts").v.load())); }
     ensureReturns();
     if (lane < 0 || lane >= (int) song.lanes.size() || song.lanes[(size_t) lane].kind != LaneAudio) {
         lane = -1;

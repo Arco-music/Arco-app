@@ -299,6 +299,16 @@ TopBar::TopBar(AppShell& s) : shell(s) {
     setup->textColour = [] { return Theme::txt(); };
     look = mk("", [] { return Theme::btn(); }, [this] { shell.canvas.command(cmdToggleLight); }, 12, 10.0f);
     look->textColour = [] { return Theme::txt(); }; look->setTooltip("light / dark"); look->setComponentID("shell:look");
+    // how many bars the first loop records (0 = free: as long as you play)
+    bars = mk("", [] { return Theme::btn(); }, [this] {
+        juce::PopupMenu m; int now = (int) shell.host.model.get("bars");
+        m.addItem(100, "Free (as long as you play)", true, now == 0);
+        for (int b : { 1, 2, 4, 8, 16, 32 }) m.addItem(b, juce::String(b) + (b == 1 ? " bar" : " bars"), true, now == b);
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(bars), [this](int r) { if (r > 0) { shell.host.model.set("bars", r == 100 ? 0 : r); bars->repaint(); } });
+    }, 0, 10.5f);
+    bars->dynText = [this] { int b = (int) shell.host.model.get("bars"); return b <= 0 ? juce::String("Free") : juce::String(b) + (b == 1 ? " bar" : " bars"); };
+    bars->textColour = [] { return Theme::txt(); }; bars->setComponentID("shell:bars");
+    bars->setTooltip("how many bars the first loop records (Free: as long as you play)");
     // 2.1 SOFT: words as in the design (Click, Count-in, Save, Setup); play lights up instead of turning green
     click->dynText = [] { return juce::String(Theme::softUI() ? "Click" : "CLICK"); };
     count->dynText = [] { return juce::String(Theme::softUI() ? "Count-in" : "COUNT-IN"); };
@@ -321,7 +331,7 @@ void TopBar::resized() {
         int x = 74, bs = juce::jmin(bh, 44), by = (h - bs) / 2;
         rew->setBounds(x, by + 3, bs - 6, bs - 6); x += bs - 2; play->setBounds(x, by, bs, bs); x += bs + 6; rec->setBounds(x, by, bs, bs); x += bs + 8;
         posR = { x, by, 84, bs }; x += 84; bpmR = { x, by, 76, bs }; x += 76; sigR = {}; x += 6;
-        click->setBounds(x, by, 56, bs); count->setVisible(false); meterR = {};
+        click->setBounds(x, by, 56, bs); count->setVisible(false); meterR = {}; bars->setVisible(false);
         int r = getWidth() - 10;
         r -= 60; setup->setBounds(r, by, 60, bs); r -= 5; r -= 54; save->setBounds(r, by, 54, bs); r -= 5; r -= bs; undo->setBounds(r, by, bs, bs);
         r -= 5; r -= bs; look->setBounds(r, by, bs, bs);
@@ -332,7 +342,7 @@ void TopBar::resized() {
         int x = 250;
         rew->setBounds(x, y, 40, bh); play->setBounds(x + 44, y, 56, bh); rec->setBounds(x + 104, y, 56, bh); x += 172;
         posR = { x, y, 100, bh }; x += 106; bpmR = { x, y, 104, bh }; x += 110; sigR = { x, y, 52, bh }; x += 58;
-        click->setBounds(x, y, 64, bh); count->setVisible(false); meterR = {};
+        click->setBounds(x, y, 64, bh); count->setVisible(false); meterR = {}; bars->setVisible(false);
         int r = getWidth() - 12;
         r -= 62; setup->setBounds(r, y, 62, bh); r -= 6; r -= 56; save->setBounds(r, y, 56, bh); r -= 6; r -= 42; undo->setBounds(r, y, 42, bh);
         r -= 6; r -= 42; look->setBounds(r, y, 42, bh);
@@ -342,12 +352,13 @@ void TopBar::resized() {
         titleR = { 74, 8, 230, h - 16 };
         int bs = juce::jmin(bh, 46), by = (h - bs) / 2;
         bool narrow = getWidth() < 1300;            // an iPhone lying down: the display a little smaller, after the title
-        int pw = narrow ? 108 : 132, bw = narrow ? 92 : 104, sw = narrow ? 100 : 118;
-        int cx2 = getWidth() / 2, x = cx2 - 400;
-        if (narrow) { titleR = { 74, 8, 150, h - 16 }; x = 232; }
+        int pw = narrow ? 92 : 132, bw = narrow ? 82 : 104, sw = narrow ? 92 : 118;
+        int cx2 = getWidth() / 2, x = juce::jmax(312, cx2 - 440);
+        if (narrow) { titleR = { 74, 8, 118, h - 16 }; x = 198; }
         rew->setBounds(x, by + 3, bs - 6, bs - 6); x += bs + 4; play->setBounds(x, by, bs, bs); x += bs + 8; rec->setBounds(x, by, bs, bs); x += bs + 14;
         posR = { x, by, pw, bs }; x += pw; bpmR = { x, by, bw, bs }; x += bw; sigR = { x, by, sw, bs }; x += sw + 14;
-        click->setBounds(x, by, 74, bs); x += 80; count->setBounds(x, by, 104, bs); count->setVisible(true);
+        bars->setBounds(x, by, narrow ? 72 : 84, bs); bars->setVisible(true); x += (narrow ? 72 : 84) + 6;
+        click->setBounds(x, by, narrow ? 64 : 74, bs); x += (narrow ? 70 : 80); count->setBounds(x, by, narrow ? 92 : 104, bs); count->setVisible(true);
         int r = getWidth() - 16;
         r -= 76; setup->setBounds(r, by, 76, bs); r -= 8; r -= 66; save->setBounds(r, by, 66, bs); r -= 8; r -= bs; undo->setBounds(r, by, bs, bs);
         r -= 8; r -= bs; look->setBounds(r, by, bs, bs);
@@ -363,7 +374,7 @@ void TopBar::resized() {
     posR = { x, y, 128, bh }; x += 128 + 8;
     bpmR = { x, y, 112, bh }; x += 112 + 8;
     sigR = { x, y, 60, bh }; x += 60 + 12;
-    click->setBounds(x, y, 70, bh); x += 76; count->setBounds(x, y, 86, bh);
+    click->setBounds(x, y, 70, bh); x += 76; count->setBounds(x, y, 86, bh); bars->setVisible(false);
     int r = getWidth() - 14;
     r -= 72; setup->setBounds(r, y, 72, bh); r -= 6;
     r -= 64; save->setBounds(r, y, 64, bh); r -= 6;
@@ -657,6 +668,9 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
 void HomeScreen::focusOn(Screen s) { for (size_t i = 0; i < cards.size(); ++i) if (cards[i].screen == s) target = (float) i; }
 void HomeScreen::timerCallback() {
     if (!isVisible()) return;
+    // the trackpad let go: settle on the nearest card
+    if (wheeling && juce::Time::getMillisecondCounterHiRes() - lastWheel > 140) { wheeling = false; target = juce::jlimit(0.0f, (float) cards.size() - 1, std::round(pos)); }
+    if (wheeling) return;
     if (!dragged || !isMouseButtonDown()) {
         float d = target - pos;
         if (std::abs(d) > 0.0005f) { pos += d * 0.18f; repaint(); } else if (pos != target) { pos = target; repaint(); }
@@ -682,7 +696,18 @@ void HomeScreen::mouseUp(const juce::MouseEvent& e) {
 }
 void HomeScreen::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) {
     float d = std::abs(w.deltaX) > std::abs(w.deltaY) ? -w.deltaX : -w.deltaY;
-    target = juce::jlimit(0.0f, (float) cards.size() - 1, std::round(target + (d > 0 ? 1.0f : -1.0f) * (std::abs(d) > 0.02f ? 1.0f : 0.0f)));
+    if (std::abs(d) < 0.0001f) return;
+    double now = juce::Time::getMillisecondCounterHiRes();
+    if (w.isSmooth) {                       // a trackpad (Mac): the cards follow the fingers, then settle on one
+        if (w.isInertial && !wheeling) return;
+        pos = juce::jlimit(-0.3f, (float) cards.size() - 0.7f, pos + d * 2.2f);
+        target = pos; wheeling = true; lastWheel = now; repaint();
+        return;
+    }
+    // a mouse wheel: one card per notch (not several at once)
+    if (now - lastStep < 160) return;
+    lastStep = now;
+    target = juce::jlimit(0.0f, (float) cards.size() - 1, std::round(target) + (d > 0 ? 1.0f : -1.0f));
 }
 bool HomeScreen::keyPressed(const juce::KeyPress& k) {
     if (k.getKeyCode() == juce::KeyPress::rightKey) { target = juce::jmin((float) cards.size() - 1, target + 1); return true; }

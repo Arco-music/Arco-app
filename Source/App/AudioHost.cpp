@@ -522,6 +522,21 @@ bool AudioHost::importFile(const juce::File& f, int track) {
     return true;
 }
 
+bool AudioHost::importKeep(const ImportPlan& plan, int track) {
+    auto piece = pieceInfo(false);
+    if (!piece.hasLoops && plan.fileBpm >= 30 && plan.fileBpm <= 300 && plan.audio.getNumSamples() > 64) {
+        model.set("bpm", plan.fileBpm);                    // the piece takes the file's tempo
+        PieceInfo pc = piece; pc.sr = engine.sr; pc.bpm = plan.fileBpm; pc.beatLen = 60.0 * engine.sr / plan.fileBpm; pc.loopLen = 0;
+        ImportPlan p2; p2.file = plan.file; p2.fileSr = plan.fileSr; p2.seconds = plan.seconds; p2.tempo = plan.tempo; p2.key = plan.key;
+        p2.fileBpm = plan.fileBpm; p2.matchTempo = true; p2.matchKey = false; p2.cut = plan.cut;
+        p2.audio.makeCopyOf(plan.audio);
+        planImport(p2, pc);
+        auto out = renderImport(p2, pc);
+        if (out.getNumSamples() > 64) return importBuffer(out, track, plan.file.getFileName());
+    }
+    return importFile(plan.file, track);
+}
+
 bool AudioHost::importBuffer(const juce::AudioBuffer<float>& in, int track, const juce::String& name) {
     long n = in.getNumSamples();
     if (n < 17 || in.getNumChannels() < 1) { status = "nothing to import"; return false; }

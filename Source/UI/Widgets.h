@@ -40,45 +40,74 @@ namespace softblur {
     }
     inline const M& get(int w, int h, int r, int blur, bool inset) {
         static std::map<K, M> cache;
+        // sizes in steps of 2 px (a key that sinks while pressed reuses a few masks, not a new one every frame)
+        w = (w + 1) & ~1; h = (h + 1) & ~1; r = juce::jmin(r, juce::jmin(w, h) / 2);
         K key { w, h, r, blur, inset };
         auto it = cache.find(key); if (it != cache.end()) return it->second;
-        if (cache.size() > 900) cache.clear();
+        if (cache.size() > 2500) cache.clear();
         int pad = (int) std::ceil(blur * 1.2f) + 2, W = w + 2 * pad, H = h + 2 * pad;
         juce::Image shape(juce::Image::SingleChannel, W, H, true);
         { juce::Graphics sg(shape); sg.setColour(juce::Colours::white); sg.fillRoundedRectangle((float) pad, (float) pad, (float) w, (float) h, (float) r); }
         std::vector<float> a((size_t) W * H);
         { juce::Image::BitmapData bd(shape, juce::Image::BitmapData::readOnly);
-          for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) { float v = bd.getPixelColour(x, y).getFloatAlpha(); a[(size_t) y * W + x] = inset ? 1.0f - v : v; } }
+          for (int y = 0; y < H; ++y) { const juce::uint8* row = bd.getLinePointer(y);
+              for (int x = 0; x < W; ++x) { float v = row[(size_t) x * (size_t) bd.pixelStride] * (1.0f / 255.0f); a[(size_t) y * W + x] = inset ? 1.0f - v : v; } } }
         boxBlur(a, W, H, blur * 0.5f);
         juce::Image out(juce::Image::SingleChannel, W, H, false);
         { juce::Image::BitmapData bd(out, juce::Image::BitmapData::writeOnly);
-          for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) *bd.getPixelPointer(x, y) = (juce::uint8) juce::jlimit(0, 255, (int) std::round(a[(size_t) y * W + x] * 255.0f)); }
+          for (int y = 0; y < H; ++y) { juce::uint8* row = bd.getLinePointer(y);
+              for (int x = 0; x < W; ++x) row[(size_t) x * (size_t) bd.pixelStride] = (juce::uint8) juce::jlimit(0, 255, (int) (a[(size_t) y * W + x] * 255.0f + 0.5f)); } }
         return cache[key] = M { out, pad };
     }
     inline void draw(juce::Graphics& g, const M& m, float x, float y, juce::Colour c) {
+        static const bool off = std::getenv("ARCO_NOBLUR") != nullptr; if (off) return;
+        // a soft shade needs no fine resampling (it is a blur): the fast path keeps the screen fluid on the iPad
+        juce::Graphics::ScopedSaveState ss(g);
+        g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
         g.setColour(c);
         g.drawImageTransformed(m.img, juce::AffineTransform::translation(x - m.pad, y - m.pad), true);
     }
 }
+// 2.2: the soft shades are drawn as a few layered vector shapes (a blurred image per key was too slow on the iPad:
+// hundreds of keys on a screen). The layers spread from -sigma to +2 sigma round the edge, like a gaussian blur.
+namespace softlayers {
+    constexpr int N = 5;
+    inline void outer(juce::Graphics& g, juce::Rectangle<float> r, float radius, float blur, juce::Colour c) {
+        float sg = blur * 0.5f;
+        for (int k = 0; k < N; ++k) {
+            float e = -sg + 3.0f * sg * k / (N - 1);
+            auto q = r.expanded(e); if (q.getWidth() < 1 || q.getHeight() < 1) continue;
+            g.setColour(c.withMultipliedAlpha(1.0f / N * (k == 0 ? 1.4f : 1.0f)));
+            g.fillRoundedRectangle(q, juce::jmax(0.0f, radius + e));
+        }
+    }
+    inline void inner(juce::Graphics& g, juce::Rectangle<float> clip, float radius, float dx, float dy, float blur, juce::Colour c) {
+        float sg = blur * 0.5f;
+        auto big = clip.expanded(blur * 3 + std::abs(dx) + std::abs(dy) + 4);
+        for (int k = 0; k < N; ++k) {
+            float e = -sg + 3.0f * sg * k / (N - 1);                // the hole grows: the dark band fades inwards
+            auto hole = clip.translated(dx, dy).reduced(e); if (hole.getWidth() < 1 || hole.getHeight() < 1) continue;
+            juce::Path p; p.addRectangle(big); p.addRoundedRectangle(hole, juce::jmax(0.0f, radius - e)); p.setUsingNonZeroWinding(false);
+            g.setColour(c.withMultipliedAlpha(1.0f / N * (k == N - 1 ? 1.4f : 1.0f)));
+            g.fillPath(p);
+        }
+    }
+}
 // raised out of the skin: CSS "d d blur lo, -d -d blur hi" (blur = 2.33 d, the page's 6 / 14)
 inline void softShadow(juce::Graphics& g, juce::Rectangle<float> r, float radius, float d, float alpha = 1.0f) {
-    if (d < 0.2f || alpha < 0.01f) return;
-    int w = juce::roundToInt(r.getWidth()), h = juce::roundToInt(r.getHeight()); if (w < 2 || h < 2) return;
-    int rr = juce::roundToInt(juce::jmin(radius, juce::jmin(r.getWidth(), r.getHeight()) * 0.5f)), blur = juce::jmax(1, juce::roundToInt(d * 2.33f));
-    auto& m = softblur::get(w, h, rr, blur, false);
-    softblur::draw(g, m, r.getX() - d, r.getY() - d, Theme::hiC().withMultipliedAlpha(alpha));
-    softblur::draw(g, m, r.getX() + d, r.getY() + d, Theme::loC().withMultipliedAlpha(alpha));
+    if (d < 0.2f || alpha < 0.01f || r.getWidth() < 2 || r.getHeight() < 2) return;
+    float rr = juce::jmin(radius, juce::jmin(r.getWidth(), r.getHeight()) * 0.5f), blur = juce::jmax(1.0f, d * 2.33f);
+    softlayers::outer(g, r.translated(-d, -d), rr, blur, Theme::hiC().withMultipliedAlpha(alpha));
+    softlayers::outer(g, r.translated(d, d), rr, blur, Theme::loC().withMultipliedAlpha(alpha));
 }
 // pressed into the skin: CSS "inset d d blur lo, inset -d -d blur hi" (blur = 2 d, the page's 5 / 10)
 inline void softInset(juce::Graphics& g, juce::Rectangle<float> r, float radius, float d, float alpha = 1.0f) {
-    if (d < 0.2f || alpha < 0.01f) return;
-    int w = juce::roundToInt(r.getWidth()), h = juce::roundToInt(r.getHeight()); if (w < 2 || h < 2) return;
-    int rr = juce::roundToInt(juce::jmin(radius, juce::jmin(r.getWidth(), r.getHeight()) * 0.5f)), blur = juce::jmax(1, juce::roundToInt(d * 2.0f));
-    auto& m = softblur::get(w, h, rr, blur, true);
+    if (d < 0.2f || alpha < 0.01f || r.getWidth() < 2 || r.getHeight() < 2) return;
+    float rr = juce::jmin(radius, juce::jmin(r.getWidth(), r.getHeight()) * 0.5f), blur = juce::jmax(1.0f, d * 2.0f);
     juce::Graphics::ScopedSaveState ss(g);
-    juce::Path cl; cl.addRoundedRectangle(r, (float) rr); g.reduceClipRegion(cl);
-    softblur::draw(g, m, r.getX() + d, r.getY() + d, Theme::loC().withMultipliedAlpha(alpha));
-    softblur::draw(g, m, r.getX() - d, r.getY() - d, Theme::hiC().withMultipliedAlpha(alpha));
+    juce::Path cl; cl.addRoundedRectangle(r, rr); g.reduceClipRegion(cl);
+    softlayers::inner(g, r, rr, d, d, blur, Theme::loC().withMultipliedAlpha(alpha));
+    softlayers::inner(g, r, rr, -d, -d, blur, Theme::hiC().withMultipliedAlpha(alpha));
 }
 // the skin over a key: the very same material, flat (the shade alone makes it stand out)
 inline void softFace(juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour base) {
