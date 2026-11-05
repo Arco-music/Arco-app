@@ -419,7 +419,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
             auto fxr = juce::Rectangle<float>((float) ha.getX() + headW - 64, y + 44, 54, 20);
             btn(fxr, nOn > 0 ? "FX " + juce::String(nOn) : juce::String("+ FX"), nOn > 0, Theme::violet(), [this, li] {
                 selLane = li; selClip = -1; detail = DLane; showDetail = true; builtFor = -2;
-                if (studio.song.lanes[(size_t) li].devices.empty()) addDeviceMenu(li);
+                if (studio.song.lanes[(size_t) li].devices.empty()) fxBrowse = li;
                 juce::MessageManager::callAsync([sp = juce::Component::SafePointer<StudioView>(this)] { if (sp) { sp->resized(); sp->repaint(); } }); });
         }
         hits.push_back({ { hx, y + h - 4, headW, 6 }, nullptr, [this, li](juce::Point<float> d, const juce::MouseEvent&) { auto& l = studio.song.lanes[(size_t) li]; l.height = juce::jlimit(40.0f, 300.0f, l.height + d.y); }, nullptr });
@@ -680,8 +680,8 @@ void StudioView::rebuildDetail() {
     int key = detail == DClip ? 100000 + selClip : detail == DMaster ? -1 : selLane;
     int kind = detail == DClip ? (S.clips[(size_t) selClip].isMidi() ? 1 : 0) : (detail == DLane && selLane >= 0 && selLane < (int) S.lanes.size() ? 10 + S.lanes[(size_t) selLane].kind : 20);
     int nd = detail == DMaster ? (int) S.master.size() : (detail == DLane && selLane >= 0 && selLane < (int) S.lanes.size() ? (int) S.lanes[(size_t) selLane].devices.size() : 0);
-    if (key == builtFor && kind == builtKind && nd == builtDevices) return;
-    builtFor = key; builtKind = kind; builtDevices = nd;
+    if (key == builtFor && kind == builtKind && nd == builtDevices && builtBrowse == fxBrowse) return;
+    builtFor = key; builtKind = kind; builtDevices = nd; builtBrowse = fxBrowse;
     detailKids.clear(); devBoxes.clear(); detailLabels.clear();
     persistentLabels.clear();
     if (!showDetail || getWidth() <= 0) return;
@@ -758,9 +758,12 @@ void StudioView::rebuildDetail() {
             pill({ x, oy, 196, 24 }, "OUT", [this, li] { routeMenu(li); })->dynText = [this, lane] { auto* l = lane(); if (!l) return juce::String(); auto& LL = studio.song.lanes;
                 int ns = (int) l->sends.size(); return U8("Goes to: ") + (l->out >= 0 && l->out < (int) LL.size() ? Theme::nameCase(LL[(size_t) l->out].name) : juce::String("Master")) + (ns > 0 ? U8("  ·  +") + juce::String(ns) + (ns == 1 ? " send" : " sends") : juce::String()) + U8(" ▾"); };
         }
-        if (L.kind == LaneInstrument) {
-            pill({ x, by, 196, 24 }, U8("TAKE THE SYNTH'S SOUND"), [this, li] { const juce::ScopedLock sl(studio.lock); auto& l = studio.song.lanes[(size_t) li]; for (auto& p : paramTable()) for (auto& dd : p.dests) if (dd == "st_syn") l.synth[p.id] = (float) cv.host.model.get(p.id); report = U8("✓ this lane plays the SYNTH's sound now"); });
-            pill({ x, by + 28, 196, 24 }, U8("OPEN THE SYNTH ▸"), [this] { cv.openSynth(true); if (auto* t = cv.getTopLevelComponent()) t->toFront(true); });
+        if (L.kind == LaneInstrument) {      // 2.3: what it plays - SYNTH 2 or a plug-in instrument (its own window)
+            pill({ x, by, 196, 24 }, "INSTRUMENT", [this, li] { instrumentMenu(li); })->dynText = [lane] { auto* l = lane(); if (!l) return juce::String();
+                return U8("Plays: ") + (l->instDesc.isNotEmpty() ? l->instName + (l->inst ? juce::String() : U8(" (opening …)")) : juce::String("Synth 2")) + U8(" ▾"); };
+            pill({ x, by + 28, 196, 24 }, U8("OPEN ▸"), [this, li] { auto& l = studio.song.lanes[(size_t) li];
+                if (l.inst) l.inst->show(); else { cv.openSynth(true); if (auto* t = cv.getTopLevelComponent()) t->toFront(true); } })->dynText = [lane] { auto* l = lane();
+                return l && l->inst ? U8("Open ") + l->instName + U8(" ▸") : U8("Open the synth ▸"); };
         }
         label({ 16, y0 + 8, 400, 18 }, [lane] { auto* l = lane(); return l ? Theme::nameCase(l->name) + U8("  ·  ") + Theme::keyCase(l->kind == LaneInstrument ? "INSTRUMENT" : l->kind == LaneReturn ? "RETURN" : l->kind == LaneBus ? "BUS" : "AUDIO") : juce::String(); }, true);
     } else {
@@ -772,16 +775,20 @@ void StudioView::rebuildDetail() {
     const auto& devs = master ? S.master : S.lanes[(size_t) selLane].devices;
     int li = master ? -1 : selLane;
     auto devRef = [this, li](int di) -> StudioDevice* { auto& v = li < 0 ? studio.song.master : studio.song.lanes[(size_t) juce::jmin(li, (int) studio.song.lanes.size() - 1)].devices; return di < (int) v.size() ? &v[(size_t) di] : nullptr; };
+    if (fxBrowse == li) return;          // 2.3: the effects to choose fill the panel (painted)
     for (int di = 0; di < (int) devs.size(); ++di) {
         auto& I = devInfoOf(devs[(size_t) di]);
         int np = (int) I.p.size(), cols = (np + 1) / 2;
-        int w = 18 + cols * 54;
+        int w = devs[(size_t) di].type == DevPlugin ? 200 : 18 + cols * 54;
         auto box = juce::Rectangle<int>(dx, y0 + 30, w, (int) detailH - 40);
         devBoxes.push_back({ box, di, master });
         pill({ box.getRight() - 64, box.getY() + 4, 28, 18 }, "ON", [this, devRef, di] { const juce::ScopedLock sl(studio.lock); if (auto* dv = devRef(di)) dv->on = !dv->on; }, [devRef, di] { auto* dv = devRef(di); return dv && dv->on ? Theme::green() : Theme::btn(); });
         pill({ box.getRight() - 32, box.getY() + 4, 24, 18 }, U8("✕"), [this, li, di] { studio.snapshot(); { const juce::ScopedLock sl(studio.lock); auto& v = li < 0 ? studio.song.master : studio.song.lanes[(size_t) li].devices; if (di < (int) v.size()) v.erase(v.begin() + di);
             if (li >= 0) { auto& A = studio.song.lanes[(size_t) li].autos; A.erase(std::remove_if(A.begin(), A.end(), [di](const StudioAuto& a) { return a.param.rfind("d" + std::to_string(di) + "p", 0) == 0; }), A.end()); } }
             juce::MessageManager::callAsync([sp = juce::Component::SafePointer<StudioView>(this)] { if (sp) { sp->builtFor = -2; sp->repaint(); } }); });
+        if (devs[(size_t) di].type == DevPlugin)        // 2.3: a plug-in: its own window
+            pill({ box.getX() + 14, box.getY() + 46, box.getWidth() - 28, 34 }, "OPEN", [devRef, di] { if (auto* dv = devRef(di)) if (dv->slot) dv->slot->show(); })->dynText = [devRef, di] {
+                auto* dv = devRef(di); return dv && dv->slot ? U8("Open its window ▸") : U8("Opening …"); };
         if (devs[(size_t) di].type == DevComp || devs[(size_t) di].type == DevGate)      // 2.3: SIDECHAIN
             pill({ box.getX() + 10, box.getBottom() - 28, juce::jmin(150, box.getWidth() - 20), 22 }, "KEY", [this, li, di] { keyMenu(li, di); })->dynText = [this, devRef, di] {
                 auto* dv = devRef(di); auto& LL = studio.song.lanes;
@@ -801,7 +808,7 @@ void StudioView::rebuildDetail() {
         }
         dx += w + 8;
     }
-    pill({ dx, y0 + 30, 120, 30 }, "+ EFFECT", [this, li] { addDeviceMenu(li); }, [] { return Theme::sel(); });
+    pill({ dx, y0 + 30, 120, 30 }, "+ EFFECT", [this, li] { openBrowser(li); }, [] { return Theme::sel(); });
     bool anyOn = false; for (auto& dv : devs) anyOn |= dv.on;
     if (li >= 0 && anyOn) pill({ dx, y0 + 68, 120, 30 }, U8("● PRINT FX"), [this, li] { printFx(li); }, [] { return Theme::red(); });
     if (devs.empty()) label({ dx + 132, y0 + 34, 420, 26 }, [] { return U8("ready-made chains (voice, drums, warm …) or one effect at a time · every knob can be automated"); });
@@ -829,12 +836,17 @@ void StudioView::paintDetail(juce::Graphics& g) {
     tab({ tx, d.getY() + 6, 76, 20 }, "CLIP", detail == DClip, [this] { if (selClip >= 0) detail = DClip; });
     tab({ tx + 80, d.getY() + 6, 76, 20 }, "LANE", detail == DLane, [this] { detail = DLane; });
     tab({ tx + 160, d.getY() + 6, 76, 20 }, "MASTER", detail == DMaster, [this] { detail = DMaster; });
+    {
+        int li = detail == DMaster ? -1 : selLane;
+        if (fxBrowse != -2 && fxBrowse == li && detail != DClip) paintBrowser2(g, { 236, d.getY() + 30, d.getWidth() - 256, d.getHeight() - 42 });
+    }
     for (auto& b : devBoxes) {
         auto& devs = b.master ? S.master : (selLane >= 0 && selLane < (int) S.lanes.size() ? S.lanes[(size_t) selLane].devices : S.master);
         if (b.dev >= (int) devs.size()) continue;
         if (Theme::softUI()) softRaised(g, b.r.toFloat(), 16.0f, 6.0f, Theme::card()); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(b.r.toFloat(), 8); }
         auto& DI = devInfoOf(devs[(size_t) b.dev]);
-        txt(g, DI.name, { b.r.getX() + 12, b.r.getY() + 4, b.r.getWidth() - 84, 18 }, 8.5f, devs[(size_t) b.dev].on ? Theme::txt() : Theme::sub(), 2);
+        const auto& dvb = devs[(size_t) b.dev];
+        txt(g, dvb.type == DevPlugin ? dvb.plugName : juce::String(DI.name), { b.r.getX() + 12, b.r.getY() + 4, b.r.getWidth() - 84, 18 }, 8.5f, devs[(size_t) b.dev].on ? Theme::txt() : Theme::sub(), 2);
         txt(g, DI.desc, { b.r.getX() + 12, b.r.getY() + 19, b.r.getWidth() - 24, 10 }, 6.0f, Theme::sub(), 1);
     }
     for (auto& l : persistentLabels) {
@@ -1766,6 +1778,110 @@ void StudioView::keyMenu(int li, int di) {
         if (r <= 0) return;
         studio.snapshot();
         { const juce::ScopedLock sl(studio.lock); auto& vv = li < 0 ? studio.song.master : studio.song.lanes[(size_t) li].devices; if (di < (int) vv.size()) vv[(size_t) di].side = r == 1 ? -1 : r - 10; }
+        builtFor = -2; repaint();
+    });
+}
+
+
+// ================================================================== 2.3 the effects to choose, in the bottom panel
+void StudioView::paintBrowser2(juce::Graphics& g, juce::Rectangle<int> r) {
+    const int li = fxBrowse;
+    struct Item { juce::String name, desc; std::function<void()> act; bool accent = false; };
+    std::vector<Item> items;
+    auto addDev = [this, li](StudioDevice d) { studio.snapshot();
+        { const juce::ScopedLock sl(studio.lock); auto& v = li < 0 ? studio.song.master : studio.song.lanes[(size_t) juce::jlimit(0, (int) studio.song.lanes.size() - 1, li)].devices; if (v.size() < 16) v.push_back(d); }
+        studio.refresh(); fxBrowse = -2; builtFor = -2; report = U8("✓ added - its knobs are below; ● PRINT FX records it into the sound"); repaint(); };
+    static const char* GN[6] = { "Ready-made", "Studio", "Station inserts", "Station effects", "More station", "Plug-ins" };
+    if (fxGroup == 0) {
+        static const char* CH[6][2] = { { "Voice", "EQ, compressor, a little reverb" }, { "Instrument", "EQ, compressor" }, { "Drums", "compressor, saturation" },
+                                        { "Warm", "tape saturation, EQ" }, { "Wide echo", "delay, chorus" }, { "Big room", "reverb" } };
+        for (int c = 0; c < 6; ++c) items.push_back({ CH[c][0], CH[c][1], [this, li, c] { studio.snapshot(); studio.addChain(li, c); studio.refresh(); fxBrowse = -2; builtFor = -2; repaint(); } });
+    } else if (fxGroup == 1) {
+        for (int t = 0; t < DevCount; ++t) items.push_back({ Theme::keyCase(devInfo()[(size_t) t].name), devInfo()[(size_t) t].desc, [addDev, t] { addDev(StudioDevice::make(t)); } });
+    } else if (fxGroup >= 2 && fxGroup <= 4) {
+        for (int f = 0; f < stationFxCount(); ++f) if (stationFxGroup(f) == fxGroup - 2) {
+            auto& I = stationFxInfo(f); items.push_back({ Theme::keyCase(I.name), I.desc, [addDev, f] { addDev(StudioDevice::makeStation(f)); } }); }
+    } else {
+        items.push_back({ U8("Find plug-ins"), U8("look for AU and VST3 effects on this computer"), [this] {
+            scanText = U8("looking for plug-ins …"); repaint();
+            juce::MessageManager::callAsync([sp = juce::Component::SafePointer<StudioView>(this)] { if (!sp) return;
+                sp->cv.host.rack.scanPlugins([sp](const juce::String& t) { if (sp) sp->scanText = t; });
+                sp->cv.host.saveSetup();
+                if (sp) { sp->scanText = juce::String(sp->studio.pluginList(false).size()) + " effect plug-ins found"; sp->repaint(); } }); }, true });
+        for (auto& d : studio.pluginList(false))
+            items.push_back({ d.name, d.manufacturerName + U8("  ·  ") + d.pluginFormatName, [this, li, d] {
+                report = U8("opening ") + d.name + U8(" …"); fxBrowse = -2; builtFor = -2; repaint();
+                juce::Component::SafePointer<StudioView> sp(this);
+                studio.addPluginEffect(li, d, [sp, d](juce::String why) { if (!sp) return; sp->report = why.isEmpty() ? U8("✓ ") + d.name + U8(" is on - its window is open (OPEN brings it back)") : why; sp->builtFor = -2; sp->repaint(); }); } });
+    }
+    // the groups: a groove, the open one raised
+    auto tabs = r.removeFromTop(34);
+    int tx = tabs.getX();
+    auto f = Theme::font(8.5f, 1);
+    std::vector<juce::Rectangle<int>> tr;
+    for (int i = 0; i < 6; ++i) { int w = (int) juce::GlyphArrangement::getStringWidth(f, GN[i]) + 30; tr.push_back({ tx + 4, tabs.getY() + 3, w, 28 }); tx += w; }
+    auto well = juce::Rectangle<int>(tabs.getX(), tabs.getY(), tx - tabs.getX() + 8, 34);
+    if (Theme::softUI()) softWellLite(g, well.toFloat(), 17.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(well.toFloat(), 17.0f); }
+    for (int i = 0; i < 6; ++i) {
+        if (i == fxGroup) { if (Theme::softUI()) softKeyLite(g, tr[(size_t) i].toFloat(), 14.0f, false); else { g.setColour(Theme::sel()); g.fillRoundedRectangle(tr[(size_t) i].toFloat(), 14.0f); } }
+        txt(g, GN[i], tr[(size_t) i], 8.5f, i == fxGroup ? Theme::txt() : Theme::sub(), 1, juce::Justification::centred);
+        hits.push_back({ tr[(size_t) i].toFloat(), [this, i] { fxGroup = i; fxPage = 0; repaint(); }, nullptr, nullptr });
+    }
+    auto close = juce::Rectangle<float>((float) r.getRight() - 96, (float) tabs.getY() + 2, 92, 30);
+    studioKey(g, close, U8("✕ Close"), false, Theme::btn(), 8.0f);
+    hits.push_back({ close, [this] { fxBrowse = -2; builtFor = -2; repaint(); }, nullptr, nullptr });
+    if (fxGroup == 5 && scanText.isNotEmpty()) txt(g, scanText, { well.getRight() + 14, tabs.getY(), juce::jmax(60, (int) close.getX() - well.getRight() - 120), 34 }, 7.0f, Theme::sub(), 1);
+    // the keys: a name and a line about it
+    r.removeFromTop(10);
+    const int kw = 196, kh = 48, gap = 10;
+    int cols = juce::jmax(1, (r.getWidth() + gap) / (kw + gap)), rows = juce::jmax(1, (r.getHeight() + gap) / (kh + gap)), per = cols * rows;
+    int pages = juce::jmax(1, ((int) items.size() + per - 1) / per); fxPage = juce::jlimit(0, pages - 1, fxPage);
+    for (int i = fxPage * per; i < juce::jmin((int) items.size(), (fxPage + 1) * per); ++i) {
+        int k = i - fxPage * per;
+        auto kr = juce::Rectangle<float>((float) r.getX() + (k % cols) * (kw + gap), (float) r.getY() + (k / cols) * (kh + gap), (float) kw, (float) kh);
+        if (Theme::softUI()) softKeyLite(g, kr, 16.0f, false, items[(size_t) i].accent ? Theme::blue() : juce::Colour(), items[(size_t) i].accent ? 0.35f : 0.0f);
+        else { g.setColour(Theme::btn()); g.fillRoundedRectangle(kr, 10.0f); }
+        txt(g, items[(size_t) i].name, kr.toNearestInt().reduced(16, 0).withTrimmedTop(7).withHeight(18), 9.0f, Theme::txt(), 2);
+        txt(g, items[(size_t) i].desc, kr.toNearestInt().reduced(16, 0).withTrimmedTop(25).withHeight(14), 6.5f, Theme::sub(), 1);
+        auto act = items[(size_t) i].act;
+        hits.push_back({ kr, [act] { juce::MessageManager::callAsync(act); }, nullptr, nullptr });
+    }
+    if (items.size() == 1 && fxGroup == 5) txt(g, U8("no plug-ins found yet - press Find plug-ins (your AU and VST3 effects, in their usual folders)"), { r.getX() + kw + 24, r.getY(), r.getWidth() - kw - 40, kh }, 7.5f, Theme::sub(), 1);
+    if (pages > 1) {          // more than fit: pages
+        auto pl = juce::Rectangle<float>((float) close.getX() - 96, close.getY(), 40, 30), pr = pl.translated(46, 0);
+        studioKey(g, pl, U8("‹"), false, Theme::btn(), 11.0f); studioKey(g, pr, U8("›"), false, Theme::btn(), 11.0f);
+        hits.push_back({ pl, [this] { fxPage = juce::jmax(0, fxPage - 1); repaint(); }, nullptr, nullptr });
+        hits.push_back({ pr, [this, pages] { fxPage = juce::jmin(pages - 1, fxPage + 1); repaint(); }, nullptr, nullptr });
+        txt(g, juce::String(fxPage + 1) + " / " + juce::String(pages), { (int) pl.getX() - 50, (int) pl.getY(), 46, 30 }, 7.5f, Theme::sub(), 1, juce::Justification::centredRight);
+    }
+}
+
+void StudioView::instrumentMenu(int li) {
+    auto& S = studio.song;
+    if (li < 0 || li >= (int) S.lanes.size()) return;
+    juce::PopupMenu m;
+    m.addSectionHeader(U8("WHAT THIS LANE PLAYS"));
+    m.addItem(1, U8("Synth 2 (ARCO's synthesizer)"), true, S.lanes[(size_t) li].instDesc.isEmpty());
+    m.addItem(2, U8("Synth 2 with the station's synth sound"));
+    m.addSeparator();
+    m.addSectionHeader(U8("INSTRUMENT PLUG-INS (AU / VST3)"));
+    auto list = studio.pluginList(true);
+    for (int i = 0; i < list.size() && i < 400; ++i) m.addItem(100 + i, list[i].name + U8("  ·  ") + list[i].manufacturerName, true, S.lanes[(size_t) li].instName == list[i].name);
+    if (list.isEmpty()) m.addItem(3, U8("Find instrument plug-ins on this computer"));
+    else m.addItem(3, U8("Look for plug-ins again"));
+    m.showMenuAsync(juce::PopupMenu::Options(), [this, li, list](int r) {
+        if (r <= 0) return;
+        if (r == 1) { studio.clearPluginInstrument(li); report = U8("✓ plays Synth 2"); }
+        else if (r == 2) { studio.clearPluginInstrument(li); const juce::ScopedLock sl(studio.lock); auto& l = studio.song.lanes[(size_t) li];
+                           for (auto& p : paramTable()) for (auto& dd : p.dests) if (dd == "st_syn") l.synth[p.id] = (float) cv.host.model.get(p.id); report = U8("✓ plays the SYNTH's sound"); }
+        else if (r == 3) { report = U8("looking for plug-ins …"); repaint(); cv.host.rack.scanPlugins([](const juce::String&) {}); cv.host.saveSetup();
+                           report = juce::String(studio.pluginList(true).size()) + " instrument plug-ins found"; }
+        else if (r >= 100 && r - 100 < list.size()) {
+            auto d = list[r - 100]; report = U8("opening ") + d.name + U8(" …");
+            juce::Component::SafePointer<StudioView> sp(this);
+            studio.setPluginInstrument(li, d, [sp, d](juce::String why) { if (!sp) return; sp->report = why.isEmpty() ? U8("✓ this lane plays ") + d.name + U8(" - its window is open") : why; sp->builtFor = -2; sp->repaint(); });
+        }
+        cv.host.studioKeys = true;
         builtFor = -2; repaint();
     });
 }

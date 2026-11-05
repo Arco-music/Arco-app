@@ -36,6 +36,7 @@ public:
     // Returns how many were pressed; `bad` gets what went wrong
     int pressEverything(juce::StringArray& bad);
     void printFx(int lane);                      // the track recorded with its effects
+    void showEffects(int group) { fxGroup = group; openBrowser(detail == DMaster ? -1 : selLane); }   // (tests, screenshots)
     std::function<void()> onClose;
     // 2.0: inside the app shell - its top bar has the transport, the position and the tempo; here: the tools
     bool embedded = false;
@@ -123,6 +124,12 @@ private:
     void takesMenu(int ci);
     void quantiseMenu();
     void togglePunch();
+    // 2.3: the effects to choose, right in the bottom panel (studio's, the station's, plug-ins); -2 closed
+    int fxBrowse = -2, fxGroup = 1, fxPage = 0, builtBrowse = -3;
+    void openBrowser(int li) { fxBrowse = li; fxPage = 0; showDetail = true; builtFor = -2; resized(); repaint(); }
+    void paintBrowser2(juce::Graphics& g, juce::Rectangle<int> r);
+    void instrumentMenu(int li);
+    juce::String scanText;
     void routeMenu(int li);                      // where a lane goes, its sends, a new bus
     void keyMenu(int li, int dev);               // a compressor's / gate's sidechain
     void copySel(bool cut);

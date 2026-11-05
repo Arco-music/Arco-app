@@ -599,6 +599,60 @@ inline int runStudioCheck(AudioHost& h) {
         auto& dv = S.song.lanes[(size_t) lane].devices;
         check(sv && ld && dv.size() == 1 && dv[0].type == DevStation && dv[0].fx == nAll - 1 && std::abs(dv[0].p[1] - 33) < 0.01f, "  save and open: the station effect and its knobs", dv.empty() ? 0.0 : (double) dv[0].fx);
     }
+    // ---------------------------------------------------------------- 11 plug-ins (VST3 / AU): found, opened, heard, their window, saved
+    say("== 11. plug-ins: found on the computer, on a track, an instrument, their own window, saved with the song");
+    {
+        fresh();
+        S.syncPlugins = true;
+        h.rack.scanPlugins(nullptr);
+        auto fx = S.pluginList(false), inst = S.pluginList(true);
+        juce::PluginDescription gain, synth; bool gOk = false, sOk = false;
+        for (auto& d : fx) if (d.name.contains("Arco Test Gain")) { gain = d; gOk = true; }
+        for (auto& d : inst) if (d.name.contains("Arco Test Synth")) { synth = d; sOk = true; }
+        check(gOk && sOk, "found: an effect plug-in and an instrument plug-in (" + juce::String(fx.size()) + " effects, " + juce::String(inst.size()) + " instruments)", fx.size() + inst.size());
+        if (gOk && sOk) {
+            juce::String why;
+            int ci = S.importAudio(plan(writeTestFile(dir, "pl.wav", sine(330.0, 2.0, 48000, 0.4f, 1), 48000)), -1, 0, false, why); int lane = S.song.clips[(size_t) ci].lane;
+            juce::AudioBuffer<float> dry; render(dry);
+            juce::String err = "?"; S.addPluginEffect(lane, gain, [&](juce::String e) { err = e; });
+            auto& dv = S.song.lanes[(size_t) lane].devices;
+            bool on = err.isEmpty() && !dv.empty() && dv.back().type == DevPlugin && dv.back().slot && dv.back().slot->inst;
+            if (on) { auto& ps0 = dv.back().slot->inst->getParameters(); if (!ps0.isEmpty()) ps0[0]->setValueNotifyingHost(1.0f); }   // (the demo starts at half)
+            juce::AudioBuffer<float> wet; render(wet);
+            double q = snr(dry.getReadPointer(0) + 2000, wet.getReadPointer(0) + 2000, dry.getNumSamples() - 4000);
+            check(on && q > 60, "an effect plug-in on a track: it plays (the gain plug-in at 1: the sound as it was, dB)", q);
+            // its parameter changed: heard
+            if (on) { auto& ps = dv.back().slot->inst->getParameters(); if (!ps.isEmpty()) ps[0]->setValueNotifyingHost(0.25f); }
+            juce::AudioBuffer<float> soft; render(soft);
+            float r0 = dry.getRMSLevel(0, 2000, dry.getNumSamples() - 4000), r1 = soft.getRMSLevel(0, 2000, soft.getNumSamples() - 4000);
+            check(on && r1 < r0 * 0.5f && r1 > r0 * 0.1f, "  its knob turned down: the track is quieter (ratio)", r1 / juce::jmax(1e-6f, r0));
+            // its own window
+            if (on) dv.back().slot->show();
+            bool win = on && dv.back().slot->win && dv.back().slot->win->isVisible() && dv.back().slot->win->getContentComponent() != nullptr;
+            check(win, "  its own window opens (the plug-in's own face)", win);
+            if (on && dv.back().slot->win) dv.back().slot->win->setVisible(false);
+            // an instrument plug-in on an instrument lane, playing a MIDI clip
+            int il = S.addLane(LaneInstrument, "PLUGSYN");
+            juce::String e2 = "?"; S.setPluginInstrument(il, synth, [&](juce::String e) { e2 = e; });
+            StudioClip mc; mc.lane = il; mc.source = -1; mc.start = 0; mc.length = (long) (sr * 1.5); mc.midiLen = mc.length; mc.notes.push_back({ 0.0, sr * 1.0, 69, 0.9f }); S.song.clips.push_back(mc);
+            S.song.lanes[(size_t) lane].mute = true; S.refresh();
+            juce::AudioBuffer<float> syn; render(syn);
+            float pk = syn.getMagnitude(0, 2000, (int) (0.9 * sr)), after = syn.getMagnitude(0, (int) (1.6 * sr), (int) (0.3 * sr));
+            double hz = pitchOf(syn.getReadPointer(0) + 4000, (int) (0.5 * sr), sr);
+            check(e2.isEmpty() && S.song.lanes[(size_t) il].inst && pk > 0.02f && std::abs(hz - 440) < 6, "an instrument plug-in plays the lane's MIDI clip (A = Hz)", hz);
+            check(after < pk * 0.5f, "  the note ends where the clip says", after);
+            S.song.lanes[(size_t) lane].mute = false;
+            // saved with the song, opened again with its setting
+            auto folder = dir.getChildFile("song-plug"); folder.createDirectory();
+            bool sv = S.save(folder);
+            fresh(); bool ld = S.load(folder);
+            auto& dv2 = S.song.lanes[(size_t) lane].devices;
+            bool back = ld && !dv2.empty() && dv2.back().type == DevPlugin && dv2.back().slot && S.song.lanes[(size_t) il].inst;
+            float pv = back && !dv2.back().slot->inst->getParameters().isEmpty() ? dv2.back().slot->inst->getParameters()[0]->getValue() : -1.0f;
+            check(sv && back && std::abs(pv - 0.25f) < 0.01f, "  save and open: both plug-ins back, with their settings (gain knob)", pv);
+        }
+        S.syncPlugins = false;
+    }
     say("studio check: %d of %d failed", fails, total);
     fresh();
     dir.deleteRecursively();

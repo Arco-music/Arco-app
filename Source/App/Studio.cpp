@@ -377,7 +377,7 @@ bool Studio::addStationScene(int scene, long at, int repeats, juce::String& why)
 // ------------------------------------------------------------------ the engine
 void Studio::prepareRuntime(Runtime& R, const StudioSong& s) {
     R.sr = s.sr;
-    if (&R == &rt) R.meters = &meters;
+    if (&R == &rt) { R.meters = &meters; R.live = this; }
     R.lanes.resize(s.lanes.size());
     for (size_t i = 0; i < s.lanes.size(); ++i) {
         auto& L = s.lanes[i]; auto& lr = R.lanes[i];
@@ -396,6 +396,29 @@ void Studio::prepareRuntime(Runtime& R, const StudioSong& s) {
 }
 
 void Studio::laneSynth(const StudioSong& s, const StudioLane& L, int li, LaneRt& lr, Runtime& R, long start, int n, float* outL, float* outR, bool clipsOn) {
+    if (L.inst != nullptr) {          // 2.3: a plug-in instrument: the clips' notes (and the keys) as MIDI, its sound
+        juce::MidiBuffer mb;
+        if (clipsOn) for (auto& c : s.clips) {
+            if (c.lane != li || !c.isMidi() || c.muted || c.midiLen <= 0) continue;
+            if (c.start >= start + n || c.start + c.length <= start) continue;
+            long rel0 = start - c.start, rel1 = start + n - c.start;
+            for (auto& nt : c.notes) {
+                long k0 = c.loop ? std::max(0L, (rel0 + c.offset - (long) nt.start - (long) nt.len) / c.midiLen) : 0, k1 = c.loop ? (rel1 + c.offset) / c.midiLen + 1 : 1;
+                for (long k = k0; k < k1; ++k) {
+                    double on = nt.start + (double) k * c.midiLen - c.offset, off = std::min(on + nt.len, (double) c.length);
+                    if (on >= 0 && on < c.length && on >= rel0 && on < rel1) mb.addEvent(juce::MidiMessage::noteOn(1, nt.pitch, juce::jlimit(0.01f, 1.0f, nt.vel)), (int) (on - rel0));
+                    if (off >= rel0 && off < rel1 && on < c.length && on >= -nt.len) mb.addEvent(juce::MidiMessage::noteOff(1, nt.pitch), (int) (off - rel0));
+                }
+            }
+        }
+        if (auto* st = R.live; st != nullptr && st->liveMidiLane.load() == li) {
+            const juce::SpinLock::ScopedTryLockType tl(st->liveMidiLock);
+            if (tl.isLocked()) { for (const auto m : st->liveMidi) mb.addEvent(m.getMessage(), 0); st->liveMidi.clear(); }
+        }
+        L.inst->play(mb, outL, outR, n);
+        return;
+    }
+    if (lr.syn == nullptr) return;
     auto& syn = *lr.syn;
     // the sound: send what changed
     for (auto& kv : L.synth) { auto it = lr.synthSet.find(kv.first); if (it == lr.synthSet.end() || it->second != kv.second) { syn.setp(syn.paramIndex(kv.first), kv.second); lr.synthSet[kv.first] = kv.second; } }
@@ -511,7 +534,7 @@ void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long
                             }
                         }
                     }
-                    if (L.kind == LaneInstrument && lr.syn) laneSynth(s, L, li, lr, R, t0, m, xL, xR, clipsOn);
+                    if (L.kind == LaneInstrument && (lr.syn || L.inst)) laneSynth(s, L, li, lr, R, t0, m, xL, xR, clipsOn);
                     if (liveIn != nullptr && li < 64 && liveIn[li] != nullptr) for (int i = 0; i < m; ++i) { xL[i] += liveIn[li][off + i]; xR[i] += liveIn[li][off + i]; }
                 }
                 // automation at the start of the sub-block
@@ -796,6 +819,11 @@ void Studio::midiNote(int note, float vel, bool on) {
     {
         const juce::ScopedLock sl(lock);
         int li = -1; for (int i = 0; i < (int) song.lanes.size(); ++i) if (song.lanes[(size_t) i].kind == LaneInstrument && (li < 0 || song.lanes[(size_t) i].arm)) li = i;
+        if (li >= 0 && song.lanes[(size_t) li].inst != nullptr) {
+            liveMidiLane = li;
+            const juce::SpinLock::ScopedLockType ml(liveMidiLock);
+            liveMidi.addEvent(on ? juce::MidiMessage::noteOn(1, note, juce::jlimit(0.01f, 1.0f, vel)) : juce::MidiMessage::noteOff(1, note), 0);
+        }
         if (li >= 0 && li < (int) rt.lanes.size() && rt.lanes[(size_t) li].syn) {
             auto& lr = rt.lanes[(size_t) li]; auto& syn = *lr.syn;
             if (on) {
@@ -1119,6 +1147,94 @@ bool Studio::exportMidi(int ci, const juce::File& f) {
     return out.openedOk() && mf.writeTo(out);
 }
 
+// ------------------------------------------------------------------ 2.3 plug-ins (AU / VST3)
+juce::Array<juce::PluginDescription> Studio::pluginList(bool instruments) const {
+    juce::Array<juce::PluginDescription> r;
+    for (auto& d : host.rack.known.getTypes()) if (d.isInstrument == instruments) r.add(d);
+    std::sort(r.begin(), r.end(), [](const juce::PluginDescription& a, const juce::PluginDescription& b) { return a.name.compareIgnoreCase(b.name) < 0; });
+    return r;
+}
+static void openSlot(AudioHost& host, const juce::PluginDescription& d, double sr, std::function<void(PluginSlotPtr, juce::String)> done) {
+    if (host.studio.syncPlugins) {
+        juce::String e; auto p = host.rack.formats.createPluginInstance(d, sr, 1024, e);
+        if (p == nullptr) { done(nullptr, d.name + " could not open: " + e); return; }
+        auto slot = std::make_shared<PluginSlot>(); slot->inst = std::move(p); slot->name = d.name; slot->maker = d.manufacturerName; slot->prepare(sr, 1024);
+        done(slot, {}); return;
+    }
+    host.rack.formats.createPluginInstanceAsync(d, sr, 1024, [d, sr, done](std::unique_ptr<juce::AudioPluginInstance> p, const juce::String& e) {
+        if (p == nullptr) { done(nullptr, d.name + " could not open" + (e.isNotEmpty() ? ": " + e : juce::String())); return; }
+        auto slot = std::make_shared<PluginSlot>();
+        slot->inst = std::move(p); slot->name = d.name; slot->maker = d.manufacturerName;
+        slot->prepare(sr, 1024);
+        done(slot, {});
+    });
+}
+void Studio::addPluginEffect(int lane, const juce::PluginDescription& d, std::function<void(juce::String)> done) {
+    ++pluginsPending;
+    openSlot(host, d, song.sr, [this, lane, d, done](PluginSlotPtr slot, juce::String why) {
+        --pluginsPending;
+        if (!slot) { if (done) done(why); return; }
+        snapshot();
+        {
+            const juce::ScopedLock sl(lock);
+            auto& v = lane < 0 ? song.master : (lane < (int) song.lanes.size() ? song.lanes[(size_t) lane].devices : song.master);
+            if (v.size() >= 16) { if (done) done("16 effects on it already"); return; }
+            StudioDevice dv; dv.type = DevPlugin; dv.slot = slot; dv.plugName = d.name; dv.uid = juce::Uuid().toString();
+            if (auto x = d.createXml()) dv.plugDesc = x->toString();
+            v.push_back(dv);
+            prepareRuntime(rt, song);
+        }
+        slot->show();
+        if (done) done({});
+    });
+}
+void Studio::setPluginInstrument(int lane, const juce::PluginDescription& d, std::function<void(juce::String)> done) {
+    ++pluginsPending;
+    openSlot(host, d, song.sr, [this, lane, d, done](PluginSlotPtr slot, juce::String why) {
+        --pluginsPending;
+        if (!slot) { if (done) done(why); return; }
+        snapshot();
+        {
+            const juce::ScopedLock sl(lock);
+            if (lane < 0 || lane >= (int) song.lanes.size() || song.lanes[(size_t) lane].kind != LaneInstrument) { if (done) done("choose an instrument lane"); return; }
+            auto& L = song.lanes[(size_t) lane];
+            L.inst = slot; L.instName = d.name; L.instUid = juce::Uuid().toString(); L.frozen = false;
+            if (auto x = d.createXml()) L.instDesc = x->toString();
+        }
+        slot->show();
+        if (done) done({});
+    });
+}
+void Studio::clearPluginInstrument(int lane) {
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (lane < 0 || lane >= (int) song.lanes.size()) return;
+    auto& L = song.lanes[(size_t) lane]; L.inst = nullptr; L.instDesc.clear(); L.instState.clear(); L.instName.clear();
+}
+void Studio::restorePlugins() {
+    auto want = [&](const juce::String& xml, const juce::String& state, const juce::String& uid, bool inst) {
+        juce::PluginDescription d; auto x = juce::parseXML(xml); if (!x || !d.loadFromXml(*x)) return;
+        ++pluginsPending;
+        openSlot(host, d, song.sr, [this, state, uid, inst](PluginSlotPtr slot, juce::String) {
+            --pluginsPending;
+            if (!slot) return;
+            slot->setState(state);
+            const juce::ScopedLock sl(lock);
+            for (auto& L : song.lanes) {
+                if (inst && L.instUid == uid) L.inst = slot;
+                for (auto& dv : L.devices) if (!inst && dv.type == DevPlugin && dv.uid == uid) dv.slot = slot;
+            }
+            for (auto& dv : song.master) if (!inst && dv.type == DevPlugin && dv.uid == uid) dv.slot = slot;
+            for (auto& u : undoStack) for (auto& L : u.lanes) { if (inst && L.instUid == uid) L.inst = slot; for (auto& dv : L.devices) if (!inst && dv.uid == uid) dv.slot = slot; }
+        });
+    };
+    for (auto& L : song.lanes) {
+        if (L.instDesc.isNotEmpty() && L.inst == nullptr) want(L.instDesc, L.instState, L.instUid, true);
+        for (auto& dv : L.devices) if (dv.type == DevPlugin && dv.slot == nullptr && dv.plugDesc.isNotEmpty()) want(dv.plugDesc, dv.plugState, dv.uid, false);
+    }
+    for (auto& dv : song.master) if (dv.type == DevPlugin && dv.slot == nullptr && dv.plugDesc.isNotEmpty()) want(dv.plugDesc, dv.plugState, dv.uid, false);
+}
+
 // ------------------------------------------------------------------ export
 bool Studio::renderAll(juce::AudioBuffer<float>& out, std::function<bool(float)> progress, int onlyLane) {
     StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
@@ -1170,9 +1286,12 @@ bool Studio::transposeClip(int ci, double semis) {
 }
 
 // ------------------------------------------------------------------ save / open
-static juce::var devToVar(const StudioDevice& d) { auto* x = new juce::DynamicObject(); x->setProperty("type", d.type); x->setProperty("on", d.on); if (d.side >= 0) x->setProperty("side", d.side); if (d.type == DevStation) { x->setProperty("fx", d.fx); if (d.fx >= 0 && d.fx < stationFxCount()) x->setProperty("fxk", juce::String(stationCatalogue()[(size_t) d.fx].key)); }
+static juce::var devToVar(const StudioDevice& d) { auto* x = new juce::DynamicObject(); x->setProperty("type", d.type); x->setProperty("on", d.on); if (d.side >= 0) x->setProperty("side", d.side); if (d.type == DevPlugin) { x->setProperty("plug", d.plugDesc); x->setProperty("pname", d.plugName); x->setProperty("uid", d.uid); x->setProperty("pstate", d.slot ? d.slot->state() : d.plugState); }
+    if (d.type == DevStation) { x->setProperty("fx", d.fx); if (d.fx >= 0 && d.fx < stationFxCount()) x->setProperty("fxk", juce::String(stationCatalogue()[(size_t) d.fx].key)); }
     juce::Array<juce::var> p; for (float v : d.p) p.add(v); x->setProperty("p", p); return juce::var(x); }
-static StudioDevice devFromVar(const juce::var& v) { StudioDevice d = StudioDevice::make(juce::jlimit(0, DevCount - 1, (int) v["type"])); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1);
+static StudioDevice devFromVar(const juce::var& v) {
+    if ((int) v["type"] == DevPlugin) { StudioDevice d; d.type = DevPlugin; d.on = v.getProperty("on", true); d.plugDesc = v["plug"].toString(); d.plugName = v["pname"].toString();
+        d.uid = v["uid"].toString(); d.plugState = v["pstate"].toString(); if (d.uid.isEmpty()) d.uid = juce::Uuid().toString(); return d; } StudioDevice d = StudioDevice::make(juce::jlimit(0, DevCount - 1, (int) v["type"])); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1);
     if ((int) v["type"] == DevStation) { int w = juce::jlimit(0, stationFxCount() - 1, (int) v.getProperty("fx", 0)); auto k = v.getProperty("fxk", "").toString().toStdString();
         for (int i = 0; i < stationFxCount(); ++i) if (!k.empty() && stationCatalogue()[(size_t) i].key == k) w = i;      // by name: the list may grow
         d = StudioDevice::makeStation(w); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1); }
@@ -1220,6 +1339,7 @@ bool Studio::save(const juce::File& folder) {
         x->setProperty("sendA", L.sendA); x->setProperty("sendB", L.sendB); x->setProperty("height", L.height);
         x->setProperty("out", L.out); if (L.folded) x->setProperty("folded", true);
         if (!L.sends.empty()) { juce::Array<juce::var> sv; for (auto& sd : L.sends) { auto* q = new juce::DynamicObject(); q->setProperty("to", sd.to); q->setProperty("amt", sd.amt); q->setProperty("pre", sd.pre); sv.add(juce::var(q)); } x->setProperty("sends", sv); }
+        if (L.instDesc.isNotEmpty()) { x->setProperty("inst", L.instDesc); x->setProperty("iname", L.instName); x->setProperty("iuid", L.instUid); x->setProperty("istate", L.inst ? L.inst->state() : L.instState); }
         if (L.frozen) { x->setProperty("frozen", true); x->setProperty("freezeSrc", L.freezeSrc); x->setProperty("freezeAt", (juce::int64) L.freezeAt); }
         x->setProperty("strip", li < laneStrip.size() ? laneStrip[li] : -1);
         juce::Array<juce::var> dv; for (auto& d : L.devices) dv.add(devToVar(d)); x->setProperty("devices", dv);
@@ -1266,6 +1386,7 @@ bool Studio::load(const juce::File& folder) {
         L.mute = x["mute"]; L.solo = x["solo"]; L.input = x.getProperty("input", 0);
         L.frozen = x.getProperty("frozen", false); L.freezeSrc = x.getProperty("freezeSrc", -1); L.freezeAt = (juce::int64) x.getProperty("freezeAt", 0); L.sendA = x.getProperty("sendA", 0.0f); L.sendB = x.getProperty("sendB", 0.0f); L.height = x.getProperty("height", 74.0f);
         L.out = x.getProperty("out", -1); L.folded = x.getProperty("folded", false);
+        L.instDesc = x["inst"].toString(); L.instName = x["iname"].toString(); L.instUid = x["iuid"].toString(); L.instState = x["istate"].toString();
         if (auto* sv = x["sends"].getArray()) for (auto& q : *sv) L.sends.push_back({ (int) q["to"], (float) q.getProperty("amt", 0.5f), (bool) q.getProperty("pre", false) });
         if (auto* dv = x["devices"].getArray()) for (auto& d : *dv) L.devices.push_back(devFromVar(d));
         L.autos = autosFromVar(x["autos"]);
@@ -1286,6 +1407,7 @@ bool Studio::load(const juce::File& folder) {
     }
     prepareRuntime(rt, song);
     host.model.set("beats", song.beats); host.model.set("beatden", song.den);     // 2.3: one time signature for the whole app
+    restorePlugins();
     return true;
 }
 

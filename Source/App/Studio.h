@@ -64,6 +64,9 @@ struct StudioLane {
     std::vector<StudioDevice> devices;
     std::vector<StudioAuto> autos;
     std::map<std::string, float> synth;             // INSTRUMENT: its SYNTH 2 sound (parameter -> value)
+    // 2.3: an INSTRUMENT lane can play a plug-in instrument instead of SYNTH 2
+    juce::String instDesc, instState, instName, instUid;
+    PluginSlotPtr inst;
     int showAuto = -1;                              // which automation is shown under the lane (-1 none)
     // 2.3: FREEZE - the lane played from a recording of itself (its clips, synth and effects rendered once): light to
     // play, nothing lost (UNFREEZE brings it all back). Its volume, pan, sends and automation of them still work
@@ -132,6 +135,15 @@ public:
     int printLane(int lane, juce::String& why);
     // ready-made effect chains for a lane: 0 voice, 1 instrument, 2 drums, 3 warm, 4 wide echo, 5 big room
     void addChain(int lane, int chain);
+    // 2.3 PLUG-INS (AU / VST3): an effect at the end of a lane's chain (lane -1: the master), or an instrument lane's
+    // instrument. They open in the background; done() is told when it plays (an empty string) or why not
+    void addPluginEffect(int lane, const juce::PluginDescription& d, std::function<void(juce::String)> done);
+    void setPluginInstrument(int lane, const juce::PluginDescription& d, std::function<void(juce::String)> done);
+    void clearPluginInstrument(int lane);
+    void restorePlugins();                          // after open: every plug-in of the song started again with its settings
+    juce::Array<juce::PluginDescription> pluginList(bool instruments) const;
+    int pluginsPending = 0;
+    bool syncPlugins = false;                       // (tests: plug-ins opened at once, not in the background)
     // 2.2: an audio file (already listened to: prepareImport) into the song at `at` on `lane` (-1: a new lane).
     // keep: its own speed and pitch, sample for sample (the first audio in an empty song gives the song its tempo);
     // fit: stretched to the song's tempo, same pitch. Its first bar line lands on a bar line. Returns the clip (-1: failed)
@@ -209,6 +221,7 @@ private:
         std::vector<int> order;                     // the lanes in the order they are mixed (what feeds a bus before it)
         double clickPh = 0; long clickLeft = 0; float clickHz = 0;
         std::array<Meter, 64>* meters = nullptr;   // the live engine's lane meters (null when exporting)
+        Studio* live = nullptr;                    // 2.3: the live engine (the keys for a plug-in instrument); null when exporting
     };
     Runtime rt;                                      // the live one
     void prepareRuntime(Runtime& R, const StudioSong& s);   // (message thread / before a render): allocations
@@ -226,6 +239,7 @@ private:
     MidiRec midiRec;
     std::atomic<int> liveNotes[128] {};              // keyboard notes heard on the armed instrument lane (audio thread plays them)
     std::atomic<int> liveVel[128] {};
+    juce::SpinLock liveMidiLock; juce::MidiBuffer liveMidi; std::atomic<int> liveMidiLane { -1 };    // 2.3: the keys, for a plug-in instrument
     std::vector<float> monitorBuf[64];               // live input per lane (monitoring), filled by input()
     std::atomic<bool> monitorFresh { false };
     std::atomic<juce::uint32> keysUntil { 0 };

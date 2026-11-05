@@ -6,6 +6,7 @@
 #include <cmath>
 #include <vector>
 #include "../Engine/StripMix.h"
+#include "PluginSlot.h"
 
 namespace arco {
 
@@ -45,12 +46,16 @@ struct StudioDevice {
     std::array<float, 12> p {};
     int side = -1;                          // 2.3: SIDECHAIN - the lane whose sound drives this compressor / gate (-1: its own)
     int fx = -1;                            // 2.3: DevStation - which of the station's effects
+    // 2.3: DevPlugin - an AU / VST3: what it is (to open it again), its settings when saved, the running one
+    juce::String plugDesc, plugState, plugName, uid;
+    PluginSlotPtr slot;
     static StudioDevice make(int type) { StudioDevice d; d.type = type; auto& I = devInfo()[(size_t) type]; for (size_t i = 0; i < I.p.size(); ++i) d.p[i] = I.p[i].def; return d; }
     static StudioDevice makeStation(int which);
 };
 
 // 2.3: the station's own effects as studio devices (StationFx.h, run by Studio.cpp)
 constexpr int DevStation = 100;
+constexpr int DevPlugin = 101;
 struct StationRunBase {
     virtual ~StationRunBase() = default;
     int fx = -1;
@@ -60,7 +65,10 @@ std::unique_ptr<StationRunBase> makeStationRun(int which, double sampleRate);
 int stationFxCount();
 const DevInfo& stationFxInfo(int which);
 int stationFxGroup(int which);              // 0 inserts, 1 send effects, 2 the newer effects
-inline const DevInfo& devInfoOf(const StudioDevice& d) { return d.type == DevStation ? stationFxInfo(d.fx) : devInfo()[(size_t) std::max(0, std::min((int) DevCount - 1, d.type))]; }
+inline const DevInfo& devInfoOf(const StudioDevice& d) {
+    static const DevInfo plug { "PLUG-IN", "its own window: OPEN", {} };
+    if (d.type == DevPlugin) return plug;
+    return d.type == DevStation ? stationFxInfo(d.fx) : devInfo()[(size_t) std::max(0, std::min((int) DevCount - 1, d.type))]; }
 inline StudioDevice StudioDevice::makeStation(int which) { StudioDevice d; d.type = DevStation; d.fx = which; auto& I = stationFxInfo(which); for (size_t i = 0; i < I.p.size() && i < 12; ++i) d.p[i] = I.p[i].def; return d; }
 
 // ---------------------------------------------------------------- the running device (audio thread)
@@ -98,6 +106,7 @@ public:
             case DevLimiter: limProc(d, L, R, n); break;
             case DevFilter: filterProc(d, L, R, n); break;
             case DevStation: if (st && st->fx == d.fx) st->process(d, L, R, n, bpm, beatPos); break;
+            case DevPlugin: if (d.slot) d.slot->process(L, R, n); break;
             default: break;
         }
         for (int i = 0; i < n; ++i) if (!std::isfinite(L[i]) || !std::isfinite(R[i])) { reset(); std::fill(L, L + n, 0.0f); std::fill(R, R + n, 0.0f); return; }
