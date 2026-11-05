@@ -11,7 +11,7 @@ static void labOn(juce::Graphics& g, const juce::String& t, juce::Rectangle<int>
     g.setColour(Theme::textOn(bg)); g.setFont(Theme::font(fs, 2)); g.drawFittedText(t, r, juce::Justification::centred, 1, 0.85f);
 }
 static juce::String srcName(int s) { return s < 4 ? "Live " + juce::String(s + 1) : "Track " + juce::String(s - 3); }
-static const char* MOT[5] = { "Still", "Circle", "Swing", "Wander", "Fly over" };
+static const char* MOT[10] = { "Still", "Circle", "Swing", "Wander", "Fly over", "Spiral", "Figure 8", "Jumps", "Along the walls", "Bounce" };
 
 SpatialPanel::SpatialPanel(Canvas& c) : cv(c) {
     auto& m = cv.model(); auto& h = cv.host;
@@ -45,18 +45,19 @@ SpatialPanel::SpatialPanel(Canvas& c) : cv(c) {
          [this, &m] { auto id = "amb" + std::to_string(selSrc); m.set(id, m.get(id) > 0.5 ? 0 : 1); if (m.get("amb_on") < 0.5) m.set("amb_on", 1); })->dynText =
         [this, &m] { return m.get("amb" + std::to_string(selSrc)) > 0.5 ? srcName(selSrc) + U8(" is placed  ·  back to stereo") : U8("Place ") + srcName(selSrc) + U8(" in the room"); };
     srcKnob(780, y0 + 50, "amb_az", -180, 180, sc); srcKnob(860, y0 + 50, "amb_el", -90, 90, sc); srcKnob(940, y0 + 50, "amb_dist", 0.3, 20, sc); srcKnob(1020, y0 + 50, "amb_w", 0, 100, sc);
-    for (int i = 0; i < 5; ++i)
-        pill({ 760 + i * 116, y0 + 172, 110, 36 }, MOT[i], [this, &m, i] { return (int) std::lround(m.get("amb_mot" + std::to_string(selSrc))) == i ? Theme::amber() : Theme::btn(); },
+    for (int i = 0; i < 10; ++i)
+        pill({ 760 + (i % 5) * 116, y0 + 160 + (i / 5) * 38, 110, 32 }, MOT[i], [this, &m, i] { return (int) std::lround(m.get("amb_mot" + std::to_string(selSrc))) == i ? Theme::amber() : Theme::btn(); },
              [this, &m, i] { m.set("amb_mot" + std::to_string(selSrc), i); });
-    srcKnob(780, y0 + 222, "amb_spd", 0, 100, [] { return Theme::amber(); }); srcKnob(860, y0 + 222, "amb_rng", 0, 180, [] { return Theme::amber(); });
-    pill({ 940, y0 + 226, 120, 34 }, "In tempo", [this, &m] { return m.get("amb_sync" + std::to_string(selSrc)) > 0.5 ? Theme::amber() : Theme::btn(); },
+    srcKnob(780, y0 + 244, "amb_spd", 0, 100, [] { return Theme::amber(); }); srcKnob(860, y0 + 244, "amb_rng", 0, 180, [] { return Theme::amber(); });
+    pill({ 940, y0 + 248, 120, 34 }, "In tempo", [this, &m] { return m.get("amb_sync" + std::to_string(selSrc)) > 0.5 ? Theme::amber() : Theme::btn(); },
          [this, &m] { auto id = "amb_sync" + std::to_string(selSrc); m.set(id, m.get(id) > 0.5 ? 0 : 1); });
     // 1.4: two pages - OUTPUTS (what goes to which output of the sound card) and SPEAKERS & SPACE (ambisonics)
     routing = std::make_unique<RoutingView>(cv);
     addChildComponent(*routing);
     routing->setBounds(box.getX() + 20, box.getY() + 64, box.getWidth() - 40, box.getHeight() - 80);
-    const char* TB[2] = { "Outputs", "Speakers & surround" };
-    for (int t = 0; t < 2; ++t) {
+    buildRoom();
+    const char* TB[3] = { "Outputs", "Speakers & surround", "Room & distance" };
+    for (int t = 0; t < 3; ++t) {
         auto* p = new Pill(TB[t], [this, t] { return tab == t ? Theme::sel() : Theme::btn(); }, 10.0f, 8.0f);
         p->onClick = [this, t] { showTab(t); };
         p->tint = true; addAndMakeVisible(p); p->setBounds(box.getX() + 24 + t * 206, box.getY() + 16, 198, 38);
@@ -67,8 +68,9 @@ SpatialPanel::SpatialPanel(Canvas& c) : cv(c) {
 }
 
 void SpatialPanel::showTab(int t) {
-    tab = juce::jlimit(0, 1, t);
+    tab = juce::jlimit(0, 2, t);
     for (int i = 1; i < kids.size(); ++i) kids[i]->setVisible(tab == 1);       // (0: CLOSE)
+    for (auto* k : roomKids) k->setVisible(tab == 2);
     routing->setVisible(tab == 0);
     repaint();
 }
@@ -78,7 +80,97 @@ void SpatialPanel::visibilityChanged() { if (isVisible()) toFront(true); }
 float SpatialPanel::roomM() const {
     auto& m = cv.model(); float far = 3.0f;
     for (int k = 0; k < (int) m.get("spk_n"); ++k) far = juce::jmax(far, (float) m.get("spk_dist" + std::to_string(k)));
-    return far * 1.25f;
+    float r = far * 1.25f;
+    int shape = (int) m.get("room_shape");
+    if (shape != 0) { float hw = (float) m.get("room_w") * 0.5f, hd = (float) (shape == 3 ? m.get("room_w") : m.get("room_d")) * 0.5f, lx = std::abs((float) m.get("lis_x")), ly = std::abs((float) m.get("lis_y"));
+        r = juce::jmax(r, std::sqrt((hw + lx) * (hw + lx) + (hd + ly) * (hd + ly)) * 1.04f); }
+    return r;
+}
+juce::Point<float> SpatialPanel::toPx(float x, float y) const { float k = radius / roomM(); return { box.getX() + centre.x + x * k, box.getY() + centre.y - y * k }; }
+// speakers on the walls: each keeps its direction; its distance is where that direction meets the wall (high ones: the ceiling)
+void SpatialPanel::speakersOnWalls() {
+    auto& m = cv.model(); int shape = (int) m.get("room_shape"); if (shape == 0) { cv.showMessage("choose a room shape first"); return; }
+    float hw = (float) m.get("room_w") * 0.5f, hd = (float) (shape == 3 ? m.get("room_w") : m.get("room_d")) * 0.5f, H = (float) m.get("room_h"), lx = (float) m.get("lis_x"), ly = (float) m.get("lis_y");
+    for (int k = 0; k < (int) m.get("spk_n"); ++k) {
+        auto id = std::to_string(k); float az = (float) m.get("spk_az" + id) / 57.29578f, el = (float) m.get("spk_el" + id);
+        float dx = std::sin(az), dy = std::cos(az), t = 1e9f;
+        if (shape == 3) { float b = lx * dx + ly * dy, c2 = lx * lx + ly * ly - hw * hw; t = -b + std::sqrt(juce::jmax(0.0f, b * b - c2)); }
+        else { if (dx > 1e-4f) t = juce::jmin(t, (hw - lx) / dx); if (dx < -1e-4f) t = juce::jmin(t, (-hw - lx) / dx); if (dy > 1e-4f) t = juce::jmin(t, (hd - ly) / dy); if (dy < -1e-4f) t = juce::jmin(t, (-hd - ly) / dy); }
+        float horiz = juce::jmax(0.6f, t - 0.25f);
+        if (el > 5) { float up = H - 1.2f - 0.2f; m.set("spk_el" + id, std::round(std::atan2(up, horiz) * 57.29578f)); m.set("spk_dist" + id, std::round(std::sqrt(horiz * horiz + up * up) * 10) / 10); }
+        else m.set("spk_dist" + id, std::round(horiz * 10) / 10);
+    }
+    cv.host.speakerLayout = 2; cv.host.applySpeakers(); cv.host.saveSetup();
+    cv.showMessage(U8("✓ the speakers are on the walls - each one's sound waits for the farthest, so all of it reaches you together"));
+    repaint();
+}
+void SpatialPanel::buildRoom() {
+    auto& m = cv.model();
+    auto rpill = [&](juce::Rectangle<int> r, const juce::String& t, ColourFn col, std::function<void()> f, float fs = 8.5f) {
+        auto* p = new Pill(t, std::move(col), fs, 6.0f); p->onClick = std::move(f); roomKidsOwned.add(p); addChildComponent(p); p->setBounds(r.translated(box.getX(), box.getY())); roomKids.push_back(p); return p; };
+    const char* SH[5] = { "Open air", "Square", "Rectangle", "Round", "Big hall" };
+    for (int i = 0; i < 5; ++i) rpill({ 760 + i * 116, 112, 110, 38 }, SH[i], [&m, i] { return (int) m.get("room_shape") == i ? Theme::blue() : Theme::btn(); }, [this, &m, i] {
+        m.set("room_shape", i);
+        if (i == 1) { m.set("room_w", juce::jmax(m.get("room_w"), 4.0)); m.set("room_d", m.get("room_w")); }
+        if (i == 4) { m.set("room_w", 24); m.set("room_d", 36); m.set("room_h", 14); m.set("room_abs", 20); m.set("room_rev", 45); }
+        if (i == 0) m.set("dist_law", 0);
+        cv.host.saveSetup(); repaint(); }, 9.0f)->tint = true;
+    auto vbox = [&](int x, int y, const char* id, double lo, double hi, int dec) {
+        auto* v = new ValueBox([&m, id] { return m.get(id); }, [this, &m, id](double val) { m.set(id, val); if (juce::String(id) == "room_w" && (int) m.get("room_shape") == 1) m.set("room_d", val); repaint(); }, lo, hi, dec, [] { return Theme::blue(); });
+        v->fsize = 12.0f; roomKidsOwned.add(v); addChildComponent(v); v->setBounds(juce::Rectangle<int>(x, y, 70, 32).translated(box.getX(), box.getY())); roomKids.push_back(v); };
+    vbox(780, 196, "room_w", 2, 80, 1); vbox(880, 196, "room_d", 2, 80, 1); vbox(980, 196, "room_h", 2, 30, 1);
+    auto knob = [&](int x, int y, const char* id, double lo, double hi, ColourFn col) {
+        auto* k = new Knob([&m, id] { return m.get(id); }, [&m, id](double v) { m.set(id, v); }, lo, hi, 0, std::move(col));
+        roomKidsOwned.add(k); addChildComponent(k); k->setBounds(juce::Rectangle<int>(x, y, 40, 40).translated(box.getX(), box.getY())); roomKids.push_back(k); };
+    knob(790, 262, "room_abs", 0, 100, [] { return Theme::blue(); }); knob(890, 262, "room_rev", 0, 100, [] { return Theme::blue(); });
+    rpill({ 1000, 262, 330, 36 }, U8("Put the speakers on its walls"), [] { return Theme::btn(); }, [this] { speakersOnWalls(); });
+    const char* LW[3] = { "Natural", "Gentle", "Off" };
+    for (int i = 0; i < 3; ++i) rpill({ 760 + i * 116, 412, 110, 34 }, LW[i], [&m, i] { return (int) m.get("dist_law") == i ? Theme::amber() : Theme::btn(); }, [&m, i] { m.set("dist_law", i); })->tint = true;
+    knob(1130, 410, "air", 0, 200, [] { return Theme::amber(); });
+    rpill({ 1200, 412, 130, 34 }, "Doppler", [&m] { return m.get("doppler") > 0.5 ? Theme::amber() : Theme::btn(); }, [&m] { m.set("doppler", m.get("doppler") > 0.5 ? 0 : 1); })->tint = true;
+    rpill({ 760, 552, 280, 36 }, "", [&m] { return m.get("binaural") > 0.5 ? Theme::green() : Theme::btn(); }, [&m] { m.set("binaural", m.get("binaural") > 0.5 ? 0 : 1); })->dynText =
+        [&m] { return m.get("binaural") > 0.5 ? U8("Headphones: as if you sat in the room") : U8("Headphones: plain stereo"); };
+    vbox(1110, 554, "sub_spk", 0, 32, 0);
+    knob(1250, 550, "sub_xo", 30, 250, [] { return Theme::violet(); });
+    knob(790, 690, "scene_rot", -180, 180, [] { return Theme::green(); });
+    for (int i = 0; i < 4; ++i) { const int A[4] = { 0, 90, 180, -90 }; const char* N[4] = { "Front", "Right", "Back", "Left" };
+        rpill({ 870 + i * 96, 694, 90, 32 }, juce::String(N[i]), [] { return Theme::btn(); }, [&m, i, A] { m.set("scene_rot", A[i]); }); }
+}
+void SpatialPanel::paintRoomSide(juce::Graphics& g) {
+    auto& m = cv.model(); int X = box.getX() + 760, Y = box.getY();
+    auto step = [&](int num, const juce::String& t, const juce::String& sub, int y) {
+        auto nr = juce::Rectangle<float>((float) X, (float) y, 24, 24);
+        if (Theme::softUI()) softWellLite(g, nr, 12.0f); else { g.setColour(Theme::card2()); g.fillEllipse(nr); }
+        lab(g, juce::String(num), nr.toNearestInt(), 9.0f, Theme::txt(), 2, juce::Justification::centred);
+        lab(g, t, { X + 34, y, 300, 24 }, 11.5f, Theme::txt(), 2);
+        lab(g, sub, { X + 220, y, 360, 24 }, 7.5f, Theme::sub(), 0, juce::Justification::centredRight); };
+    int shape = (int) m.get("room_shape");
+    step(1, "The room", U8("its shape and size, its walls - drag YOU to where you sit"), Y + 74);
+    const char* D3[3] = { "WIDTH (m)", "DEPTH (m)", "HEIGHT (m)" };
+    for (int i = 0; i < 3; ++i) drawCaption(g, D3[i], { X + 20 + i * 100, Y + 176, 90, 16 });
+    drawCaption(g, "WALLS HARD - SOFT", { X, Y + 304, 120, 14 }, juce::Justification::centred, 6.5f);
+    drawCaption(g, "HOW MUCH ROOM", { X + 100, Y + 304, 120, 14 }, juce::Justification::centred, 6.5f);
+    lab(g, juce::String((int) m.get("room_abs")) + "%", { X, Y + 318, 120, 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
+    lab(g, juce::String((int) m.get("room_rev")) + "%", { X + 100, Y + 318, 120, 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
+    {   float V = (float) (m.get("room_w") * (shape == 3 ? m.get("room_w") : m.get("room_d")) * m.get("room_h")), S = (float) (2 * (m.get("room_w") * m.get("room_d") + m.get("room_w") * m.get("room_h") + m.get("room_d") * m.get("room_h")));
+        float al = 0.03f + (float) m.get("room_abs") / 100.0f * 0.6f, rt = juce::jlimit(0.15f, 9.0f, 0.161f * V / (S * al)) * (shape == 4 ? 1.6f : 1.0f);
+        lab(g, shape == 0 ? U8("open air: no walls, no echoes - only distance") : U8("it rings for ") + juce::String(rt, 1) + U8(" s  ·  ") + juce::String((int) V) + U8(" m³  ·  you sit ")
+            + juce::String(std::abs(m.get("lis_x")), 1) + (m.get("lis_x") < 0 ? " m left, " : " m right, ") + juce::String(std::abs(m.get("lis_y")), 1) + (m.get("lis_y") < 0 ? " m back" : " m forward"),
+            { X + 240, Y + 306, 340, 30 }, 7.5f, Theme::txt(), 1, juce::Justification::centredRight); }
+    g.setColour(Theme::line().withMultipliedAlpha(0.5f)); g.fillRect(X, Y + 356, 580, 1);
+    step(2, "Distance", U8("how far sounds are: softer, darker, later"), Y + 370);
+    drawCaption(g, "AIR", { X + 350, Y + 452, 80, 14 }, juce::Justification::centred, 6.5f);
+    lab(g, juce::String((int) m.get("air")) + "%", { X + 350, Y + 466, 80, 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
+    lab(g, U8("Natural: twice as far, half as loud. Gentle: far sounds stay louder. Doppler: a sound passing fast changes pitch (like a car)."), { X, Y + 458, 340, 40 }, 7.0f, Theme::sub());
+    g.setColour(Theme::line().withMultipliedAlpha(0.5f)); g.fillRect(X, Y + 500, 580, 1);
+    step(3, "Headphones and the sub", U8("how you hear it on headphones; the lowest notes to a sub"), Y + 514);
+    drawCaption(g, "SUB = SPEAKER", { X + 290, Y + 596, 120, 14 }, juce::Justification::centred, 6.5f);
+    drawCaption(g, "BELOW (Hz)", { X + 460, Y + 596, 80, 14 }, juce::Justification::centred, 6.5f);
+    lab(g, juce::String((int) m.get("sub_xo")) + " Hz", { X + 460, Y + 610, 80, 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
+    lab(g, (int) m.get("sub_spk") > 0 ? U8("speaker ") + juce::String((int) m.get("sub_spk")) + U8(" plays everything below ") + juce::String((int) m.get("sub_xo")) + " Hz" : U8("0 = no sub"), { X, Y + 596, 280, 16 }, 7.5f, Theme::sub());
+    g.setColour(Theme::line().withMultipliedAlpha(0.5f)); g.fillRect(X, Y + 630, 580, 1);
+    step(4, "Turn everything", U8("where the front is - all the sounds turn together"), Y + 644);
+    lab(g, juce::String((int) m.get("scene_rot")) + U8("°"), { X + 20, Y + 734, 60, 16 }, 8.0f, Theme::txt(), 1, juce::Justification::centred);
 }
 juce::Point<float> SpatialPanel::at(float az, float dist) const {
     float r = juce::jmin(1.0f, dist / roomM()) * radius, a = az * juce::MathConstants<float>::pi / 180.0f;
@@ -98,7 +190,7 @@ void SpatialPanel::paint(juce::Graphics& g) {
     if (tab == 0) return;                                                                 // OUTPUTS draws itself
     const bool on = m.get("amb_on") > 0.5;
     lab(g, on ? U8("every sound you place plays from its own spot in the room - the others stay in the stereo mix")
-              : U8("off: every sound plays in the stereo mix, as usual - turn it on, then place the sounds"), { box.getX() + 450, box.getY() + 24, 500, 22 }, 8.0f, on ? Theme::green() : Theme::sub());
+              : U8("off: every sound plays in the stereo mix, as usual - turn it on, then place the sounds"), { box.getX() + 664, box.getY() + 24, 400, 22 }, 7.5f, on ? Theme::green() : Theme::sub());
     // ---- the room from above: a round well, rings every metre, the audience in the middle
     auto c = juce::Point<float>(box.getX() + centre.x, box.getY() + centre.y);
     auto room = juce::Rectangle<float>(c.x - radius, c.y - radius, radius * 2, radius * 2);
@@ -111,6 +203,19 @@ void SpatialPanel::paint(juce::Graphics& g) {
     drawCaption(g, "LEFT", { (int) (c.x - radius) - 48, (int) c.y - 8, 44, 16 }, juce::Justification::centredRight);
     drawCaption(g, "RIGHT", { (int) (c.x + radius) + 4, (int) c.y - 8, 48, 16 });
     lab(g, juce::String((int) std::round(rm)) + " m", { (int) (c.x + radius) - 48, (int) c.y + 4, 40, 14 }, 7.0f, Theme::sub(), 1, juce::Justification::centredRight);
+    // 2.4: the room's walls, as seen from above (you are in the middle; the room moves when you move)
+    {   int shape = (int) m.get("room_shape");
+        if (shape != 0) {
+            float W2 = (float) m.get("room_w"), D2 = (float) (shape == 3 ? m.get("room_w") : m.get("room_d")), lx = (float) m.get("lis_x"), ly = (float) m.get("lis_y");
+            auto a = toPx(-W2 * 0.5f - lx, D2 * 0.5f - ly), b = toPx(W2 * 0.5f - lx, -D2 * 0.5f - ly);
+            auto rr = juce::Rectangle<float>(a, b);
+            juce::Path wall; if (shape == 3) wall.addEllipse(rr); else wall.addRoundedRectangle(rr, 6.0f);
+            g.setColour(Theme::blue().withAlpha(0.06f)); g.fillPath(wall);
+            g.setColour(Theme::blue().withAlpha(0.65f)); g.strokePath(wall, juce::PathStrokeType(3.0f));
+            lab(g, juce::String(W2, 1) + U8(" m"), { (int) rr.getCentreX() - 40, (int) rr.getY() - 18, 80, 14 }, 7.0f, Theme::blue(), 2, juce::Justification::centred);
+            if (shape != 3) lab(g, juce::String(D2, 1) + U8(" m"), { (int) rr.getRight() + 4, (int) rr.getCentreY() - 7, 60, 14 }, 7.0f, Theme::blue(), 2);
+        }
+    }
     // the audience
     if (Theme::softUI()) { softRaised(g, juce::Rectangle<float>(c.x - 16, c.y - 16, 32, 32), 16.0f, 3.0f, Theme::btn()); }
     g.setColour(Theme::txt()); g.fillEllipse(c.x - 4, c.y - 4, 8, 8);
@@ -134,7 +239,7 @@ void SpatialPanel::paint(juce::Graphics& g) {
         if (!placed && s != selSrc) continue;
         float az = amb && placed ? amb->curAz[s].load() : (float) m.get("amb_az" + std::to_string(s));
         float el = amb && placed ? amb->curEl[s].load() : (float) m.get("amb_el" + std::to_string(s));
-        float d = (float) m.get("amb_dist" + std::to_string(s)) * std::cos(el * juce::MathConstants<float>::pi / 180.0f);
+        float d = (amb && placed ? amb->curDist[s].load() : (float) m.get("amb_dist" + std::to_string(s))) * std::cos(el * juce::MathConstants<float>::pi / 180.0f);
         auto p = at(az, d);
         auto col = Theme::strip(s);
         float lv = amb ? juce::jmin(1.0f, amb->level[s] * 3.0f) : 0.0f;
@@ -144,7 +249,8 @@ void SpatialPanel::paint(juce::Graphics& g) {
         if (s == selSrc) { g.setColour(Theme::txt().withAlpha(0.7f)); g.drawEllipse(p.x - rr - 3, p.y - rr - 3, (rr + 3) * 2, (rr + 3) * 2, 1.5f); }
         labOn(g, s < 4 ? "L" + juce::String(s + 1) : juce::String(s - 3), { (int) (p.x - rr), (int) (p.y - rr), (int) (rr * 2), (int) (rr * 2) }, 8.5f, placed ? col : col.withAlpha(0.45f).overlaidWith(Theme::scr()));
     }
-    lab(g, U8("drag a speaker or a sound  ·  the light under a speaker: green at ear height, blue above, violet below"), { box.getX() + 40, box.getBottom() - 34, 680, 16 }, 7.5f, Theme::sub());
+    lab(g, tab == 2 ? U8("drag anywhere to move where you sit in the room  ·  the blue line: its walls") : U8("drag a speaker or a sound  ·  the light under a speaker: green at ear height, blue above, violet below"), { box.getX() + 40, box.getBottom() - 34, 680, 16 }, 7.5f, Theme::sub());
+    if (tab == 2) { paintRoomSide(g); return; }
     // ---- the right side: three steps
     int X = box.getX() + 760, Y = box.getY();
     auto step = [&](int num, const juce::String& t, const juce::String& sub, int y) {
@@ -181,10 +287,10 @@ void SpatialPanel::paint(juce::Graphics& g) {
       lab(g, juce::String((int) m.get("amb_az" + id)) + U8("°  ·  ") + juce::String((int) m.get("amb_el" + id)) + U8("° up  ·  ") + juce::String(m.get("amb_dist" + id), 1) + " m", { X + 340, Y + 476 + 56, 240, 16 }, 8.5f, Theme::txt(), 1); }
     g.setColour(Theme::line().withMultipliedAlpha(0.5f)); g.fillRect(X, Y + 600, 580, 1);
     step(3, "How it moves", U8("still, or moving round you - in tempo if you like"), Y + 614);
-    drawCaption(g, "SPEED", { X + 4, Y + 476 + 266, 72, 14 }, juce::Justification::centred, 6.5f);
-    drawCaption(g, "RANGE", { X + 84, Y + 476 + 266, 72, 14 }, juce::Justification::centred, 6.5f);
-    lab(g, U8("Circle goes round you, Swing moves left - right by RANGE, Wander drifts, Fly over passes above. In tempo: one turn every 1 - 8 bars. Headphones hear a stereo version."),
-        { X + 330, Y + 476 + 222, 250, 54 }, 7.0f, Theme::sub());
+    drawCaption(g, "SPEED", { X + 4, Y + 476 + 288, 72, 14 }, juce::Justification::centred, 6.5f);
+    drawCaption(g, "RANGE", { X + 84, Y + 476 + 288, 72, 14 }, juce::Justification::centred, 6.5f);
+    lab(g, U8("Circle goes round you · Swing left-right by RANGE · Spiral rises as it turns · Jumps hops to new places · Along the walls and Bounce move inside the ROOM (its own tab). In tempo: 1 - 8 bars a turn."),
+        { X + 320, Y + 476 + 244, 262, 56 }, 7.0f, Theme::sub());
 }
 
 void SpatialPanel::mouseDown(const juce::MouseEvent& e) {
@@ -193,6 +299,7 @@ void SpatialPanel::mouseDown(const juce::MouseEvent& e) {
     auto p = e.position;
     if (!box.contains(p.toInt())) { cv.host.saveSetup(); setVisible(false); return; }
     auto& m = cv.model();
+    if (tab == 2) { dragLis = p.getDistanceFrom({ box.getX() + centre.x, box.getY() + centre.y }) < 30 || true; lis0 = { (float) m.get("lis_x"), (float) m.get("lis_y") }; drag0 = p; return; }
     for (auto& r : srcRows) if (r.first.contains(p.toInt())) {
         if (selSrc == r.second) { auto id = "amb" + std::to_string(r.second); m.set(id, m.get(id) > 0.5 ? 0 : 1); if (m.get(id) > 0.5 && m.get("amb_on") < 0.5) m.set("amb_on", 1); }
         selSrc = r.second; repaint(); return;
@@ -217,6 +324,9 @@ void SpatialPanel::mouseDown(const juce::MouseEvent& e) {
 }
 void SpatialPanel::mouseDrag(const juce::MouseEvent& e) {
     if (tab == 0) return;
+    if (tab == 2) { if (!dragLis) return; auto& mm = cv.model(); float k = roomM() / radius; int shape = (int) mm.get("room_shape");
+        float hw = (float) mm.get("room_w") * 0.5f - 0.5f, hd = (float) (shape == 3 ? mm.get("room_w") : mm.get("room_d")) * 0.5f - 0.5f;
+        mm.set("lis_x", juce::jlimit(-hw, hw, std::round((lis0.x - (e.position.x - drag0.x) * k) * 10) / 10.0f)); mm.set("lis_y", juce::jlimit(-hd, hd, std::round((lis0.y + (e.position.y - drag0.y) * k) * 10) / 10.0f)); repaint(); return; }
     auto& m = cv.model(); float az, d; fromPoint(e.position, az, d);
     az = std::round(az);
     if (dragSrc >= 0) { auto id = std::to_string(dragSrc); float el = (float) m.get("amb_el" + id); m.set("amb_az" + id, az); m.set("amb_dist" + id, std::round(d / std::max(0.2f, std::cos(el * juce::MathConstants<float>::pi / 180.0f)) * 10) / 10); }
@@ -224,7 +334,7 @@ void SpatialPanel::mouseDrag(const juce::MouseEvent& e) {
         cv.host.speakerLayout = 2; cv.host.applySpeakers(); }
     repaint();
 }
-void SpatialPanel::mouseUp(const juce::MouseEvent&) { if (dragSpk >= 0) cv.host.saveSetup(); dragSpk = dragSrc = -1; }
+void SpatialPanel::mouseUp(const juce::MouseEvent&) { if (dragSpk >= 0 || dragLis) cv.host.saveSetup(); dragSpk = dragSrc = -1; dragLis = false; }
 
 void SpatialPanel::preset(int which) {
     auto& m = cv.model(); auto& h = cv.host;

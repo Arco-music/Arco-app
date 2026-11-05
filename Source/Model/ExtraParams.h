@@ -137,6 +137,11 @@ inline const std::vector<ParamDef>& ambiParams() {
         std::vector<ParamDef> v;
         auto add = [&](const std::string& id, double def, double lo, double hi, int scope, int kind) { names.push_back(id); v.push_back({ names.back().c_str(), { "st_amb" }, def, lo, hi, scope, kind }); };
         add("amb_on", 0, 0, 1, 2, 1);
+        // 2.4: the room the speakers are in (this computer's place): its shape and size, its walls, where you sit; distance and headphones
+        add("room_shape", 0, 0, 4, 2, 2); add("room_w", 8, 2, 80, 2, 0); add("room_d", 10, 2, 80, 2, 0); add("room_h", 4, 2, 30, 2, 0);
+        add("room_abs", 35, 0, 100, 2, 0); add("room_rev", 30, 0, 100, 2, 0); add("lis_x", 0, -40, 40, 2, 0); add("lis_y", 0, -40, 40, 2, 0);
+        add("dist_law", 0, 0, 2, 2, 2); add("doppler", 0, 0, 1, 2, 1); add("air", 50, 0, 200, 2, 0); add("scene_rot", 0, -180, 180, 1, 0);
+        add("binaural", 1, 0, 1, 2, 1); add("sub_spk", 0, 0, 32, 2, 2); add("sub_xo", 90, 30, 250, 2, 0);
         for (int k = 0; k < 32; ++k) {
             double az = k == 0 ? -30 : (k == 1 ? 30 : -180.0 + k * 360.0 / 32);
             add("spk_az" + std::to_string(k), az, -180, 180, 2, 0); add("spk_el" + std::to_string(k), 0, -90, 90, 2, 0); add("spk_dist" + std::to_string(k), 2, 0.3, 30, 2, 0);
@@ -144,7 +149,7 @@ inline const std::vector<ParamDef>& ambiParams() {
         for (int s = 0; s < 12; ++s) {
             auto n = std::to_string(s);
             add("amb" + n, 0, 0, 1, 1, 1); add("amb_az" + n, s < 4 ? -45 + s * 30 : -150 + (s - 4) * 43, -180, 180, 1, 0); add("amb_el" + n, 0, -90, 90, 1, 0);
-            add("amb_dist" + n, 2, 0.3, 20, 1, 0); add("amb_w" + n, 0, 0, 100, 1, 0); add("amb_mot" + n, 0, 0, 4, 1, 2); add("amb_spd" + n, 30, 0, 100, 1, 0);
+            add("amb_dist" + n, 2, 0.3, 20, 1, 0); add("amb_w" + n, 0, 0, 100, 1, 0); add("amb_mot" + n, 0, 0, 9, 1, 2); add("amb_spd" + n, 30, 0, 100, 1, 0);
             add("amb_rng" + n, 45, 0, 180, 1, 0); add("amb_sync" + n, 0, 0, 1, 1, 1);
         }
         return v;

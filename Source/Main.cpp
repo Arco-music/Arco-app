@@ -12,6 +12,7 @@
 #include "UI/InstrumentPanels.h"
 #include "App/PatcherCheck.h"
 #include "UI/PatcherView.h"
+#include "UI/SpatialPanel.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 namespace arco { size_t audioHostSizeHere(); size_t studioSizeHere(); size_t engineSizeHere(); }
@@ -304,7 +305,10 @@ public:
             for (auto* ch : mc->canvas.getChildren()) if (auto* mp = dynamic_cast<arco::ModularPanel*>(ch)) {
                 if (cmd.contains("mguide")) mp->showGuide(true);
                 mp->demoState(cmd); } }
-        if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
+        if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true);
+            if (cmd.contains("sroom")) { m.set("room_shape", 2); m.set("room_w", 9); m.set("room_d", 12); m.set("lis_y", -1.5); m.set("spk_n", 8);
+                for (int k = 0; k < 8; ++k) { m.set("spk_az" + std::to_string(k), -157.5 + k * 45); m.set("spk_el" + std::to_string(k), 0); m.set("spk_dist" + std::to_string(k), 3); }
+                for (auto* ch : mc->canvas.getChildren()) if (auto* sp = dynamic_cast<arco::SpatialPanel*>(ch)) sp->showTab(2); } }
         if (cmd.contains("lives=")) host->nLive = cmd.fromFirstOccurrenceOf("lives=", false, false).getIntValue();
         if (cmd.contains("tracks=")) mc->canvas.shotTracks = cmd.fromFirstOccurrenceOf("tracks=", false, false).getIntValue();
         if (cmd.contains("fam=")) mc->canvas.showFamily(cmd.fromFirstOccurrenceOf("fam=", false, false).getIntValue());
