@@ -27,6 +27,7 @@ public:
     bool takesNotes() const { return kind.load() != KSynth; }
     // ---- audio thread
     void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) override;
+    void setInputs(const float* const* l4, const float* mL, const float* mR) override { for (int j = 0; j < 4; ++j) modular.live[j] = l4[j]; modular.mixL = mL; modular.mixR = mR; }
     void prepare(double sampleRate);
     std::atomic<float> level { 0 };
 

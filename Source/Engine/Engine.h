@@ -112,7 +112,8 @@ struct Ring { static constexpr int N = 2048; std::array<float, N> d {}; std::ato
         w.store(ww, std::memory_order_release); } };
 
 // 1.3: an instrument outside the engine (MODULAR, a sampled instrument, a plug-in): it plays with the SYNTH (adds into it)
-struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) = 0; };
+struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) = 0;
+    virtual void setInputs(const float* const* /*live4*/, const float* /*mixL*/, const float* /*mixR*/) {} };   // 2.3: what an IN module hears
 
 // how long a track can be: 6 minutes on the Mac, 40 s on the iPad / iPhone (memory)
 inline double trackSeconds() {

@@ -9,6 +9,7 @@
 #include "App/ImportCheck.h"
 #include "App/StudioCheck.h"
 #include "UI/Panels.h"
+#include "UI/InstrumentPanels.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 namespace arco { size_t audioHostSizeHere(); size_t studioSizeHere(); size_t engineSizeHere(); }
@@ -294,7 +295,10 @@ public:
         if (cmd.contains("keyboard")) mc->canvas.openKeyboard(true);
         if (cmd.contains("ksearch=")) mc->canvas.keyboardSearch(cmd.fromFirstOccurrenceOf("ksearch=", false, false).upToFirstOccurrenceOf(" ", false, false).replace("+", " "));
         if (cmd.contains("outputs")) { host->engine.grid[0][2].store(1); host->engine.grid[4][3].store(1); host->engine.grid[5][4].store(1); mc->canvas.openOutputs(); }
-        if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true); }
+        if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true);
+            for (auto* ch : mc->canvas.getChildren()) if (auto* mp = dynamic_cast<arco::ModularPanel*>(ch)) {
+                if (cmd.contains("mlab")) mp->showView(1);
+                if (cmd.contains("mguide")) mp->showGuide(true); } }
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
         if (cmd.contains("lives=")) host->nLive = cmd.fromFirstOccurrenceOf("lives=", false, false).getIntValue();
         if (cmd.contains("tracks=")) mc->canvas.shotTracks = cmd.fromFirstOccurrenceOf("tracks=", false, false).getIntValue();

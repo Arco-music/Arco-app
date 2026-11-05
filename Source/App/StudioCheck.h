@@ -5,6 +5,7 @@
 #include "AudioHost.h"
 #include "Analysis.h"
 #include "ImportCheck.h"
+#include "../Engine/Modular.h"
 #include "../UI/Shell.h"
 #include "../UI/StudioView.h"
 #include <cstdio>
@@ -652,6 +653,58 @@ inline int runStudioCheck(AudioHost& h) {
             check(sv && back && std::abs(pv - 0.25f) < 0.01f, "  save and open: both plug-ins back, with their settings (gain knob)", pv);
         }
         S.syncPlugins = false;
+    }
+    // ---------------------------------------------------------------- 12 the modular's modules, every one
+    say("== 12. MODULAR: every module makes its sound (or its voltage), clean, never blowing up");
+    {
+        int okN = 0; juce::StringArray bad;
+        for (int t = 0; t < MTypes; ++t) {
+            if (t == MOut || t == MKeys) continue;
+            Modular mo; mo.prepare(sr);
+            ModPatch p; int nid = 1;
+            auto addM = [&](int type) { ModModule m; m.type = type; m.id = nid++; auto& D = modDefs()[(size_t) type]; for (size_t i = 0; i < D.params.size(); ++i) m.p[i] = D.params[i].def; p.mods.push_back(m); return m.id; };
+            int keys = addM(MKeys), clk = addM(MClock), vco = addM(MVco), mid = addM(t), out = addM(MOut);
+            auto& D = modDefs()[(size_t) t];
+            for (int k = 0; k < (int) D.ins.size(); ++k) {
+                juce::String nm = D.ins[(size_t) k];
+                if (nm.contains("GATE") || nm.contains("TRIG") || nm.contains("CLOCK")) p.cables.push_back({ clk, 1, mid, k, 0 });
+                else if (nm.contains("RESET")) continue;
+                else if (nm.contains("PITCH")) p.cables.push_back({ keys, 0, mid, k, 0 });
+                else p.cables.push_back({ vco, 2, mid, k, 0 });
+            }
+            if (!D.outs.empty()) { p.cables.push_back({ mid, 0, out, 0, 0 }); if (D.outs.size() > 1 && (juce::String(D.outs[1]) == "R")) p.cables.push_back({ mid, 1, out, 1, 0 }); }
+            p.nextId = nid;
+            mo.setPatch(p);
+            std::vector<float> tl(sr * 2 / 512 * 512 + 512, 0.0f), tr2(tl.size(), 0.0f), thru(512, 0.0f);
+            for (int i = 0; i < 512; ++i) thru[(size_t) i] = 0.5f * (float) std::sin(i * 0.05);
+            mo.thruL = thru.data(); mo.thruR = thru.data();
+            mo.noteOn(60, 0.8f); mo.noteOn(64, 0.8f);
+            double sum = 0; bool finite = true; float pk = 0;
+            for (size_t b = 0; b + 512 <= tl.size(); b += 512) {
+                mo.process(tl.data() + b, tr2.data() + b, 512, 120.0, (double) b / sr * 2.0);
+                for (int i = 0; i < 512; ++i) { float v = tl[b + i]; finite &= std::isfinite(v); pk = juce::jmax(pk, std::abs(v)); sum += (double) v * v; }
+            }
+            double rms = std::sqrt(sum / tl.size());
+            int cat = modCategory(t);
+            bool sounds = cat == CatSound || cat == CatDrum || cat == CatFilter || cat == CatFx || t == MDrive || t == MCrush || t == MComp || t == MVca || t == MIn;
+            bool ok = finite && pk <= 1.5f && (!sounds || rms > 1e-4 || t == MVca);
+            if (ok) ++okN; else bad.add(juce::String(D.name) + (finite ? "" : " NaN") + " peak " + juce::String(pk, 3) + " rms " + juce::String(rms, 5));
+        }
+        for (auto& b : bad) say("    %s", b.toRawUTF8());
+        check(bad.isEmpty() && okN >= 55, juce::String(okN) + " modules: each one heard / moving, finite, within the limits", okN);
+    }
+    {   // a patch as an effect in STUDIO: IN (THROUGH) -> VCF -> OUT on a lane, the sound goes through it (and is saved)
+        ModPatch p; int nid = 1;
+        auto addM = [&](int type) { ModModule m; m.type = type; m.id = nid++; auto& D = modDefs()[(size_t) type]; for (size_t i = 0; i < D.params.size(); ++i) m.p[i] = D.params[i].def; p.mods.push_back(m); return m.id; };
+        int in = addM(MIn), out = addM(MOut); p.cables.push_back({ in, 0, out, 0, 0 }); p.cables.push_back({ in, 1, out, 1, 0 }); p.nextId = nid;
+        StudioDevice d; d.type = DevPatch; d.patchJson = juce::JSON::toString(Modular::toVar(p), true); d.plugName = "Patch";
+        DeviceDsp dsp; dsp.prepareFor(d, sr);
+        std::vector<float> L(512), R(512); double si = 0, so = 0;
+        for (int b = 0; b < 40; ++b) { for (int i = 0; i < 512; ++i) { L[(size_t) i] = R[(size_t) i] = 0.3f * (float) std::sin((b * 512 + i) * 0.03); si += L[(size_t) i] * L[(size_t) i]; }
+            dsp.process(d, L.data(), R.data(), 512, 120.0); for (float v : L) so += v * v; }
+        check(so > si * 0.05 && std::isfinite(so), "a modular patch as a STUDIO effect: the lane's sound goes through it", std::sqrt(so / si));
+        auto d2 = studioDevFromVar(studioDevToVar(d));
+        check(d2.type == DevPatch && d2.patchJson == d.patchJson, "  ... and it is saved with the song");
     }
     say("studio check: %d of %d failed", fails, total);
     fresh();

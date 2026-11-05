@@ -64,8 +64,10 @@ void Engine::prepare(double sampleRate) {
         const float* pi = B("pitch"); const float* be = B("gbeat_prev"); const float* bp = B("gbpm_prev");
         float* o[5] = { B("synL"), B("synR"), B("syn_mono"), B("syn_n"), B("syn_lfo") };
         graph.push_back([sm, pi, be, bp, o]() { sm->syn.process(pi, be, bp, o[0], o[1], o[2], o[3], o[4], SUB); });
-        graph.push_back([this, be, bp, o]() {     // the KEYBOARD's instrument joins it
+        const float* ins[4] = { B("live_in1"), B("live_in2"), B("live_in3"), B("live_in4") }; const float* mL = B("mainL"); const float* mR = B("mainR");
+        graph.push_back([this, be, bp, o, ins, mL, mR]() {     // the KEYBOARD's instrument joins it
             auto* x = ext.load(); if (x == nullptr) return;
+            x->setInputs(ins, mL, mR);
             float l[SUB] = {}, r[SUB] = {};
             x->render(l, r, SUB, sr, bp[0], be[0]);
             for (int i = 0; i < SUB; ++i) { o[0][i] += l[i]; o[1][i] += r[i]; o[2][i] += (l[i] + r[i]) * 0.5f; }

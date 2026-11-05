@@ -1287,15 +1287,19 @@ bool Studio::transposeClip(int ci, double semis) {
 
 // ------------------------------------------------------------------ save / open
 static juce::var devToVar(const StudioDevice& d) { auto* x = new juce::DynamicObject(); x->setProperty("type", d.type); x->setProperty("on", d.on); if (d.side >= 0) x->setProperty("side", d.side); if (d.type == DevPlugin) { x->setProperty("plug", d.plugDesc); x->setProperty("pname", d.plugName); x->setProperty("uid", d.uid); x->setProperty("pstate", d.slot ? d.slot->state() : d.plugState); }
+    if (d.type == DevPatch) { x->setProperty("patch", d.patchJson); x->setProperty("pname", d.plugName); }
     if (d.type == DevStation) { x->setProperty("fx", d.fx); if (d.fx >= 0 && d.fx < stationFxCount()) x->setProperty("fxk", juce::String(stationCatalogue()[(size_t) d.fx].key)); }
     juce::Array<juce::var> p; for (float v : d.p) p.add(v); x->setProperty("p", p); return juce::var(x); }
 static StudioDevice devFromVar(const juce::var& v) {
+    if ((int) v["type"] == DevPatch) { StudioDevice d; d.type = DevPatch; d.on = v.getProperty("on", true); d.patchJson = v["patch"].toString(); d.plugName = v.getProperty("pname", "Patch").toString(); return d; }
     if ((int) v["type"] == DevPlugin) { StudioDevice d; d.type = DevPlugin; d.on = v.getProperty("on", true); d.plugDesc = v["plug"].toString(); d.plugName = v["pname"].toString();
         d.uid = v["uid"].toString(); d.plugState = v["pstate"].toString(); if (d.uid.isEmpty()) d.uid = juce::Uuid().toString(); return d; } StudioDevice d = StudioDevice::make(juce::jlimit(0, DevCount - 1, (int) v["type"])); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1);
     if ((int) v["type"] == DevStation) { int w = juce::jlimit(0, stationFxCount() - 1, (int) v.getProperty("fx", 0)); auto k = v.getProperty("fxk", "").toString().toStdString();
         for (int i = 0; i < stationFxCount(); ++i) if (!k.empty() && stationCatalogue()[(size_t) i].key == k) w = i;      // by name: the list may grow
         d = StudioDevice::makeStation(w); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1); }
     if (auto* a = v["p"].getArray()) for (int i = 0; i < juce::jmin(12, a->size()); ++i) d.p[(size_t) i] = (float) (*a)[i]; return d; }
+juce::var studioDevToVar(const StudioDevice& d) { return devToVar(d); }
+StudioDevice studioDevFromVar(const juce::var& v) { return devFromVar(v); }
 static juce::var autosToVar(const std::vector<StudioAuto>& A) { juce::Array<juce::var> out;
     for (auto& a : A) { auto* x = new juce::DynamicObject(); x->setProperty("param", juce::String(a.param)); juce::Array<juce::var> pts; for (auto& p : a.pts) { pts.add(p.t); pts.add(p.v); } x->setProperty("pts", pts); out.add(juce::var(x)); }
     return out; }

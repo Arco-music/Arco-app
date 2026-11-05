@@ -238,9 +238,9 @@ public:
         int fb = nr ? 30 : (soft ? 32 : 34), gap = nr ? 4 : 6, by;
         if (nr) { by = h - P - 2 * fb - 6; int a = iw / 2;
                   mute->setBounds(x, by, a, fb); solo->setBounds(x + a, by, iw - a, fb);
-                  cue->setBounds(x, by + fb + 6, a, fb); room->setBounds(x + a, by + fb + 6, iw - a, fb); }
+                  cue->setBounds(x, by + fb + 6, a, fb); room->setBounds(x + a, by + fb + 6, iw - a, fb); room->text = room->getWidth() < 44 ? "Rm" : "Room"; }
         else { by = h - P - fb; int a = (iw - 3 * gap) * 2 / 9, rw = iw - 3 * a - 3 * gap;
-               mute->setBounds(x, by, a, fb); solo->setBounds(x + a + gap, by, a, fb); cue->setBounds(x + 2 * (a + gap), by, a, fb); room->setBounds(x + 3 * (a + gap), by, rw, fb); }
+               mute->setBounds(x, by, a, fb); solo->setBounds(x + a + gap, by, a, fb); cue->setBounds(x + 2 * (a + gap), by, a, fb); room->setBounds(x + 3 * (a + gap), by, rw, fb); room->text = rw < 44 ? "Rm" : "Room"; }
         int fh = 28, fy = by - 14 - fh;
         fader->setBounds(x - 2, fy, iw + 4, fh);
         meter->setBounds(x + 8, fy + fh + 3, iw - 16, 3);
@@ -1388,7 +1388,7 @@ void Canvas::openSpatial(bool show) { spatial->setVisible(show); if (show) spati
 void Canvas::openOutputs() { spatial->showTab(0); openSpatial(true); }
 void Canvas::openKeyboard(bool show) { keyboardWin->setVisible(show); if (show) keyboardWin->toFront(true); }
 void Canvas::keyboardSearch(const juce::String& q) { openKeyboard(true); keyboardWin->setSearch(q); }
-void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) modularWin->toFront(true); }
+void Canvas::openModular(bool show) { modularWin->setVisible(show); if (show) { modularWin->toFront(true); modularWin->rebuild(); } }
 void Canvas::synthPage(int p) { synthWin->setPage(p); if (p == 3) { synthWin->keysMode = 1; } }
 void Canvas::synthKeys(int m, bool edit) { synthWin->setKeysMode(m, edit); }
 void Canvas::synthPreset(int i) { synthWin->loadPreset(i); }
