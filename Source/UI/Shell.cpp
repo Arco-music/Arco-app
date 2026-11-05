@@ -260,8 +260,72 @@ void AppShell::setTempo(double b) {
     host.model.set("bpm", b);
     if (host.studio.song.clips.empty()) host.studio.song.bpm = b;          // an empty STUDIO keeps the station's tempo
 }
-int AppShell::beatsPerBar() { return screen == Screen::Studio ? host.studio.song.beats : (int) host.model.get("beats"); }
-void AppShell::setBeatsPerBar(int b) { if (screen == Screen::Studio) host.studio.song.beats = juce::jlimit(1, 16, b); else host.model.set("beats", juce::jlimit(1, 16, b)); }
+// 2.3: ONE time signature for the whole app - the station, the drums, PHRASE, LIVE LOOPS and STUDIO all follow it
+int AppShell::beatsPerBar() { return juce::jmax(1, (int) host.model.get("beats")); }
+int AppShell::beatNote() { return juce::jmax(1, (int) host.model.get("beatden")); }
+void AppShell::setBeatsPerBar(int b) { setMeter(b, beatNote()); }
+void AppShell::setMeter(int n, int d) {
+    n = juce::jlimit(1, 32, n); d = juce::jlimit(1, 16, d);
+    host.model.set("beats", n); host.model.set("beatden", d);
+    { const juce::ScopedLock sl(host.studio.lock); host.studio.song.beats = n; host.studio.song.den = d; }
+    top.repaint();
+}
+// the time signature card: the common ones as keys, and your own (any beats, any note)
+namespace {
+struct MeterCard : juce::Component {
+    AppShell& sh; juce::Rectangle<int> card; juce::OwnedArray<Pill> keys;
+    MeterCard(AppShell& s, juce::Rectangle<int> under) : sh(s) {
+        getProperties().set("softShades", true);
+        setBounds(s.getLocalBounds());
+        const int W = 468, H = 336;
+        card = juce::Rectangle<int>(juce::jlimit(12, getWidth() - W - 12, under.getCentreX() - W / 2), under.getBottom() + 10, W, H);
+        struct Row { const char* cap; std::vector<std::pair<int, int>> m; };
+        const Row rows[3] = { { "QUARTERS", { { 2, 4 }, { 3, 4 }, { 4, 4 }, { 5, 4 }, { 6, 4 }, { 7, 4 } } },
+                              { "EIGHTHS", { { 3, 8 }, { 5, 8 }, { 6, 8 }, { 7, 8 }, { 9, 8 }, { 12, 8 } } },
+                              { "HALVES  \u00b7  SIXTEENTHS", { { 2, 2 }, { 3, 2 }, { 5, 16 }, { 7, 16 }, { 9, 16 }, { 15, 16 } } } };
+        int y = card.getY() + 64;
+        for (auto& r : rows) {
+            int x = card.getX() + 18;
+            for (auto [n, d] : r.m) {
+                auto* p = new Pill(juce::String(n) + "/" + juce::String(d), [this, n = n, d = d] { return sh.beatsPerBar() == n && sh.beatNote() == d ? Theme::blue() : Theme::btn(); }, 11.0f, 10.0f);
+                p->tint = true; p->onClick = [this, n = n, d = d] { sh.setMeter(n, d); repaint(); for (auto* k : keys) k->repaint(); };
+                p->setBounds(x, y, 66, 40); keys.add(p); addAndMakeVisible(p); x += 72;
+            }
+            y += 64;
+        }
+        // your own: beats - / +, the note
+        int x = card.getX() + 18; y += 10;
+        auto mk = [&](const juce::String& t, juce::Rectangle<int> b, std::function<void()> f, std::function<juce::Colour()> c = nullptr) {
+            auto* p = new Pill(t, c ? c : std::function<juce::Colour()>([] { return Theme::btn(); }), 12.0f, 10.0f); p->tint = true; p->onClick = [this, f] { f(); repaint(); for (auto* k : keys) k->repaint(); };
+            p->setBounds(b); keys.add(p); addAndMakeVisible(p); return p; };
+        mk(juce::String::fromUTF8("\u2212"), { x, y, 40, 40 }, [this] { sh.setMeter(sh.beatsPerBar() - 1, sh.beatNote()); });
+        numR = { x + 44, y, 56, 40 };
+        mk("+", { x + 104, y, 40, 40 }, [this] { sh.setMeter(sh.beatsPerBar() + 1, sh.beatNote()); });
+        int nx = x + 176;
+        for (int d : { 2, 4, 8, 16 }) { mk("/" + juce::String(d), { nx, y, 60, 40 }, [this, d] { sh.setMeter(sh.beatsPerBar(), d); }, [this, d] { return sh.beatNote() == d ? Theme::blue() : Theme::btn(); }); nx += 66; }
+        ownY = y;
+    }
+    juce::Rectangle<int> numR; int ownY = 0;
+    void paint(juce::Graphics& g) override {
+        g.fillAll(juce::Colours::black.withAlpha(Theme::softUI() ? 0.06f : 0.3f));
+        if (Theme::softUI()) softRaised(g, card.toFloat(), 26.0f, 10.0f, Theme::card()); else { g.setColour(Theme::card()); g.fillRoundedRectangle(card.toFloat(), 14.0f); }
+        g.setColour(Theme::txt()); g.setFont(Theme::font(12.5f, 2)); g.drawText("Time signature", card.getX() + 20, card.getY() + 14, 260, 22, juce::Justification::centredLeft);
+        g.setColour(Theme::sub()); g.setFont(Theme::font(8.5f, 0)); g.drawText("the whole app follows it: station, drums, phrase, loops, studio", card.getX() + 150, card.getY() + 14, card.getWidth() - 170, 22, juce::Justification::centredRight);
+        const char* caps[4] = { "QUARTERS", "EIGHTHS", "HALVES  \xc2\xb7  SIXTEENTHS", "YOUR OWN" };
+        for (int i = 0; i < 4; ++i) drawCaption(g, juce::String::fromUTF8(caps[i]), { card.getX() + 20, (i < 3 ? card.getY() + 64 + i * 64 : ownY) - 17, 300, 14 });
+        if (Theme::softUI()) softWell(g, numR.toFloat(), 14.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(numR.toFloat(), 8.0f); }
+        g.setColour(Theme::txt()); g.setFont(Theme::font(15.0f, 2)); g.drawText(juce::String(sh.beatsPerBar()), numR, juce::Justification::centred);
+        drawSoftShades(g, *this);
+    }
+    void mouseDown(const juce::MouseEvent& e) override { if (!card.contains(e.getPosition())) { auto* self = this; juce::MessageManager::callAsync([self] { delete self; }); } }
+};
+}
+void AppShell::chooseMeter(juce::Component* from, juce::Rectangle<int> r) {
+    auto under = getLocalArea(from, r);
+    auto* c = new MeterCard(*this, under);
+    addAndMakeVisible(c); c->toFront(true);
+}
+juce::String AppShell::meterText() { return juce::String(beatsPerBar()) + "/" + juce::String(beatNote()); }
 bool AppShell::clickOn() { return screen == Screen::Studio ? host.studio.song.metronome : host.model.get("clickall") > 0.5; }
 void AppShell::toggleClick() { if (screen == Screen::Studio) host.studio.song.metronome = !host.studio.song.metronome; else host.model.set("clickall", clickOn() ? 0 : 1); }
 bool AppShell::countOn() { return screen == Screen::Studio ? host.studio.song.countIn : host.model.get("countin") > 0.5; }
@@ -427,13 +491,17 @@ void TopBar::paint(juce::Graphics& g) {
             g.setColour(Theme::sub()); g.setFont(uf); g.drawText(unit, juce::Rectangle<float>(x0 + w + 6, (float) r.getY() + 4, uw + 4, (float) r.getHeight()), juce::Justification::centredLeft); };
         num(shell.positionText(), "BAR", posR, shell.isRecording() ? Theme::ink(Theme::red()) : Theme::txt());
         num(juce::String(shell.tempo(), shell.tempo() == std::round(shell.tempo()) ? 0 : 1), "BPM", bpmR, Theme::txt());
-        int bpb = juce::jlimit(1, 8, shell.beatsPerBar());
+        const int full = shell.beatsPerBar(), bpb = juce::jlimit(1, 12, full);
         auto sr = sigR.withTrimmedRight(8);
         g.setColour(Theme::txt()); g.setFont(Theme::font(15.0f, 0));
-        g.drawText(juce::String(shell.beatsPerBar()) + "/4", sr.withWidth(40), juce::Justification::centred);
-        double bt = shell.host.engine.clock.beatNow.load(); int bi = ((int) std::floor(bt)) % bpb; bool run = shell.isPlaying();
-        float lx = (float) sr.getX() + 44, step = juce::jmin(10.0f, (sr.getRight() - lx) / (float) bpb);
-        for (int i = 0; i < bpb; ++i) softLed(g, { lx + step * (i + 0.5f), (float) sr.getCentreY() }, 2.8f, Theme::blue(), run ? i <= bi : i == 0);
+        g.drawText(shell.meterText(), sr.withWidth(46), juce::Justification::centred);
+        double bt = shell.host.engine.clock.beatNow.load(); int bi = ((int) std::floor(bt)) % juce::jmax(1, full); bool run = shell.isPlaying();
+        // the beats as lights (6/8, 9/8, 12/8: in threes)
+        const bool threes = shell.beatNote() >= 8 && full % 3 == 0 && full > 3;
+        float lx = (float) sr.getX() + 50, avail = (float) sr.getRight() - lx, step = juce::jmin(10.0f, avail / (float) (bpb + (threes ? bpb / 3 : 0)));
+        float x = lx;
+        for (int i = 0; i < bpb; ++i) { if (threes && i > 0 && i % 3 == 0) x += step * 0.6f;
+            softLed(g, { x + step * 0.5f, (float) sr.getCentreY() }, (i == 0 || (threes && i % 3 == 0)) ? 3.0f : 2.4f, Theme::blue(), run ? i <= bi : i == 0); x += step; }
         return;
     }
     // where we are
@@ -449,7 +517,7 @@ void TopBar::paint(juce::Graphics& g) {
     say(g, juce::String(shell.tempo(), 1), bpmR.withTrimmedRight(40).withTrimmedLeft(10), 18.0f, Theme::txt(), 2, juce::Justification::centredRight);
     say(g, "BPM", bpmR.withTrimmedLeft(bpmR.getWidth() - 36), 8.0f, Theme::sub(), 2);
     screenBox(sigR);
-    say(g, juce::String(shell.beatsPerBar()) + "/4", sigR, 14.0f, Theme::txt(), 2, juce::Justification::centred);
+    say(g, shell.meterText(), sigR, 14.0f, Theme::txt(), 2, juce::Justification::centred);
     // a beat light in the position screen: the downbeat brighter
     { double bt = shell.host.engine.clock.beatNow.load(); float f = (float) (bt - std::floor(bt));
       bool down = ((int) std::floor(bt)) % juce::jmax(1, shell.beatsPerBar()) == 0;
@@ -472,7 +540,7 @@ void TopBar::paint(juce::Graphics& g) {
 void TopBar::mouseDown(const juce::MouseEvent& e) {
     bpmDrag = false;
     if (bpmR.contains(e.getPosition())) { bpmDrag = true; bpmStart = (float) shell.tempo(); dragY = e.position.y; }
-    else if (sigR.contains(e.getPosition())) shell.setBeatsPerBar(shell.beatsPerBar() % 7 + 2 > 7 ? 2 : shell.beatsPerBar() % 7 + 2);
+    else if (sigR.contains(e.getPosition())) shell.chooseMeter(this, sigR);      // 2.3: any time signature, from one clean card
     else if (titleR.contains(e.getPosition()) && shell.screen != Screen::Home) shell.canvas.showMenu();
 }
 void TopBar::mouseDrag(const juce::MouseEvent& e) {

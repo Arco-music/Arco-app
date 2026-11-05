@@ -110,7 +110,10 @@ void LoopsView::paint(juce::Graphics& g) {
             // what this row records, big and in front: a key (tap: the list of sources)
             softKeyLite(g, sr.toFloat(), sr.getHeight() * 0.5f, false);
             softLed(g, { (float) sr.getX() + 15.0f, (float) sr.getCentreY() }, 3.2f, col, pl);
-            say(g, Theme::keyCase(juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())])) + juce::String::fromUTF8("  ▾"), sr.withTrimmedLeft(26), 10.0f, Theme::txt(), 2, juce::Justification::centredLeft);
+            {   // 2.3: what the row records, said plainly: FROM  Live 1 ▾
+                g.setColour(Theme::sub()); g.setFont(Theme::mono(6.5f)); g.drawText("FROM", sr.withTrimmedLeft(26).withWidth(34), juce::Justification::centredLeft);
+                say(g, Theme::keyCase(juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())])) + juce::String::fromUTF8("  ▾"), sr.withTrimmedLeft(60), 10.0f, Theme::txt(), 2, juce::Justification::centredLeft);
+            }
             softKeyLite(g, mr.toFloat(), mr.getHeight() * 0.5f, mu, Theme::red(), mu ? 0.5f : 0.0f);
             say(g, "M", mr, 9.0f, mu ? Theme::txt() : Theme::sub(), 2, juce::Justification::centred);
             softKeyLite(g, st.toFloat(), st.getHeight() * 0.5f, false);
@@ -164,7 +167,11 @@ void LoopsView::paint(juce::Graphics& g) {
                 } else {
                     softWellLite(g, k, kr);
                     if (cr.contains(hover.toFloat()) || (dragItem >= 0 && cr.contains(dragNow.toFloat())) || selHere) softLed(g, k.getCentre(), 4.0f, Theme::red(), true);
-                    else { g.setColour(Theme::red().withAlpha(Theme::lightMode() ? 0.22f : 0.18f)); g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre(k.getCentre())); }   // a faint ●: tap to record here
+                    else { g.setColour(Theme::red().withAlpha(Theme::lightMode() ? 0.30f : 0.24f)); g.fillEllipse(juce::Rectangle<float>(8.0f, 8.0f).withCentre(k.getCentre().translated(0, -6))); }   // ●: tap to record here
+                    if (k.getHeight() > 54) {     // what it would record, under the dot
+                        g.setColour(Theme::sub().withAlpha(0.75f)); g.setFont(Theme::mono(6.0f));
+                        g.drawText(juce::String("REC ") + SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())], k.toNearestInt().withTrimmedTop((int) (k.getHeight() * 0.5f) + 2).withHeight(14), juce::Justification::centred);
+                    }
                 }
                 if (selHere) { g.setColour(Theme::txt().withAlpha(0.35f)); g.drawRoundedRectangle(k.expanded(2.5f), kr + 2.5f, 1.5f); }
                 continue;
@@ -198,9 +205,24 @@ void LoopsView::paint(juce::Graphics& g) {
     bitems.clear();
     if (showBrowser) {
         drawPanel(g, browR.toFloat(), 16.0f);
-        say(g, Theme::softUI() ? juce::String("Station loops") : juce::String("STATION LOOPS"), { browR.getX() + 14, browR.getY() + 10, 200, 20 }, Theme::softUI() ? 11.0f : 9.5f, Theme::txt(), 2);
-        say(g, "drag one onto a cell", { browR.getX() + 14, browR.getY() + 30, 200, 16 }, 7.5f, Theme::sub(), 1);
-        auto& e = shell.host.engine; int y = browR.getY() + 56;
+        // 2.3: how it works, in four steps (always there: nothing to guess)
+        say(g, Theme::softUI() ? juce::String("How it works") : juce::String("HOW IT WORKS"), { browR.getX() + 16, browR.getY() + 12, 220, 20 }, Theme::softUI() ? 11.0f : 9.5f, Theme::txt(), 2);
+        int gy = browR.getY() + 40;
+        const char* steps[4] = { "Each row records FROM one sound - tap the key at its left: a live input, the drums, the synth, PHRASE or a track",
+                                 "Tap \xe2\x97\x8f in an empty cell: it records that row's sound, as long as RECORD below, from the next bar",
+                                 "Tap a loop to play or stop it. \xe2\x96\xb6 Scene plays a whole column at once",
+                                 "Or drag a loop of the station (below) onto a cell" };
+        for (int i = 0; i < 4; ++i) {
+            auto nr = juce::Rectangle<float>((float) browR.getX() + 16, (float) gy + 1, 18, 18);
+            if (Theme::softUI()) softWellLite(g, nr, 9.0f); else { g.setColour(Theme::card2()); g.fillEllipse(nr); }
+            say(g, juce::String(i + 1), nr.toNearestInt(), 8.0f, Theme::txt(), 2, juce::Justification::centred);
+            g.setColour(Theme::sub()); g.setFont(Theme::font(7.6f, 0));
+            g.drawFittedText(juce::String::fromUTF8(steps[i]), { browR.getX() + 42, gy, browR.getWidth() - 58, 40 }, juce::Justification::topLeft, 3, 1.0f);
+            gy += 46;
+        }
+        gy += 6;
+        say(g, Theme::softUI() ? juce::String("Station loops") : juce::String("STATION LOOPS"), { browR.getX() + 16, gy, 200, 20 }, Theme::softUI() ? 11.0f : 9.5f, Theme::txt(), 2);
+        auto& e = shell.host.engine; int y = gy + 28;
         static const char* SC[4] = { "A", "B", "C", "D" };
         for (int sc = 0; sc < 4; ++sc) {
             int mask = (int) e.snap("sv_mask" + std::to_string(sc)).v.load();
@@ -218,7 +240,7 @@ void LoopsView::paint(juce::Graphics& g) {
             }
             y += 6;
         }
-        if (bitems.empty()) { g.setColour(Theme::sub()); g.setFont(Theme::font(8.0f)); g.drawFittedText("loops recorded on the WORKSTATION show here", browR.reduced(14).withTrimmedTop(50).withHeight(60), juce::Justification::topLeft, 3); }
+        if (bitems.empty()) { g.setColour(Theme::sub()); g.setFont(Theme::font(7.6f)); g.drawFittedText("the loops you record on the WORKSTATION show here, to drag onto a cell", { browR.getX() + 16, y - 4, browR.getWidth() - 32, 40 }, juce::Justification::topLeft, 3); }
     }
     if (dragItem >= 0 && dragItem < (int) bitems.size()) {
         auto r = juce::Rectangle<float>((float) dragNow.x - 10, (float) dragNow.y - 14, 150, 28);
@@ -229,7 +251,7 @@ void LoopsView::paint(juce::Graphics& g) {
     for (auto* c : owned) { if (c->getComponentID() == "lv:len") { if (Theme::softUI()) { g.setColour(Theme::sub()); g.setFont(Theme::mono(7.0f)); g.drawText("RECORD", juce::Rectangle<int>(c->getX() + 14, c->getY() - 20, 200, 14), juce::Justification::centredLeft); } else say(g, "RECORD", { c->getX(), c->getY() - 22, 200, 16 }, 8.0f, Theme::sub(), 2); }
                             if (c->getComponentID() == "lv:quant") { if (Theme::softUI()) { g.setColour(Theme::sub()); g.setFont(Theme::mono(7.0f)); g.drawText("START", juce::Rectangle<int>(c->getX() + 14, c->getY() - 20, 200, 14), juce::Justification::centredLeft); } else say(g, "START", { c->getX(), c->getY() - 22, 200, 16 }, 8.0f, Theme::sub(), 2); } }
     if (getHeight() > getWidth()) return;
-    juce::String hint = message.isNotEmpty() ? message : juce::String::fromUTF8("tap ● to record · a loop to play / stop · a row's name: its source");
+    juce::String hint = message.isNotEmpty() ? message : juce::String::fromUTF8("● records the row's sound · tap a loop: play / stop");
     say(g, hint, { 960, getHeight() - 58, juce::jmax(100, getWidth() - 960 - 280), 40 }, 7.6f, message.isNotEmpty() ? Theme::ink(Theme::green()) : Theme::sub(), 1);
 }
 

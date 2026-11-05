@@ -136,7 +136,7 @@ bool Studio::buildFromStation(int repeats, juce::String& why) {
     int smask = (int) sv("smask");
     if (smask == 0) { why = "Record some loops first - STUDIO lays them out as a song."; return false; }
     StudioSong s;
-    s.sr = e.sr; s.beats = juce::jmax(1, (int) std::round(sv("sv_bts")));
+    s.sr = e.sr; s.beats = juce::jmax(1, (int) std::round(sv("sv_bts"))); s.den = juce::jmax(1, (int) host.model.get("beatden"));
     double bl = sv("sv_bl"); s.bpm = bl > 16 ? 60.0 * e.sr / bl : host.model.get("bpm");
     std::vector<int> ls, lsc;
     int laneOf[8]; for (auto& x : laneOf) x = -1;
@@ -1201,7 +1201,7 @@ bool Studio::save(const juce::File& folder) {
     for (auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.wav")) if (!keep.contains(f.getFileName())) f.deleteFile();
     auto* o = new juce::DynamicObject();
     o->setProperty("version", 3);
-    o->setProperty("sr", s.sr); o->setProperty("bpm", s.bpm); o->setProperty("beats", s.beats); o->setProperty("master", s.masterDb); o->setProperty("glue", s.glue);
+    o->setProperty("sr", s.sr); o->setProperty("bpm", s.bpm); o->setProperty("beats", s.beats); o->setProperty("den", s.den); o->setProperty("master", s.masterDb); o->setProperty("glue", s.glue);
     o->setProperty("loopOn", s.loopOn); o->setProperty("loopStart", (juce::int64) s.loopStart); o->setProperty("loopEnd", (juce::int64) s.loopEnd);
     o->setProperty("metronome", s.metronome); o->setProperty("countIn", s.countIn);
     o->setProperty("punchOn", s.punchOn); o->setProperty("punchStart", (juce::int64) s.punchStart); o->setProperty("punchEnd", (juce::int64) s.punchEnd);
@@ -1238,7 +1238,7 @@ bool Studio::load(const juce::File& folder) {
     auto v = juce::JSON::parse(dir.getChildFile("studio.json"));
     if (!v.isObject()) return false;
     StudioSong s; std::vector<int> ls, lsc;
-    s.sr = v.getProperty("sr", 48000.0); s.bpm = v.getProperty("bpm", 120.0); s.beats = v.getProperty("beats", 4); s.masterDb = v.getProperty("master", 0.0f); s.glue = v.getProperty("glue", 20.0f);
+    s.sr = v.getProperty("sr", 48000.0); s.bpm = v.getProperty("bpm", 120.0); s.beats = v.getProperty("beats", 4); s.den = v.getProperty("den", 4); s.masterDb = v.getProperty("master", 0.0f); s.glue = v.getProperty("glue", 20.0f);
     s.loopOn = v.getProperty("loopOn", false); s.loopStart = (juce::int64) v.getProperty("loopStart", 0); s.loopEnd = (juce::int64) v.getProperty("loopEnd", 0);
     s.metronome = v.getProperty("metronome", false); s.countIn = v.getProperty("countIn", true);
     s.punchOn = v.getProperty("punchOn", false); s.punchStart = (juce::int64) v.getProperty("punchStart", 0); s.punchEnd = (juce::int64) v.getProperty("punchEnd", 0);
@@ -1285,6 +1285,7 @@ bool Studio::load(const juce::File& folder) {
         pos = 0; undoStack.clear(); redoStack.clear();
     }
     prepareRuntime(rt, song);
+    host.model.set("beats", song.beats); host.model.set("beatden", song.den);     // 2.3: one time signature for the whole app
     return true;
 }
 

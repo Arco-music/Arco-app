@@ -115,6 +115,10 @@ public:
     void setTempo(double bpm);
     int beatsPerBar();
     void setBeatsPerBar(int b);
+    int beatNote();                              // 2.3: the time signature's note: 4, 8, 2, 16
+    void setMeter(int beats, int note);
+    juce::String meterText();
+    void chooseMeter(juce::Component* from, juce::Rectangle<int> r);
     bool clickOn(); void toggleClick();
     bool countOn(); void toggleCount();
     void undo();

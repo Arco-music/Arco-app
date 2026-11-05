@@ -74,7 +74,7 @@ struct StudioLane {
 };
 struct StudioMarker { long pos = 0; juce::String name; };
 struct StudioSong {
-    double sr = 48000, bpm = 120; int beats = 4;
+    double sr = 48000, bpm = 120; int beats = 4, den = 4;       // 2.3: den - the time signature's note (display; a beat is one of these)
     std::vector<SourcePtr> sources;
     std::vector<StudioClip> clips;
     std::vector<StudioLane> lanes;

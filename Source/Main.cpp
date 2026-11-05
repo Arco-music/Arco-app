@@ -275,6 +275,7 @@ public:
             for (auto& p : S) if (nm == p.first) sc = p.second;
             mc->shell.show(sc);
             if (cmd.contains("demo2")) demo2(mc, sc);
+            if (cmd.contains("meter")) { mc->shell.setMeter(7, 8); mc->shell.chooseMeter(&mc->shell, { 960, 10, 160, 60 }); }
         }
         if (cmd.contains("bench")) {
             mc->setVisible(true);
