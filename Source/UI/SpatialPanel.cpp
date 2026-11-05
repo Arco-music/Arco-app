@@ -3,7 +3,10 @@
 
 namespace arco {
 
+#ifndef ARCO_U8_HERE
+#define ARCO_U8_HERE
 static juce::String U8(const char* s) { return juce::String::fromUTF8(s); }
+#endif
 static void lab(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour c, int w = 0, juce::Justification j = juce::Justification::centredLeft) {
     g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, 2, 0.85f);
 }
@@ -491,3 +494,14 @@ void RoutingView::oneEach() {
 }
 
 } // namespace arco
+
+// 2.4: the iPad project (Builds/iOS, made by Projucer) does not list the newer files yet - they are compiled here for it
+#if JUCE_IOS
+ #include "../Engine/Patcher.cpp"
+ #include "../Engine/PatcherControl.cpp"
+ #include "../Engine/PatcherSignal.cpp"
+ #include "../Engine/PatcherUI.cpp"
+ #include "../Engine/PatcherExamples.cpp"
+ #include "ModularPanel.cpp"
+ #include "PatcherView.cpp"
+#endif

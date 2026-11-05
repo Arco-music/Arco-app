@@ -7,7 +7,10 @@
 
 namespace arco {
 
+#ifndef ARCO_U8_HERE
+#define ARCO_U8_HERE
 static juce::String U8(const char* s) { return juce::String::fromUTF8(s); }
+#endif
 static void txtAt(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, float fs, juce::Colour c, int w = 0, juce::Justification j = juce::Justification::centredLeft, int lines = 2) {
     g.setColour(Theme::ink(c)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, j, lines, 0.9f);
 }
