@@ -289,7 +289,7 @@ public:
     }
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat();
-        drawPanel(g, r, 16.0f);
+        drawPanelFace(g, r, 16.0f);      // (its shade: drawn by the page under it)
         drawSoftShades(g, *this);
         bool empty = s >= 4 && trackState() == 0;
         if (!Theme::softUI()) { juce::Graphics::ScopedSaveState ss(g); juce::Path clip; clip.addRoundedRectangle(r, 16.0f); g.reduceClipRegion(clip);
@@ -365,7 +365,7 @@ public:
     void update() { for (auto* mt : meters) mt->update(); repaint(); for (auto* k : kids) k->repaint(); }
     void paint(juce::Graphics& g) override {
         auto r = getLocalBounds().toFloat();
-        drawPanel(g, r, 16.0f);
+        drawPanelFace(g, r, 16.0f);      // (its shade: drawn by the page under it)
         int w = getWidth();
         if (Theme::softUI()) {            // 2.1: as the design - Master · OUT 1-2, the small labels, the meters in a well
             drawSoftShades(g, *this);
@@ -838,7 +838,7 @@ public:
         juce::String cht = U(compact ? "+ Choose" : "+  Choose effects");
         int chW = (int) juce::GlyphArrangement::getStringWidth(fnt(10.5f), cht) + 34;
         juce::Rectangle<int> ch;
-        if (compact) ch = in.removeFromRight(chW).withSizeKeepingCentre(chW, kh), in.removeFromRight(10);
+        if (compact) { in.removeFromRight(12); ch = in.removeFromRight(chW).withSizeKeepingCentre(chW, kh); in.removeFromRight(10); }   // (room for its shade: not cut at the edge)
         else { ch = first.removeFromRight(chW).withSizeKeepingCentre(chW, kh); first.removeFromRight(12); }
         key(ch, false); label(g, cht, ch, 10.5f, Theme::txt(), 1, juce::Justification::centred);
         hits.push_back({ ch, -1, -1, 1 });
@@ -1217,8 +1217,8 @@ void Canvas::buildScenes() {
         auto* p = new Pill(t, std::move(col), 9.0f, 10.0f); owned.add(p); addAndMakeVisible(p);
         p->tint = true; p->textColour = nullptr; p->onClick = std::move(f); if (id.isNotEmpty()) p->setComponentID(id);
         p->bg = p->bg; winBtns.push_back(p); return p; };
-    auto plain = [] { return juce::Colours::transparentBlack; };
-    auto txtOn = [](Pill* p) { p->textColour = [p] { auto c = p->bg(); return c.getAlpha() == 0 ? Theme::txt() : Theme::ink(c); }; };
+    auto plain = [] { return Theme::softUI() ? Theme::btn() : juce::Colours::transparentBlack; };     // 2.3: silicone keys like every other (not bare words)
+    auto txtOn = [](Pill* p) { p->textColour = [p] { auto c = p->bg(); return c.getAlpha() == 0 || c == Theme::btn() ? Theme::txt() : Theme::ink(c); }; };
     Pill* w;
     w = win("SYNTH", plain, [this] { openSynth(true); }, "t:synth"); txtOn(w);
     w = win("KEYS", plain, [this] { openKeyboard(true); }, "t:keys"); txtOn(w); w->setTooltip("KEYBOARD: a big keyboard, sampled instruments, plug-ins, MODULAR");
@@ -1226,7 +1226,7 @@ void Canvas::buildScenes() {
     w = win("MIDI LEARN", [this, plain] { return midiLearn ? Theme::amber() : plain(); }, [this] { setMidiLearn(!midiLearn); }, "t:midilearn"); txtOn(w);
     w = win("EFFECTS", plain, [this] { openLook(true); }, "t:effects"); txtOn(w); w->setTooltip("choose the effect cards");
     w = win("SETUP", plain, [this] { openSetup(true); }, "t:setup"); txtOn(w);
-    for (auto* p : winBtns) static_cast<Pill*>(p)->onFn = [p] { return static_cast<Pill*>(p)->bg().getAlpha() > 0; };
+    for (auto* p : winBtns) static_cast<Pill*>(p)->onFn = [p] { auto c = static_cast<Pill*>(p)->bg(); return c.getAlpha() > 0 && c != Theme::btn(); };
     for (auto* p : winBtns) { auto* pl = static_cast<Pill*>(p); juce::String up = pl->text, low = up.substring(0, 1) + up.substring(1).toLowerCase();
         if (up == "MIDI LEARN") low = "MIDI learn"; pl->dynText = [up, low] { return Theme::softUI() ? low : up; }; }
     for (int i = 0; i < 4; ++i) {

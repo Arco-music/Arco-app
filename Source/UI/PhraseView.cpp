@@ -79,7 +79,7 @@ void PhraseView::paint(juce::Graphics& g) {
     auto in = waveR.reduced(22, 36);
     int st = P.stateOut.load(), n = P.slicesOut.load();
     juce::String head = st == 0 ? "EMPTY" : st == 1 ? juce::String::fromUTF8("WAITING FOR THE DOWNBEAT …") : st == 2 ? "RECORDING" : (P.isPlaying.load() ? "PLAYING" : "READY");
-    say(g, head, { waveR.getX() + 22, waveR.getY() + 10, 400, 22 }, 10.5f, st == 2 || st == 1 ? Theme::ink(Theme::red()) : Theme::txt(), 2);
+    say(g, Theme::keyCase(head), { waveR.getX() + 22, waveR.getY() + 10, 400, 22 }, Theme::softUI() ? 12.0f : 10.5f, st == 2 || st == 1 ? Theme::ink(Theme::red()) : Theme::txt(), 2);
     if (st == 3) say(g, juce::String(n) + (n == 1 ? " note" : " notes") + " found", { waveR.getRight() - 322, waveR.getY() + 10, 300, 22 }, 9.0f, Theme::sub(), 1, juce::Justification::centredRight);
     g.setColour(Theme::scr()); g.fillRoundedRectangle(in.toFloat().expanded(8, 8), 12.0f);
     if (st == 0) {
@@ -111,18 +111,18 @@ void PhraseView::paint(juce::Graphics& g) {
     // the sequence: one dot per step
     if (st == 3) {
         int step = P.stepOut.load();
-        say(g, "SEQUENCE", { waveR.getX() + 22, waveR.getBottom() - 30, 100, 20 }, 8.0f, Theme::sub(), 2);
+        drawCaption(g, "SEQUENCE", { waveR.getX() + 22, waveR.getBottom() - 30, 100, 20 });
         int nsteps = (int) shell.host.model.get("phr_steps"); if (nsteps <= 0) nsteps = juce::jmax(1, n);
         nsteps = juce::jmin(32, nsteps);
         for (int k = 0; k < nsteps; ++k) { g.setColour(k == step ? col : Theme::line()); g.fillEllipse((float) waveR.getX() + 130 + k * 16, (float) waveR.getBottom() - 24, 9, 9); }
     }
-    say(g, "INPUT", { src->getX(), src->getY() - 22, 200, 18 }, 9.0f, Theme::sub(), 2);
-    say(g, "RECORD", { len->getX(), len->getY() - 22, 200, 18 }, 9.0f, Theme::sub(), 2);
-    say(g, "HOW FAST (on the metronome)", { rate->getX(), rate->getY() - 22, 400, 18 }, 9.0f, Theme::sub(), 2);
-    say(g, "IN WHAT ORDER", { order->getX(), order->getY() - 22, 400, 18 }, 9.0f, Theme::sub(), 2);
-    if (!knobs.empty()) say(g, "SHAPE", { 18, knobs[0]->getY() - 22, 200, 18 }, 9.0f, Theme::sub(), 2);
+    drawCaption(g, "INPUT", { src->getX(), src->getY() - 22, 200, 18 });
+    drawCaption(g, "RECORD", { len->getX(), len->getY() - 22, 200, 18 });
+    drawCaption(g, Theme::softUI() ? "HOW FAST  ·  ON THE METRONOME" : "HOW FAST (on the metronome)", { rate->getX() + (Theme::softUI() ? 2 : 0), rate->getY() - 22, 400, 18 });
+    drawCaption(g, "IN WHAT ORDER", { order->getX(), order->getY() - 22, 400, 18 });
+    if (!knobs.empty()) drawCaption(g, "SHAPE", { 18, knobs[0]->getY() - 22, 200, 18 });
     drawPanel(g, buildR.toFloat(), 18);
-    say(g, "BUILD", { buildR.getX() + 20, buildR.getY() + 14, 200, 22 }, 10.5f, Theme::txt(), 2);
+    say(g, Theme::softUI() ? "Build" : "BUILD", { buildR.getX() + 20, buildR.getY() + 14, 200, 22 }, Theme::softUI() ? 12.0f : 10.5f, Theme::txt(), 2);
     float bp = P.buildOut.load();
     auto bar = juce::Rectangle<float>((float) buildR.getX() + 20, (float) buildR.getY() + 122, (float) buildR.getWidth() - 40, 10);
     g.setColour(Theme::card2()); g.fillRoundedRectangle(bar, 5); g.setColour(Theme::amber()); g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * bp), 5);

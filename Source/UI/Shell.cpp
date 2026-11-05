@@ -29,7 +29,8 @@ KnobCell::KnobCell(const juce::String& n, ValueFn g, SetFn s, double lo, double 
 void KnobCell::resized() { int d = juce::jmin(getWidth() - 8, getHeight() - 30); knob.setBounds((getWidth() - d) / 2, 2, d, d); }
 void KnobCell::paint(juce::Graphics& g) {
     int d = juce::jmin(getWidth() - 8, getHeight() - 30);
-    say(g, name, { 0, d + 4, getWidth(), 13 }, 7.6f, Theme::sub(), 2, juce::Justification::centred);
+    if (Theme::softUI()) drawCaption(g, name, { 0, d + 4, getWidth(), 13 }, juce::Justification::centred, 6.8f);
+    else say(g, name, { 0, d + 4, getWidth(), 13 }, 7.6f, Theme::sub(), 2, juce::Justification::centred);
     if (fmt) say(g, fmt(get()), { 0, d + 16, getWidth(), 12 }, 7.6f, Theme::txt(), 1, juce::Justification::centred);
 }
 Segments::Segments(juce::StringArray it, std::function<int()> g, std::function<void(int)> s, ColourFn c) : items(std::move(it)), get(std::move(g)), set(std::move(s)), col(std::move(c)) {
@@ -52,10 +53,10 @@ void Segments::paint(juce::Graphics& g) {
             auto c = juce::Rectangle<float>(r.getX() + i * w, r.getY(), w, r.getHeight());
             float near = on >= 0 ? juce::jmax(0.0f, 1.0f - std::abs(glide.v - (float) i)) : 0.0f;
             auto cc = col ? col() : Theme::blue();
-            float tw = juce::GlyphArrangement::getStringWidth(Theme::font(fsize, 2), items[i]);
+            float tw = juce::GlyphArrangement::getStringWidth(Theme::font(fsize, 2), Theme::keyCase(items[i]));
             bool dot = c.getWidth() - 6 > tw + 22 && i == on;
             if (dot) softLed(g, { c.getCentreX() - tw * 0.5f - 6.0f, c.getCentreY() }, 2.4f, cc, near > 0.6f);
-            say(g, items[i], c.toNearestInt().withTrimmedLeft(dot ? 8 : 0), fsize, Theme::sub().interpolatedWith(Theme::txt(), near), 2, juce::Justification::centred);
+            say(g, Theme::keyCase(items[i]), c.toNearestInt().withTrimmedLeft(dot ? 8 : 0), fsize, Theme::sub().interpolatedWith(Theme::txt(), near), 2, juce::Justification::centred);
         }
         return;
     }

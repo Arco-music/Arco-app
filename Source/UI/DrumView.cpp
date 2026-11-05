@@ -227,20 +227,20 @@ void DrumView::paint(juce::Graphics& g) {
     if (!recR.isEmpty()) {
         drawPanel(g, recR.toFloat(), 18);
         bool two = recR.getHeight() > 70;
-        auto lab = [&](const juce::String& t, juce::Rectangle<int> r) { say(g, t, r, 8.0f, Theme::txt(), 2, juce::Justification::centredLeft); };
+        auto lab = [&](const juce::String& t, juce::Rectangle<int> r) { drawCaption(g, t, r); };
         int y0 = two ? recR.getY() + 12 : recR.getY() + (recR.getHeight() - 30) / 2;
         lab("PLAYS INTO", { recR.getX() + 16, y0, 84, 30 });
         if (!trackBtns.empty()) { auto tb = trackBtns.front()->getBounds(); lab("RECORD ON TRACK", { tb.getX() - 120, tb.getY(), 116, 30 }); }
     }
     auto& D = dm(); auto& m = shell.host.model;
     int lx = leftR.getX() + 16;
-    say(g, "KIT", { lx, leftR.getY() + 12, 200, 20 }, 9.5f, Theme::sub(), 2);
+    drawCaption(g, "KIT", { lx, leftR.getY() + 12, 200, 20 });
     int py = patBtns.empty() ? 0 : patBtns.front()->getY() - 30;
-    say(g, "PATTERN", { lx, py, 200, 20 }, 9.5f, Theme::sub(), 2);
+    drawCaption(g, "PATTERN", { lx, py, 200, 20 });
     if (D.queuedPat.load() >= 0) say(g, juce::String::fromUTF8("next: ") + juce::String::charToString((juce::juce_wchar) ('A' + D.queuedPat.load())), { lx + 90, py, 150, 20 }, 8.5f, Theme::ink(Theme::amber()), 2);
     for (auto* c : owned) if (auto* s = dynamic_cast<Segments*>(c)) {
-        if (s == lenSeg) say(g, "LENGTH (steps)", { s->getX(), s->getY() - 22, 200, 18 }, 9.0f, Theme::sub(), 2);
-        else if (s->items[0] == "1/8") say(g, "STEP", { s->getX(), s->getY() - 22, 200, 18 }, 9.0f, Theme::sub(), 2);
+        if (s == lenSeg) drawCaption(g, Theme::softUI() ? "LENGTH  ·  STEPS" : "LENGTH (steps)", { s->getX() + (Theme::softUI() ? 2 : 0), s->getY() - 22, 200, 18 });
+        else if (s->items[0] == "1/8") drawCaption(g, "STEP", { s->getX() + (Theme::softUI() ? 2 : 0), s->getY() - 22, 200, 18 });
     }
     if (!kitBtns.empty()) {
         auto bank = D.bank.load();
@@ -311,7 +311,7 @@ void DrumView::paint(juce::Graphics& g) {
     for (int i = 0; i < 16; ++i) if (i % 4 == 0) { auto r = cellRect(0, page * 16 + i); say(g, juce::String(page * 16 + i + 1), { r.getX(), r.getY() - 16, 40, 14 }, 7.5f, Theme::sub(), 1); }
     // right: pads
     int rx = rightR.getX() + 16;
-    say(g, "PADS", { rx, rightR.getY() + 12, 120, 20 }, 9.5f, Theme::sub(), 2);
+    drawCaption(g, "PADS", { rx, rightR.getY() + 12, 120, 20 });
     for (int pd = 0; pd < 12; ++pd) {
         auto r = padRect(pd).toFloat(); auto col = padColour(pd);
         bool flash = juce::Time::getMillisecondCounterHiRes() < flashUntil[pd];
@@ -322,7 +322,8 @@ void DrumView::paint(juce::Graphics& g) {
             softKeyLite(g, k, 16.0f, flash, col, flash ? 1.0f : (pd == selPad ? 0.22f : 0.0f));
             softLed(g, { k.getRight() - 14.0f, k.getY() + 14.0f }, 3.0f, col, flash || pd == selPad);
             juce::String pn = DrumKits::padName(pk, pd); pn = pn.substring(0, 1) + pn.substring(1).toLowerCase();
-            say(g, pn, k.toNearestInt().reduced(12, 9), 9.0f, Theme::txt(), 1, juce::Justification::bottomLeft);
+            g.setColour(Theme::txt()); g.setFont(Theme::font(9.0f, 1));          // one size for every pad (a long name: two lines, never squeezed)
+            g.drawFittedText(pn, k.toNearestInt().reduced(12, 9), juce::Justification::bottomLeft, 2, 1.0f);
             continue;
         }
         g.setColour(flash ? col : (pd == selPad ? Theme::card2().interpolatedWith(col, 0.30f) : Theme::btn())); g.fillRoundedRectangle(r, 12.0f);
@@ -332,7 +333,7 @@ void DrumView::paint(juce::Graphics& g) {
     int pk = (int) m.get("dm" + std::to_string(selPad) + "_kit"); if (pk < 0) pk = kit;
     { juce::String pn = DrumKits::padName(pk, selPad); if (soft) pn = pn.substring(0, 1) + pn.substring(1).toLowerCase();
       say(g, pn, padNameR, soft ? 15.0f : 13.0f, soft ? Theme::txt() : Theme::ink(padColour(selPad)), 2); }
-    say(g, "THE KIT", kitLabelR, 9.5f, Theme::sub(), 2);
+    drawCaption(g, "THE KIT", kitLabelR);
     // a line of help
     juce::String hint = mode == 0 ? juce::String::fromUTF8("click a step to add / remove it  ·  shift-click: an accent  ·  drag along a row to draw  ·  keys Z X C V / A S D F / Q W E R play the pads")
                       : mode == 1 ? juce::String("drag a step up / down: how hard it is played") : mode == 2 ? juce::String("drag up / down: the chance the step plays (100 % = always)")

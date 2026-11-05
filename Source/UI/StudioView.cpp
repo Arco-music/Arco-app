@@ -63,7 +63,7 @@ void StudioView::open() {
     if (studio.song.clips.empty()) {
         bool loaded = cv.host.songFolder.isDirectory() && studio.load(cv.host.songFolder);
         juce::String why;
-        if (!loaded && !studio.buildFromStation(4, why)) { report = U8("an empty song: + AUDIO LANE and ● records, or drop a file (it keeps its own speed)"); const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
+        if (!loaded && !studio.buildFromStation(4, why)) { report = U8("an empty song: + Audio lane and ● records, or drop a file (it keeps its own speed)"); const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
     }
     { const juce::ScopedLock sl(studio.lock); studio.ensureReturns(); }
     studio.matchRate(cv.host.engine.sr);              // at the sound card's rate (a song from another rate is converted)
@@ -228,7 +228,7 @@ static void studioKey(juce::Graphics& g, juce::Rectangle<float> r, const juce::S
     float rad = juce::jmin(r.getHeight() * 0.5f, 14.0f);
     if (Theme::softUI()) {
         softKeyLite(g, r, rad, on, c, on ? 0.9f : 0.0f);
-        txt(g, t, r.toNearestInt(), fs, on ? Theme::ink(c) : Theme::txt(), 2, juce::Justification::centred);
+        txt(g, Theme::keyCase(t), r.toNearestInt(), fs * 1.12f, on ? Theme::ink(c) : Theme::txt(), 1, juce::Justification::centred);
         return;
     }
     g.setColour(on ? c : Theme::btn()); g.fillRoundedRectangle(r, 5);
@@ -244,7 +244,7 @@ void StudioView::paintBrowser(juce::Graphics& g) {
     int y = r.getY() + 10;
     int tx = Theme::softUI() ? 26 : 14;
     if (Theme::softUI()) y += 10;
-    txt(g, "THE STATION", { tx, y, r.getWidth() - 20, 16 }, 9.5f, Theme::txt(), 2); y += 18;
+    if (Theme::softUI()) txt(g, "The station", { tx, y, r.getWidth() - 20, 16 }, 11.0f, Theme::txt(), 2); else txt(g, "THE STATION", { tx, y, r.getWidth() - 20, 16 }, 9.5f, Theme::txt(), 2); y += 18;
     txt(g, U8("drag a scene or a loop onto the timeline"), { tx, y, r.getWidth() - 20, 12 }, 7.0f, Theme::sub()); y += 18;
     int smask = (int) e.snap("smask").v.load();
     static const char* LL[4] = { "A", "B", "C", "D" };
@@ -256,7 +256,7 @@ void StudioView::paintBrowser(juce::Graphics& g) {
         auto row = juce::Rectangle<int>(Theme::softUI() ? 22 : 10, y, r.getWidth() - (Theme::softUI() ? 60 : 20), 26);
         if (Theme::softUI()) { if (has) softKeyLite(g, row.toFloat(), 13.0f, false); else softWellLite(g, row.toFloat(), 13.0f); }
         else { g.setColour(has ? Theme::card2() : Theme::card()); g.fillRoundedRectangle(row.toFloat(), 6); }
-        txt(g, juce::String("SCENE ") + LL[sc - 1], row.withTrimmedLeft(10).withWidth(70), 9.0f, has ? Theme::txt() : Theme::sub(), 2);
+        txt(g, Theme::keyCase(juce::String("SCENE ") + LL[sc - 1]), row.withTrimmedLeft(12).withWidth(70), 9.5f, has ? Theme::txt() : Theme::sub(), 1);
         txt(g, has ? juce::String(juce::roundToInt(bars)) + " bars" : juce::String("empty"), row.withTrimmedLeft(84), 7.5f, Theme::sub(), 1);
         if (has) browserItems.push_back({ sc, -1, juce::String("SCENE ") + LL[sc - 1] + U8(" ▸"), row, 0 });
         y += 30;
@@ -280,12 +280,14 @@ void StudioView::paintBrowser(juce::Graphics& g) {
         else { g.setColour(c); g.fillRoundedRectangle(br.toFloat(), 6); txt(g, t, br, 8.5f, Theme::textOn(c), 2, juce::Justification::centred); }
         browserItems.push_back({ 0, -1, t, br, action }); y += Theme::softUI() ? 38 : 30; };
     button(U8("LAY OUT ALL SCENES"), 1, Theme::btn());
-    txt(g, "ADD", { tx, y + 4, 100, 14 }, 9.0f, Theme::txt(), 2); y += 22;
+    if (Theme::softUI()) { g.setColour(Theme::sub()); g.setFont(Theme::mono(7.0f)); g.drawText("ADD", juce::Rectangle<int>(tx, y + 4, 100, 14), juce::Justification::centredLeft); }
+    else txt(g, "ADD", { tx, y + 4, 100, 14 }, 9.0f, Theme::txt(), 2);
+    y += 22;
     button(U8("+ AUDIO LANE"), 2, Theme::btn());
     button(U8("+ INSTRUMENT (SYNTH)"), 3, Theme::btn());
-    button(U8("+ BUS (A GROUP)"), 6, Theme::btn());
+    button(Theme::softUI() ? U8("+ Bus (a group)") : U8("+ BUS (A GROUP)"), 6, Theme::btn());
     button(U8("+ RECORD THE STATION"), 4, Theme::btn());
-    button(U8("IMPORT A FILE …"), 5, Theme::btn());
+    button(Theme::softUI() ? U8("Import a file …") : U8("IMPORT A FILE …"), 5, Theme::btn());
     y += 6;
     g.setColour(Theme::ink(Theme::sub())); g.setFont(Theme::font(7.0f, 0));
     g.drawFittedText(U8("The station is for playing live; STUDIO turns what you played into a song. Record here too: press ● above - it records into the selected track, or a new one."),
@@ -387,7 +389,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
             kindT = juce::String("      ");
         }
         // row 1: the name, then M S ● - row 2: the volume (and its meter), ⋯ - row 3 (tall lanes): what it records
-        txt(g, kindT + L.name, { (int) (hx + ix), (int) y + 6, (int) (headW - 90 - ix - depth * 10), 20 }, 9.5f, Theme::txt(), 2);
+        txt(g, kindT + Theme::nameCase(L.name), { (int) (hx + ix), (int) y + 6, (int) (headW - 90 - ix - depth * 10), 20 }, 9.5f, Theme::txt(), 2);
         hits.push_back({ { hx + ix + (L.kind == LaneBus ? 20 : 0), y + 6, headW - 90 - ix - depth * 10, 20 }, [this, li] { selLane = li; detail = DLane; selClip = -1; }, nullptr, [this, li] { rename(li); } });
         auto btn = [&](juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, std::function<void()> f) {
             studioKey(g, r, t, on, c, 8.0f);
@@ -401,14 +403,14 @@ void StudioView::paintLanes(juce::Graphics& g) {
         if (Theme::softUI()) softWellLite(g, vb, 4.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(vb, 4); }
         g.setColour(Theme::arc(col)); g.fillRoundedRectangle(vb.reduced(Theme::softUI() ? 1.5f : 0.0f).withWidth((vb.getWidth() - (Theme::softUI() ? 3 : 0)) * juce::jlimit(0.0f, 1.0f, (L.vol + 60.0f) / 66.0f)), 3.5f);
         if (li < 64) { float m = studio.meters[(size_t) li].l.load(); g.setColour(Theme::green().withAlpha(0.85f)); g.fillRect(vb.getX(), vb.getBottom() + 2, vb.getWidth() * juce::jmin(1.0f, m), 2.0f); }
-        txt(g, juce::String(L.vol, 1) + " dB", { (int) vb.getRight() + 4, (int) ry - 2, 44, 16 }, 7.0f, Theme::sub(), 1);
+        txt(g, juce::String(std::abs(L.vol) < 0.05f ? 0.0f : L.vol, 1) + " dB", { (int) vb.getRight() + 4, (int) ry - 2, 44, 16 }, 7.0f, Theme::sub(), 1);
         hits.push_back({ vb.expanded(0, 6), [this, li] { selLane = li; detail = DLane; selClip = -1; },
             [this, li](juce::Point<float> d, const juce::MouseEvent& e) { const juce::ScopedLock sl(studio.lock); auto& l = studio.song.lanes[(size_t) li]; l.vol = juce::jlimit(-60.0f, 6.0f, l.vol + d.x * (e.mods.isShiftDown() ? 0.02f : 0.25f)); }, nullptr });
         btn({ (float) ha.getX() + headW - 36, ry - 3, 26, 18 }, U8("⋯"), L.showAuto >= 0, Theme::amber(), [this, li] { laneMenu(li); });
         if (h >= 62 && !ret) {
             juce::String sub;
-            if (L.kind == LaneAudio) sub = (L.input < 0 ? U8("records the station") : L.input < 4 ? "records LIVE " + juce::String(L.input + 1) : "records input " + juce::String(L.input - 3)) + (L.monitor ? U8(" · hearing it") : juce::String()) + U8(" ▾");
-            else sub = "plays SYNTH 2";
+            if (L.kind == LaneAudio) sub = (L.input < 0 ? U8("Records the station") : L.input < 4 ? "Records Live " + juce::String(L.input + 1) : "Records input " + juce::String(L.input - 3)) + (L.monitor ? U8(" · hearing it") : juce::String()) + U8(" ▾");
+            else sub = "Plays Synth 2";
             auto sr2 = juce::Rectangle<float>(hx + ix, y + 48, headW - 78 - ix - depth * 10, 14);
             txt(g, sub, sr2.toNearestInt(), 7.0f, L.monitor ? Theme::amber() : Theme::sub(), 1);
             if (L.kind == LaneAudio) hits.push_back({ sr2, [this, li] { inputMenu(li); }, nullptr, nullptr });
@@ -501,7 +503,7 @@ void StudioView::paintClip(juce::Graphics& g, const StudioClip& c, int ci, juce:
         }
     }
     if (L.frozen) extra << U8("  ❄");
-    txtOn(g, name + extra, { (int) juce::jmax(r.getX(), (float) ca.getX()) + 5, (int) r.getY(), (int) juce::jmax(10.0f, r.getRight() - juce::jmax(r.getX(), (float) ca.getX()) - 8), 14 }, 7.5f, col.withAlpha(c.muted ? 0.3f : 0.9f).overlaidWith(juce::Colours::transparentBlack));
+    txtOn(g, Theme::nameCase(name) + extra, { (int) juce::jmax(r.getX(), (float) ca.getX()) + 5, (int) r.getY(), (int) juce::jmax(10.0f, r.getRight() - juce::jmax(r.getX(), (float) ca.getX()) - 8), 14 }, 7.5f, col.withAlpha(c.muted ? 0.3f : 0.9f).overlaidWith(juce::Colours::transparentBlack));
     auto body = r.withTrimmedTop(15).reduced(0, 2);
     if (!c.isMidi()) {
         if (c.source < 0 || c.source >= (int) S.sources.size() || !S.sources[(size_t) c.source]) return;
@@ -573,7 +575,7 @@ void StudioView::paintMixer(juce::Graphics& g) {
         auto col = master ? Theme::txt() : Theme::strip(L->colour % 12);
         g.setColour(!master && li == selLane ? Theme::card2() : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 8);
         g.setColour(col); g.fillRoundedRectangle(r.withHeight(5).toFloat(), 2);
-        txt(g, master ? juce::String("MASTER") : L->name, r.withHeight(22).withTrimmedTop(6).reduced(6, 0), 8.5f, Theme::txt(), 2, juce::Justification::centred);
+        txt(g, master ? Theme::nameCase("MASTER") : Theme::nameCase(L->name), r.withHeight(22).withTrimmedTop(6).reduced(6, 0), 8.5f, Theme::txt(), 2, juce::Justification::centred);
         int y = r.getY() + 30;
         const auto& devs = master ? S.master : L->devices;
         for (int d = 0; d < (int) devs.size() && d < 5; ++d) {
@@ -740,7 +742,7 @@ void StudioView::rebuildDetail() {
         auto col = Theme::strip(L.colour % 12);
         knob({ x, y, 40, 40 }, [lane] { auto* l = lane(); return l ? (double) l->vol : 0.0; }, [this, lane](double v) { const juce::ScopedLock sl(studio.lock); if (auto* l = lane()) l->vol = (float) v; }, -60, 6, 0, col);
         knob({ x + 52, y, 40, 40 }, [lane] { auto* l = lane(); return l ? (double) l->pan : 0.0; }, [this, lane](double v) { const juce::ScopedLock sl(studio.lock); if (auto* l = lane()) l->pan = (float) v; }, -1, 1, 0, Theme::txt());
-        label({ x - 10, y + 42, 60, 12 }, [lane] { auto* l = lane(); return l ? juce::String(l->vol, 1) + " dB" : juce::String(); });
+        label({ x - 10, y + 42, 60, 12 }, [lane] { auto* l = lane(); return l ? juce::String(std::abs(l->vol) < 0.05f ? 0.0f : l->vol, 1) + " dB" : juce::String(); });
         label({ x + 42, y + 42, 60, 12 }, [lane] { auto* l = lane(); if (!l) return juce::String(); return std::abs(l->pan) < 0.02f ? juce::String("centre") : (l->pan < 0 ? "L " : "R ") + juce::String((int) std::abs(l->pan * 100)); });
         if (L.kind != LaneReturn) {
             knob({ x + 104, y, 40, 40 }, [lane] { auto* l = lane(); return l ? (double) l->sendA : 0.0; }, [this, lane](double v) { const juce::ScopedLock sl(studio.lock); if (auto* l = lane()) l->sendA = (float) v; }, 0, 1, 0, Theme::blue());
@@ -748,17 +750,17 @@ void StudioView::rebuildDetail() {
             label({ x + 94, y + 42, 60, 12 }, [] { return juce::String("REVERB"); }); label({ x + 146, y + 42, 60, 12 }, [] { return juce::String("ECHO"); });
         }
         int by = y + 62;
-        if (L.kind == LaneAudio) pill({ x, by, 196, 24 }, "INPUT", [this, li] { inputMenu(li); })->dynText = [lane] { auto* l = lane(); if (!l) return juce::String(); return U8("RECORDS: ") + (l->input < 0 ? juce::String("the station's mix") : l->input < 4 ? "LIVE " + juce::String(l->input + 1) : "input " + juce::String(l->input - 3)) + U8(" ▾"); };
+        if (L.kind == LaneAudio) pill({ x, by, 196, 24 }, "INPUT", [this, li] { inputMenu(li); })->dynText = [lane] { auto* l = lane(); if (!l) return juce::String(); return U8("Records: ") + (l->input < 0 ? juce::String("the station's mix") : l->input < 4 ? "Live " + juce::String(l->input + 1) : "input " + juce::String(l->input - 3)) + U8(" ▾"); };
         {   // 2.3: where it goes and what it sends (any lane)
             int oy = L.kind == LaneInstrument ? by + 56 : L.kind == LaneAudio ? by + 28 : by;
             pill({ x, oy, 196, 24 }, "OUT", [this, li] { routeMenu(li); })->dynText = [this, lane] { auto* l = lane(); if (!l) return juce::String(); auto& LL = studio.song.lanes;
-                int ns = (int) l->sends.size(); return U8("GOES TO: ") + (l->out >= 0 && l->out < (int) LL.size() ? LL[(size_t) l->out].name : juce::String("MASTER")) + (ns > 0 ? U8("  ·  +") + juce::String(ns) + (ns == 1 ? " send" : " sends") : juce::String()) + U8(" ▾"); };
+                int ns = (int) l->sends.size(); return U8("Goes to: ") + (l->out >= 0 && l->out < (int) LL.size() ? Theme::nameCase(LL[(size_t) l->out].name) : juce::String("Master")) + (ns > 0 ? U8("  ·  +") + juce::String(ns) + (ns == 1 ? " send" : " sends") : juce::String()) + U8(" ▾"); };
         }
         if (L.kind == LaneInstrument) {
             pill({ x, by, 196, 24 }, U8("TAKE THE SYNTH'S SOUND"), [this, li] { const juce::ScopedLock sl(studio.lock); auto& l = studio.song.lanes[(size_t) li]; for (auto& p : paramTable()) for (auto& dd : p.dests) if (dd == "st_syn") l.synth[p.id] = (float) cv.host.model.get(p.id); report = U8("✓ this lane plays the SYNTH's sound now"); });
             pill({ x, by + 28, 196, 24 }, U8("OPEN THE SYNTH ▸"), [this] { cv.openSynth(true); if (auto* t = cv.getTopLevelComponent()) t->toFront(true); });
         }
-        label({ 16, y0 + 8, 300, 18 }, [lane] { auto* l = lane(); return l ? l->name + U8("  ·  ") + (l->kind == LaneInstrument ? "INSTRUMENT" : l->kind == LaneReturn ? "RETURN" : "AUDIO") : juce::String(); }, true);
+        label({ 16, y0 + 8, 400, 18 }, [lane] { auto* l = lane(); return l ? Theme::nameCase(l->name) + U8("  ·  ") + Theme::keyCase(l->kind == LaneInstrument ? "INSTRUMENT" : l->kind == LaneReturn ? "RETURN" : l->kind == LaneBus ? "BUS" : "AUDIO") : juce::String(); }, true);
     } else {
         knob({ x, y, 44, 44 }, [this] { return (double) studio.song.masterDb; }, [this](double v) { const juce::ScopedLock sl(studio.lock); studio.song.masterDb = (float) v; }, -60, 6, 0, Theme::txt());
         label({ x - 8, y + 46, 60, 12 }, [this] { return juce::String(studio.song.masterDb, 1) + " dB"; });
@@ -781,7 +783,7 @@ void StudioView::rebuildDetail() {
         if (devs[(size_t) di].type == DevComp || devs[(size_t) di].type == DevGate)      // 2.3: SIDECHAIN
             pill({ box.getX() + 10, box.getBottom() - 28, juce::jmin(150, box.getWidth() - 20), 22 }, "KEY", [this, li, di] { keyMenu(li, di); })->dynText = [this, devRef, di] {
                 auto* dv = devRef(di); auto& LL = studio.song.lanes;
-                return dv && dv->side >= 0 && dv->side < (int) LL.size() ? U8("KEY: ") + LL[(size_t) dv->side].name + U8(" ▾") : U8("KEY: its own sound ▾"); };
+                return dv && dv->side >= 0 && dv->side < (int) LL.size() ? U8("Key: ") + Theme::nameCase(LL[(size_t) dv->side].name) + U8(" ▾") : U8("Key: its own sound ▾"); };
         for (int k = 0; k < np; ++k) {
             auto P = I.p[(size_t) k];
             int kx = box.getX() + 12 + (k % cols) * 54, ky = box.getY() + 30 + (k / cols) * 76;
@@ -818,7 +820,7 @@ void StudioView::paintDetail(juce::Graphics& g) {
             bool own = t.startsWith("HIDE");
             if (own) studioKey(g, r.toFloat(), t, false, Theme::btn(), 7.5f);
             else { if (on) softKeyLite(g, r.toFloat(), r.getHeight() * 0.5f, false);
-                   txt(g, t, r, 7.5f, on ? Theme::txt() : Theme::sub(), 2, juce::Justification::centred); }
+                   txt(g, Theme::keyCase(t), r, 8.5f, on ? Theme::txt() : Theme::sub(), 1, juce::Justification::centred); }
         } else { g.setColour(on ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(r.toFloat(), 5); txt(g, t, r, 7.5f, Theme::textOn(on ? Theme::sel() : Theme::btn()), 2, juce::Justification::centred); }
         hits.push_back({ r.toFloat(), f, nullptr, nullptr }); };
     tab({ tx + 246, d.getY() + 6, 80, 20 }, U8("HIDE ▾"), false, [this] { juce::MessageManager::callAsync([sp = juce::Component::SafePointer<StudioView>(this)] { if (sp) { sp->showDetail = false; sp->builtFor = -2; sp->resized(); sp->repaint(); } }); });
@@ -833,7 +835,12 @@ void StudioView::paintDetail(juce::Graphics& g) {
         txt(g, DI.name, { b.r.getX() + 12, b.r.getY() + 4, b.r.getWidth() - 84, 18 }, 8.5f, devs[(size_t) b.dev].on ? Theme::txt() : Theme::sub(), 2);
         txt(g, DI.desc, { b.r.getX() + 12, b.r.getY() + 19, b.r.getWidth() - 24, 10 }, 6.0f, Theme::sub(), 1);
     }
-    for (auto& l : persistentLabels) txt(g, l.text(), l.r, l.title ? 9.5f : 7.0f, l.title ? Theme::txt() : Theme::sub(), l.title ? 2 : 1, l.title ? juce::Justification::centredLeft : juce::Justification::centred);
+    for (auto& l : persistentLabels) {
+        auto t = l.text();
+        bool caption = Theme::softUI() && !l.title && t.isNotEmpty() && t == t.toUpperCase() && t.length() < 16;   // a knob's name: small mono, as on the station
+        if (caption) { g.setColour(Theme::sub()); g.setFont(Theme::mono(6.5f)); g.drawFittedText(t, l.r, juce::Justification::centred, 1, 0.8f); }
+        else txt(g, t, l.r, l.title ? 10.0f : 7.0f, l.title ? Theme::txt() : Theme::sub(), l.title ? 2 : 1, l.title ? juce::Justification::centredLeft : juce::Justification::centred);
+    }
     if (detail == DClip && selClip >= 0 && selClip < (int) S.clips.size() && S.clips[(size_t) selClip].isMidi()) paintPianoRoll(g, rollArea());
 }
 

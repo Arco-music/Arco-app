@@ -268,6 +268,7 @@ public:
         auto tc = textColour ? textColour() : ink;
         if (Theme::softUI() && textColour && icon != 3) { auto t2 = textColour(); if (t2.getAlpha() > 0) tc = Theme::softUI() && Theme::contrast(Theme::flat(t2), Theme::btn()) < 3.0f ? ink : t2; }
         auto txt = dynText ? dynText() : text;
+        if (!mono) txt = Theme::keyCase(txt);
         auto box = getLocalBounds().reduced(3, 0);
         if (led && txt.isNotEmpty()) {
             auto f = Theme::font(fsize, weight); float tw = juce::GlyphArrangement::getStringWidth(f, txt);
@@ -343,6 +344,17 @@ inline void drawPanel(juce::Graphics& g, juce::Rectangle<float> r, float radius 
     g.setGradientFill(juce::ColourGradient(Theme::card().brighter(Theme::lightMode() ? 0.01f : 0.025f), 0, r.getY(), Theme::card(), 0, r.getBottom(), false));
     g.fillRoundedRectangle(r, radius);
     g.setColour(Theme::lightMode() ? juce::Colour::fromRGBA(60, 50, 30, 18) : juce::Colours::white.withAlpha(0.035f)); g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
+}
+// 2.3: a caption (KIT, PATTERN, PAN, SWING ...): in the silicone skin the station's small mono, in capitals
+inline void drawCaption(juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, juce::Justification j = juce::Justification::centredLeft, float fs = 7.2f) {
+    if (Theme::softUI()) { g.setColour(Theme::sub()); g.setFont(Theme::mono(fs)); g.drawFittedText(t.toUpperCase(), r, j, 1, 0.8f); return; }
+    g.setColour(Theme::sub()); g.setFont(Theme::font(fs + 1.5f, 2)); g.drawFittedText(t, r, j, 1, 0.8f);
+}
+// 2.3: a panel whose shade its parent draws (a whole component: a shade of its own would be cut at its edges - a hard
+// grey corner by every rounded one)
+inline void drawPanelFace(juce::Graphics& g, juce::Rectangle<float> r, float radius = 16.0f) {
+    if (Theme::softUI()) { softFace(g, r, juce::jmin(32.0f, radius + 12.0f), Theme::card()); return; }
+    drawPanel(g, r, radius);
 }
 inline void drawToggle(juce::Graphics& g, juce::Rectangle<float> r, bool on, juce::Colour col) {
     if (Theme::softUI()) {

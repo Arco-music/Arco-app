@@ -219,6 +219,40 @@ struct Theme {
             auto have = juce::Font::findAllTypefaceNames(); for (auto& n : want) if (have.contains(n)) return n; return juce::Font::getDefaultMonospacedFontName(); }();
         return juce::Font(juce::FontOptions(name, size * 1.18f, juce::Font::plain)).withExtraKerningFactor(0.14f); }
     static juce::Font font(float size, int weight = 0) { return juce::Font(juce::FontOptions(face(weight)).withHeight(size * 1.25f)); }
+    // 2.3: one voice for every key of the silicone skin - "Count-in", "Hide the loops", "+ Audio lane": a key written all
+    // in capitals is turned into that (short words that are names stay: FX, EQ, MIDI, BPM, A ... M S). Captions stay small mono.
+    static juce::String keyCase(const juce::String& s) {
+        if (!softUI() || s.isEmpty()) return s;
+        bool anyLower = false; for (auto c : s) anyLower |= juce::CharacterFunctions::isLowerCase(c);
+        if (anyLower) return capFirst(s);                                                     // written by hand: only its first letter
+        static const juce::StringArray keep { "FM", "AM", "PM", "FX", "EQ", "MIDI", "BPM", "LFO", "CPU", "OK", "MP3", "WAV", "AIFF", "FLAC", "M4A", "LUFS", "ADSR", "LR", "DJ", "ARCO", "XY", "AU", "VST", "VST3", "PDF", "HQ", "TV", "USB" };
+        juce::String out; juce::String word;
+        auto flush = [&] {
+            if (word.isEmpty()) return;
+            juce::String core = word.retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+            bool hasDigit = core.containsAnyOf("0123456789");
+            bool letters = core.containsAnyOf("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+            if (keep.contains(core) || core.length() <= 1 || (hasDigit && !letters) || (hasDigit && core.length() <= 3)) out << word;
+            else out << word.toLowerCase();
+            word.clear(); };
+        for (auto c : s) { if (c == ' ' || c == '\n' || c == '/' || c == '-' || c == '(' || c == ')' || c == ':' || c == ',' || c == '+') { flush(); out << juce::String::charToString(c); } else word << juce::String::charToString(c); }
+        flush();
+        return capFirst(out);
+    }
+    static juce::String capFirst(juce::String out) {
+        // the first letter of the key in capitals
+        static const juce::String lead = juce::String::fromUTF8(" +\xe2\x97\x8f\xe2\x96\xb8\xe2\x97\x82\xe2\x86\xa9\xe2\x9d\x84\xe2\x99\xaa(\xe2\x80\xa2\xe2\x9c\x95\xe2\x9f\xb3\xe2\x86\xbb\xe2\x9f\xb2\xc3\x97");   // " +●▸◂↩❄♪(•✕⟳↻⟲×"
+        for (int i = 0; i < out.length(); ++i) { auto c = out[i]; if (juce::CharacterFunctions::isLetter(c)) { if (juce::CharacterFunctions::isLowerCase(c)) out = out.substring(0, i) + juce::String::charToString(juce::CharacterFunctions::toUpperCase(c)) + out.substring(i + 1); break; } if (!lead.containsChar(c)) break; }
+        return out;
+    }
+    // a name (a lane, a track): every word with its capital - "TRACK 1" -> "Track 1"
+    static juce::String nameCase(const juce::String& s) {
+        if (!softUI()) return s;
+        for (auto c : s) if (juce::CharacterFunctions::isLowerCase(c)) return s;
+        juce::String out; bool start = true;
+        for (auto c : s) { out << juce::String::charToString(start ? c : juce::CharacterFunctions::toLowerCase(c)); start = !juce::CharacterFunctions::isLetterOrDigit(c); }
+        return out;
+    }
 };
 
 } // namespace arco
