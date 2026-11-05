@@ -176,31 +176,42 @@ int Studio::duplicateLane(int li) {
     return at;
 }
 
-int Studio::printLane(int lane, juce::String& why) {
-    StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
-    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn) { why = "choose a track first"; return -1; }
-    long first = LONG_MAX, last = 0; for (auto& c : copy.clips) if (c.lane == lane) { first = std::min(first, c.start); last = std::max(last, c.start + c.length); }
-    if (first == LONG_MAX) { why = "this track has nothing on it yet"; return -1; }
-    // the lane alone, through its own effects only
+// the lane alone, through its own effects only (not its volume, pan, sends, the master): [first, last) and the tail
+bool Studio::renderLaneAlone(const StudioSong& src, int lane, long first, long last, juce::AudioBuffer<float>& out) {
+    StudioSong copy = src;
+    if (lane < 0 || lane >= (int) copy.lanes.size()) return false;
     auto& L = copy.lanes[(size_t) lane];
+    L.frozen = false;
     bool tails = false; for (auto& d : L.devices) tails |= d.on && (d.type == DevReverb || d.type == DevDelay);
     L.vol = 0; L.pan = 0; L.sendA = L.sendB = 0; L.mute = false; L.solo = false;
     L.autos.erase(std::remove_if(L.autos.begin(), L.autos.end(), [](const StudioAuto& a) { return a.param == "vol" || a.param == "pan" || a.param == "sendA" || a.param == "sendB"; }), L.autos.end());
     copy.master.clear(); copy.masterDb = 0; copy.masterAutos.clear(); copy.loopOn = false;
     for (auto& o : copy.lanes) if (&o != &L) { o.solo = false; }
-    long tail = (long) (copy.sr * (tails ? 3.0 : 0.05));
+    long tail = (long) (copy.sr * (tails ? 3.0 : (L.kind == LaneInstrument ? 1.5 : 0.05)));
     long total = last - first + tail;
-    juce::AudioBuffer<float> out(2, (int) total); out.clear();
+    out.setSize(2, (int) total); out.clear();
     Runtime R; prepareRuntime(R, copy);
     for (long p = 0; p < total; p += 1024) {
         int n = (int) std::min(1024L, total - p);
         mix(copy, R, out.getWritePointer(0) + (int) p, out.getWritePointer(1) + (int) p, first + p, n, lane, nullptr, false, true);
     }
-    // a reverb's tail that ends in silence: trimmed
-    if (tails) { long end = total; while (end > last - first + 64 && std::abs(out.getSample(0, (int) end - 1)) < 1e-5f && std::abs(out.getSample(1, (int) end - 1)) < 1e-5f) --end; out.setSize(2, (int) end, true); }
+    // a tail that ends in silence: trimmed
+    long end = total; while (end > last - first + 64 && std::abs(out.getSample(0, (int) end - 1)) < 1e-5f && std::abs(out.getSample(1, (int) end - 1)) < 1e-5f) --end;
+    out.setSize(2, (int) end, true);
+    return true;
+}
+
+int Studio::printLane(int lane, juce::String& why) {
+    StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
+    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn) { why = "choose a track first"; return -1; }
+    long first = LONG_MAX, last = 0; for (auto& c : copy.clips) if (c.lane == lane) { first = std::min(first, c.start); last = std::max(last, c.start + c.length); }
+    if (first == LONG_MAX) { why = "this track has nothing on it yet"; return -1; }
+    juce::AudioBuffer<float> out;
+    renderLaneAlone(copy, lane, first, last, out);
     snapshot();
     const juce::ScopedLock sl(lock);
     auto& SL = song.lanes[(size_t) lane];
+    SL.frozen = false;
     juce::String nm = SL.name.upToFirstOccurrenceOf(" +FX", false, false);
     auto src = makeSource(nm + " (with effects)", std::vector<float>(out.getReadPointer(0), out.getReadPointer(0) + out.getNumSamples()),
                           std::vector<float>(out.getReadPointer(1), out.getReadPointer(1) + out.getNumSamples()));
@@ -372,25 +383,51 @@ void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long
                 float* xL = R.buf[0].data(); float* xR = R.buf[1].data();
                 std::fill(xL, xL + m, 0.0f); std::fill(xR, xR + m, 0.0f);
                 if (L.kind == LaneReturn) { bool isB = li == s.returnB(); std::copy(isB ? bL : aL, (isB ? bL : aL) + m, xL); std::copy(isB ? bR : aR, (isB ? bR : aR) + m, xR); }
-                else {
-                    if (clipsOn) for (auto& c : s.clips) {
-                        if (c.lane != li || c.isMidi() || c.muted || c.start >= t0 + m || c.start + c.length <= t0) continue;
-                        if (c.source < 0 || c.source >= (int) s.sources.size() || !s.sources[(size_t) c.source]) continue;
-                        auto& S = *s.sources[(size_t) c.source];
-                        long sl = S.size(); if (sl <= 0) continue;
-                        bool st = !S.r.empty();
-                        float g = std::pow(10.0f, c.gainDb / 20.0f);
-                        long a = std::max(t0, c.start), b = std::min(t0 + m, c.start + c.length);
-                        for (long p = a; p < b; ++p) {
-                            long rel = p - c.start, si = rel + c.offset;
-                            if (c.loop) si %= sl; else if (si >= sl) continue;
-                            if (c.reverse) si = sl - 1 - si;
-                            float w = g;
-                            if (c.fadeIn > 1 && rel < c.fadeIn) w *= rel / c.fadeIn;
-                            long toEnd = c.start + c.length - p;
-                            if (c.fadeOut > 1 && toEnd < c.fadeOut) w *= toEnd / c.fadeOut;
-                            xL[p - t0] += S.l[(size_t) si] * w;
-                            xR[p - t0] += (st ? S.r[(size_t) si] : S.l[(size_t) si]) * w;
+                else if (L.frozen) {         // 2.3: FROZEN - its own recording (clips, synth and effects in it)
+                    if (clipsOn && L.freezeSrc >= 0 && L.freezeSrc < (int) s.sources.size() && s.sources[(size_t) L.freezeSrc]) {
+                        auto& S = *s.sources[(size_t) L.freezeSrc]; long sl = S.size(); bool st = !S.r.empty();
+                        long a = std::max(t0, L.freezeAt), b = std::min(t0 + m, L.freezeAt + sl);
+                        for (long p = a; p < b; ++p) { long si = p - L.freezeAt; xL[p - t0] += S.l[(size_t) si]; xR[p - t0] += st ? S.r[(size_t) si] : S.l[(size_t) si]; }
+                    }
+                } else {
+                    if (clipsOn) {
+                        int act[16]; int na = 0;          // the clips sounding in this sub-block
+                        for (int ci = 0; ci < (int) s.clips.size() && na < 16; ++ci) {
+                            auto& c = s.clips[(size_t) ci];
+                            if (c.lane != li || c.isMidi() || c.muted || c.start >= t0 + m || c.start + c.length <= t0) continue;
+                            if (c.source < 0 || c.source >= (int) s.sources.size() || !s.sources[(size_t) c.source]) continue;
+                            act[na++] = ci;
+                        }
+                        for (int k = 0; k < na; ++k) {
+                            auto& c = s.clips[(size_t) act[k]];
+                            auto& S = *s.sources[(size_t) c.source];
+                            long sl = S.size(); if (sl <= 0) continue;
+                            bool st = !S.r.empty();
+                            // 2.3: AUTO-CROSSFADE - where it overlaps the end of an earlier clip it fades in as that one fades out
+                            long xinA = 0, xinB = 0, xoutA = 0, xoutB = 0; bool linIn = false, linOut = false;
+                            if (s.autoXfade) for (int j = 0; j < na; ++j) if (j != k) {
+                                auto& o = s.clips[(size_t) act[j]];
+                                bool later = c.start > o.start || (c.start == o.start && act[k] > act[j]);
+                                // the same sound continuing (a split moved back together): a straight fade sums to exactly 1
+                                bool cont = o.source == c.source && o.reverse == c.reverse && (o.offset - o.start) == (c.offset - c.start);
+                                if (later && c.start < o.end() && c.end() > o.end()) { xinA = c.start; xinB = o.end(); linIn = cont; }
+                                if (!later && o.start > c.start && o.start < c.end() && o.end() > c.end()) { xoutA = o.start; xoutB = c.end(); linOut = cont; }
+                            }
+                            float g = std::pow(10.0f, c.gainDb / 20.0f);
+                            long a = std::max(t0, c.start), b = std::min(t0 + m, c.start + c.length);
+                            for (long p = a; p < b; ++p) {
+                                long rel = p - c.start, si = rel + c.offset;
+                                if (c.loop) si = ((si % sl) + sl) % sl; else if (si >= sl || si < 0) continue;   // (a take may start later: silence before it)
+                                if (c.reverse) si = sl - 1 - si;
+                                float w = g;
+                                if (c.fadeIn > 1 && rel < c.fadeIn) w *= rel / c.fadeIn;
+                                long toEnd = c.start + c.length - p;
+                                if (c.fadeOut > 1 && toEnd < c.fadeOut) w *= toEnd / c.fadeOut;
+                                if (p >= xinA && p < xinB) { float f = (float) (p - xinA) / (float) (xinB - xinA); w *= linIn ? f : std::sin(f * 1.5707963f); }
+                                if (p >= xoutA && p < xoutB) { float f = (float) (p - xoutA) / (float) (xoutB - xoutA); w *= linOut ? 1.0f - f : std::cos(f * 1.5707963f); }
+                                xL[p - t0] += S.l[(size_t) si] * w;
+                                xR[p - t0] += (st ? S.r[(size_t) si] : S.l[(size_t) si]) * w;
+                            }
                         }
                     }
                     if (L.kind == LaneInstrument && lr.syn) laneSynth(s, L, li, lr, R, t0, m, xL, xR, clipsOn);
@@ -407,7 +444,7 @@ void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long
                     else if (A.param.size() > 3 && A.param[0] == 'd') { int di = std::atoi(A.param.c_str() + 1); auto pp = A.param.find('p'); int pk = pp != std::string::npos ? std::atoi(A.param.c_str() + pp + 1) : -1;
                         if (di >= 0 && di < nd && pk >= 0 && pk < 12) devs[di].p[(size_t) pk] = v; }
                 }
-                for (int k = 0; k < nd && k < (int) lr.dev.size(); ++k) lr.dev[(size_t) k].process(devs[k], xL, xR, m, s.bpm);
+                if (!L.frozen) for (int k = 0; k < nd && k < (int) lr.dev.size(); ++k) lr.dev[(size_t) k].process(devs[k], xL, xR, m, s.bpm);
                 bool silent = L.mute || (anySolo && L.kind != LaneReturn && !L.solo) || (onlyLane >= 0 && li != onlyLane && L.kind != LaneReturn);
                 if (silent) continue;
                 float g = std::pow(10.0f, vol / 20.0f);
@@ -470,7 +507,10 @@ bool Studio::matchRate(double newSr) {
     for (auto& c : copy.clips) {
         c.start = L(c.start); c.length = L(c.length); c.offset = L(c.offset); c.fadeIn *= (float) k; c.fadeOut *= (float) k; c.midiLen = L(c.midiLen);
         for (auto& nt : c.notes) { nt.start *= k; nt.len *= k; }
+        for (auto& t : c.takes) t.delta = L(t.delta);
     }
+    for (auto& ln : copy.lanes) ln.freezeAt = L(ln.freezeAt);
+    copy.punchStart = L(copy.punchStart); copy.punchEnd = L(copy.punchEnd);
     for (auto& ln : copy.lanes) for (auto& a : ln.autos) for (auto& pt : a.pts) pt.t *= k;
     for (auto& a : copy.masterAutos) for (auto& pt : a.pts) pt.t *= k;
     for (auto& m : copy.markers) m.pos = L(m.pos);
@@ -532,11 +572,12 @@ bool Studio::renderBlock(float* l, float* r, int n) {
         int done = 0;
         while (done < n) {
             int m = n - done;
-            if (song.loopOn && song.loopEnd > song.loopStart + 64 && !recording.load() && p < song.loopEnd) m = (int) std::min<long>(m, song.loopEnd - p);
+            bool loops = song.loopOn && song.loopEnd > song.loopStart + 64 && (!recording.load() || recLooped);   // 2.3: recording in the loop goes round
+            if (loops && p < song.loopEnd) m = (int) std::min<long>(m, song.loopEnd - p);
             const float* li2[64] = {}; for (int i = 0; i < 64; ++i) li2[i] = liveIn[i] ? liveIn[i] + done : nullptr;
             mix(song, rt, tl.data() + done, tr.data() + done, p, m, -1, li2, song.metronome || recording.load(), true);
             p += m; done += m;
-            if (song.loopOn && song.loopEnd > song.loopStart + 64 && !recording.load() && p >= song.loopEnd) p = song.loopStart;
+            if (loops && p >= song.loopEnd) p = song.loopStart;
         }
         if (!recording.load() && p > song.length() + (long) (song.sr * 2) && !song.loopOn && song.length() > 0) { playing = false; p = 0; }
         pos = p;
@@ -562,6 +603,10 @@ void Studio::startRecording() {
                 t->l.reserve((size_t) (song.sr * 120)); if (t->stereo) t->r.reserve((size_t) (song.sr * 120)); takes.push_back(std::move(t)); }
             if (L.kind == LaneInstrument && midiRec.lane < 0) { midiRec = MidiRec(); midiRec.lane = i; midiRec.startPos = pos.load(); }
         }
+        // 2.3: inside the loop region: it goes round, every pass a take (MIDI: the passes play together)
+        recLooped = song.loopOn && song.loopEnd > song.loopStart + (long) (song.sr * 0.25) && pos.load() < song.loopEnd;
+        recLoopStart = song.loopStart; recLoopEnd = song.loopEnd;
+        midiRec.looped = recLooped.load();
         prepareRuntime(rt, song);
     }
     if (song.countIn) countInLeft = (long) song.barLen();
@@ -619,33 +664,25 @@ void Studio::stopRecording() {
     const juce::ScopedLock sl(lock);
     int n = 0;
     for (auto& t : takes) {
-        if (t->l.size() < 256) continue;
+        if (t->l.size() < 256 || t->lane < 0 || t->lane >= (int) song.lanes.size()) continue;
         // the sound card's delay: what was played at time T arrives later - move it back
         long lat = std::min<long>(recordLatency, (long) t->l.size() - 64);
         std::vector<float> l(t->l.begin() + lat, t->l.end()), r;
         if (t->stereo) r.assign(t->r.begin() + lat, t->r.end());
-        auto& L = song.lanes[(size_t) t->lane];
-        song.sources.push_back(makeSource(L.name + " take " + juce::String(++n), std::move(l), std::move(r)));
-        StudioClip c; c.lane = t->lane; c.source = (int) song.sources.size() - 1; c.start = t->startPos; c.length = song.sources.back()->size(); c.loop = false;
-        c.fadeIn = c.fadeOut = (float) (0.003 * song.sr); c.name = "take " + juce::String(n);
-        // the new take covers what was there (like recording over a tape)
-        for (auto& o : song.clips) if (o.lane == c.lane && &o != &c && o.start < c.start + c.length && o.start + o.length > c.start) {
-            if (o.start >= c.start && o.start + o.length <= c.start + c.length) o.length = 0;        // fully covered: removed below
-            else if (o.start < c.start) o.length = c.start - o.start;                                  // keep the part before
-            else { long cut = c.start + c.length - o.start; o.offset += cut; o.start += cut; o.length -= cut; }
-        }
-        song.clips.erase(std::remove_if(song.clips.begin(), song.clips.end(), [](const StudioClip& x) { return x.length <= 0; }), song.clips.end());
-        song.clips.push_back(c);
-        lastRecordName = c.name;
+        int k = 1; for (auto& c : song.clips) k += c.lane == t->lane;
+        addTakeClip(t->lane, t->startPos, std::move(l), std::move(r), "take " + juce::String(k + n++));
     }
     takes.clear();
+    recLooped = false;
     // MIDI
     if (midiRec.lane >= 0) {
-        for (auto& kv : midiRec.open) { auto nt = kv.second; nt.len = std::max(64.0, (double) (pos.load() - midiRec.startPos) - nt.start); midiRec.notes.push_back(nt); }
+        long ref = midiRec.looped ? recLoopStart : midiRec.startPos;
+        for (auto& kv : midiRec.open) { auto nt = kv.second; nt.len = std::max(64.0, (double) (pos.load() - ref) - nt.start); midiRec.notes.push_back(nt); }
         if (!midiRec.notes.empty()) {
-            StudioClip c; c.lane = midiRec.lane; c.source = -1; c.start = midiRec.startPos; c.loop = false;
+            StudioClip c; c.lane = midiRec.lane; c.source = -1; c.start = ref; c.loop = false;
             double end = 0; for (auto& nt : midiRec.notes) end = std::max(end, nt.start + nt.len);
             long bars = (long) std::ceil(end / song.barLen()); c.length = c.midiLen = (long) (std::max(1L, bars) * song.barLen());
+            if (midiRec.looped) c.length = c.midiLen = recLoopEnd - recLoopStart;          // every pass in one clip (overdub)
             c.notes = midiRec.notes; c.name = "MIDI take";
             song.clips.push_back(c);
         }
@@ -673,9 +710,312 @@ void Studio::midiNote(int note, float vel, bool on) {
         keysUntil = juce::Time::getMillisecondCounter() + 4000;      // the synth rings on a little
     }
     if (!recording.load() || midiRec.lane < 0) return;
-    double t = (double) (pos.load() - midiRec.startPos);
+    double t = (double) (pos.load() - (midiRec.looped ? recLoopStart : midiRec.startPos));
+    if (t < 0) return;                                                    // (before the loop: the pre-roll)
     if (on) { StudioNote nt; nt.start = t; nt.pitch = note; nt.vel = vel; midiRec.open[note] = nt; }
     else { auto it = midiRec.open.find(note); if (it != midiRec.open.end()) { auto nt = it->second; nt.len = std::max(64.0, t - nt.start); midiRec.notes.push_back(nt); midiRec.open.erase(it); } }
+}
+
+// ------------------------------------------------------------------ 2.3 takes, punch (under the lock)
+void Studio::addTakeClip(int lane, long startPos, std::vector<float> l, std::vector<float> r, const juce::String& name) {
+    auto& L = song.lanes[(size_t) lane];
+    const bool st = !r.empty();
+    const long total = (long) l.size();
+    StudioClip c; c.lane = lane; c.loop = false; c.fadeIn = c.fadeOut = (float) (0.003 * song.sr); c.name = name;
+    const long Lp = recLoopEnd - recLoopStart;
+    if (recLooped.load() && Lp > 64 && startPos < recLoopEnd && total > recLoopEnd - startPos + (long) (0.05 * song.sr)) {
+        // it went round the loop: each pass a take of one clip on the loop region
+        const long first = recLoopEnd - startPos;                          // the first pass (with the pre-roll before the loop)
+        const int nPass = 1 + (int) ((total - first + Lp - 1) / Lp);
+        std::vector<StudioTake> mine; int active = 0;
+        for (int k = 0; k < nPass; ++k) {
+            long b0 = k == 0 ? std::max(0L, recLoopStart - startPos) : first + (long) (k - 1) * Lp;
+            long tl0 = k == 0 ? std::max(startPos, recLoopStart) : recLoopStart;
+            long have = std::min(total, k == 0 ? first : b0 + Lp) - b0;
+            if (have <= 0 || (have < (long) (0.25 * song.sr) && have < Lp / 4)) continue;      // a pass hardly begun: not a take
+            std::vector<float> pl((size_t) Lp, 0.0f), pr; if (st) pr.assign((size_t) Lp, 0.0f);
+            long dst = tl0 - recLoopStart;
+            for (long i = 0; i < have && dst + i < Lp; ++i) { pl[(size_t) (dst + i)] = l[(size_t) (b0 + i)]; if (st) pr[(size_t) (dst + i)] = r[(size_t) (b0 + i)]; }
+            song.sources.push_back(makeSource(L.name + " " + name + "." + juce::String(k + 1), std::move(pl), std::move(pr)));
+            mine.push_back({ (int) song.sources.size() - 1, 0, name + "." + juce::String((int) mine.size() + 1) });
+            if (have >= Lp * 9 / 10 || mine.size() == 1) active = (int) mine.size() - 1;         // the last whole pass plays
+        }
+        if (mine.empty()) return;
+        c.start = recLoopStart; c.length = Lp; c.source = mine[(size_t) active].source;
+        if (mine.size() > 1) { c.takes = mine; c.take = active; }
+    } else {
+        song.sources.push_back(makeSource(L.name + " " + name, std::move(l), std::move(r)));
+        c.source = (int) song.sources.size() - 1; c.start = startPos; c.length = total;
+    }
+    // PUNCH: only what falls between the punch points stays
+    if (song.punchOn && song.punchEnd > song.punchStart) {
+        long a = std::max(c.start, song.punchStart), b = std::min(c.end(), song.punchEnd);
+        if (b - a < 64) return;
+        c.offset += a - c.start; c.length = b - a; c.start = a;
+        c.fadeIn = c.fadeOut = (float) (0.005 * song.sr);
+    }
+    // what was there stays as earlier takes of the new clip (TAKES chooses), and is cut away where the new one plays
+    std::vector<StudioTake> older; std::vector<StudioClip> pieces;
+    for (auto& o : song.clips) if (o.lane == lane && !o.isMidi() && o.start < c.end() && o.end() > c.start) {
+        long ov = std::min(o.end(), c.end()) - std::max(o.start, c.start);
+        if (!o.loop && ov > (long) (0.1 * song.sr)) {
+            long offAtC = o.offset + (c.start - o.start);
+            if (o.takes.empty()) older.push_back({ o.source, offAtC - c.offset, o.name.isNotEmpty() ? o.name : juce::String("earlier") });
+            else for (auto& t : o.takes) older.push_back({ t.source, offAtC + t.delta - c.offset, t.name });
+        }
+        if (o.start >= c.start && o.end() <= c.end()) o.length = 0;                          // fully covered: removed below
+        else if (o.start < c.start && o.end() > c.end()) {                                     // the new one inside it: two pieces
+            StudioClip after = o; long cut = c.end() - o.start; after.offset += cut; after.start += cut; after.length -= cut;
+            o.length = c.start - o.start; pieces.push_back(after);
+        }
+        else if (o.start < c.start) o.length = c.start - o.start;                              // keep the part before
+        else { long cut = c.end() - o.start; o.offset += cut; o.start += cut; o.length -= cut; }
+    }
+    for (auto& x : pieces) song.clips.push_back(x);
+    song.clips.erase(std::remove_if(song.clips.begin(), song.clips.end(), [](const StudioClip& x) { return x.length <= 0; }), song.clips.end());
+    if (!older.empty()) {
+        if (c.takes.empty()) { c.takes.push_back({ c.source, 0, name }); c.take = 0; }
+        c.takes.insert(c.takes.begin(), older.begin(), older.end()); c.take += (int) older.size();
+    }
+    song.clips.push_back(c);
+    lastRecordName = c.name;
+}
+
+bool Studio::chooseTake(int ci, int t) {
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (ci < 0 || ci >= (int) song.clips.size()) return false;
+    auto& c = song.clips[(size_t) ci];
+    if (t < 0 || t >= (int) c.takes.size()) return false;
+    long d = c.takes[(size_t) t].delta;
+    for (auto& k : c.takes) k.delta -= d;                  // the chosen one at 0 again
+    c.offset += d; c.source = c.takes[(size_t) t].source; c.take = t;
+    return true;
+}
+
+bool Studio::deleteOtherTakes(int ci) {
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (ci < 0 || ci >= (int) song.clips.size()) return false;
+    song.clips[(size_t) ci].takes.clear(); song.clips[(size_t) ci].take = 0;
+    return true;
+}
+
+int Studio::explodeTakes(int ci) {
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (ci < 0 || ci >= (int) song.clips.size() || song.clips[(size_t) ci].takes.size() < 2) return -1;
+    auto c = song.clips[(size_t) ci];
+    int lane = c.lane, at = lane + 1, firstNew = -1;
+    for (int t = 0; t < (int) c.takes.size(); ++t) {
+        if (t == c.take) continue;
+        StudioLane L = song.lanes[(size_t) lane]; L.name = (c.takes[(size_t) t].name.isNotEmpty() ? c.takes[(size_t) t].name : "take " + juce::String(t + 1)).substring(0, 20).toUpperCase();
+        L.arm = false; L.solo = false; L.mute = true; L.autos.clear(); L.showAuto = -1; L.height = juce::jmax(46.0f, L.height * 0.7f); L.frozen = false;
+        song.lanes.insert(song.lanes.begin() + at, L);
+        laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1); laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
+        for (auto& o : song.clips) if (o.lane >= at) ++o.lane;
+        StudioClip n = c; n.lane = at; n.source = c.takes[(size_t) t].source; n.offset = c.offset + c.takes[(size_t) t].delta; n.takes.clear(); n.take = 0; n.name = c.takes[(size_t) t].name;
+        song.clips.push_back(n);
+        if (firstNew < 0) firstNew = at;
+        ++at;
+    }
+    for (auto& o : song.clips) if (o.lane == lane && o.start == c.start && o.source == c.source) { o.takes.clear(); o.take = 0; }
+    prepareRuntime(rt, song);
+    return firstNew;
+}
+
+// ------------------------------------------------------------------ 2.3 freeze
+bool Studio::freezeLane(int lane, juce::String& why) {
+    StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
+    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn) { why = "choose a track first"; return false; }
+    if (copy.lanes[(size_t) lane].frozen) return true;
+    long first = LONG_MAX, last = 0; for (auto& c : copy.clips) if (c.lane == lane) { first = std::min(first, c.start); last = std::max(last, c.end()); }
+    if (first == LONG_MAX) { why = "this track has nothing on it to freeze"; return false; }
+    juce::AudioBuffer<float> out;
+    if (!renderLaneAlone(copy, lane, first, last, out)) return false;
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    auto& L = song.lanes[(size_t) lane];
+    song.sources.push_back(makeSource(L.name + " (frozen)", std::vector<float>(out.getReadPointer(0), out.getReadPointer(0) + out.getNumSamples()),
+                                      std::vector<float>(out.getReadPointer(1), out.getReadPointer(1) + out.getNumSamples())));
+    L.frozen = true; L.freezeSrc = (int) song.sources.size() - 1; L.freezeAt = first; L.arm = false;
+    prepareRuntime(rt, song);
+    return true;
+}
+bool Studio::unfreezeLane(int lane) {
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (lane < 0 || lane >= (int) song.lanes.size() || !song.lanes[(size_t) lane].frozen) return false;
+    auto& L = song.lanes[(size_t) lane]; L.frozen = false; L.freezeSrc = -1;
+    prepareRuntime(rt, song);
+    return true;
+}
+
+// ------------------------------------------------------------------ 2.3 editing: ripple, time, clipboard, MIDI
+bool Studio::removeClips(std::vector<int> ids) {
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    std::sort(ids.begin(), ids.end()); ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    std::vector<StudioClip> gone; for (int i : ids) if (i >= 0 && i < (int) song.clips.size()) gone.push_back(song.clips[(size_t) i]);
+    for (auto it = ids.rbegin(); it != ids.rend(); ++it) if (*it >= 0 && *it < (int) song.clips.size()) song.clips.erase(song.clips.begin() + *it);
+    if (song.ripple > 0) {
+        // what comes after each removed clip moves left by its length (latest first, so the distances stay right)
+        std::sort(gone.begin(), gone.end(), [](const StudioClip& a, const StudioClip& b) { return a.start > b.start; });
+        for (auto& g : gone)
+            for (auto& c : song.clips) if ((song.ripple == 2 || c.lane == g.lane) && c.start >= g.end()) c.start -= g.length;
+        if (song.ripple == 2) for (auto& g : gone) for (auto& m : song.markers) if (m.pos >= g.end()) m.pos -= g.length;
+    }
+    return !gone.empty();
+}
+
+void Studio::removeTime(long a, long b) {
+    if (b <= a) return;
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    const long len = b - a;
+    std::vector<StudioClip> add;
+    for (auto& c : song.clips) {
+        if (c.end() <= a) continue;
+        if (c.start >= b) { c.start -= len; continue; }
+        if (c.start < a && c.end() > b) {                 // across it: the part after it joins the part before
+            StudioClip r = c; long cut = b - c.start; r.offset += cut; r.start = a; r.length = c.end() - b; r.fadeIn = (float) (0.002 * song.sr);
+            c.length = a - c.start; c.fadeOut = (float) (0.002 * song.sr); add.push_back(r);
+        } else if (c.start < a) { c.length = a - c.start; c.fadeOut = juce::jmin(c.fadeOut, (float) c.length * 0.5f); }
+        else if (c.end() > b) { long cut = b - c.start; c.offset += cut; c.length -= cut; c.start = a; c.fadeIn = juce::jmin(c.fadeIn, (float) c.length * 0.5f); }
+        else c.length = 0;
+    }
+    for (auto& r : add) song.clips.push_back(r);
+    song.clips.erase(std::remove_if(song.clips.begin(), song.clips.end(), [](const StudioClip& x) { return x.length <= 0; }), song.clips.end());
+    auto movePts = [&](std::vector<StudioAuto>& A) { for (auto& au : A) { std::vector<AutoPoint> k; for (auto p : au.pts) { if (p.t >= a && p.t < b) continue; if (p.t >= b) p.t -= len; k.push_back(p); } au.pts = k; } };
+    for (auto& L : song.lanes) { movePts(L.autos); if (L.frozen && L.freezeAt >= b) L.freezeAt -= len; }
+    movePts(song.masterAutos);
+    song.markers.erase(std::remove_if(song.markers.begin(), song.markers.end(), [&](const StudioMarker& m) { return m.pos >= a && m.pos < b; }), song.markers.end());
+    for (auto& m : song.markers) if (m.pos >= b) m.pos -= len;
+    auto mv = [&](long& p) { if (p >= b) p -= len; else if (p > a) p = a; };
+    mv(song.loopStart); mv(song.loopEnd); mv(song.punchStart); mv(song.punchEnd);
+}
+
+void Studio::insertTime(long at, long len) {
+    if (len <= 0) return;
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    std::vector<StudioClip> add;
+    for (auto& c : song.clips) {
+        if (c.start >= at) { c.start += len; continue; }
+        if (c.end() > at) { StudioClip r = c; long cut = at - c.start; r.offset += cut; r.start = at + len; r.length = c.end() - at; c.length = cut; add.push_back(r); }
+    }
+    for (auto& r : add) song.clips.push_back(r);
+    auto movePts = [&](std::vector<StudioAuto>& A) { for (auto& au : A) for (auto& p : au.pts) if (p.t >= at) p.t += len; };
+    for (auto& L : song.lanes) { movePts(L.autos); if (L.frozen && L.freezeAt >= at) L.freezeAt += len; }
+    movePts(song.masterAutos);
+    for (auto& m : song.markers) if (m.pos >= at) m.pos += len;
+    for (long* p : { &song.loopStart, &song.loopEnd, &song.punchStart, &song.punchEnd }) if (*p >= at) *p += len;
+}
+
+void Studio::copyClips(const std::vector<int>& ids) {
+    const juce::ScopedLock sl(lock);
+    clipboard.clear(); clipboardStart = LONG_MAX;
+    for (int i : ids) if (i >= 0 && i < (int) song.clips.size()) { clipboard.push_back(song.clips[(size_t) i]); clipboardStart = std::min(clipboardStart, song.clips[(size_t) i].start); }
+}
+
+std::vector<int> Studio::pasteClips(long at, int lane) {
+    std::vector<int> out;
+    if (clipboard.empty()) return out;
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    int top = INT_MAX; for (auto& c : clipboard) top = std::min(top, c.lane);
+    for (auto c : clipboard) {
+        if (!c.isMidi() && (c.source < 0 || c.source >= (int) song.sources.size())) continue;      // (from before an undo)
+        int nl = lane >= 0 ? c.lane - top + lane : c.lane;
+        auto fits = [&](int l) { return l >= 0 && l < (int) song.lanes.size() && song.lanes[(size_t) l].kind != LaneReturn && (song.lanes[(size_t) l].kind == LaneInstrument) == c.isMidi(); };
+        if (!fits(nl)) nl = c.lane;
+        if (!fits(nl)) continue;
+        c.lane = nl; c.start = std::max(0L, at + (c.start - clipboardStart));
+        for (auto& t : c.takes) if (t.source >= (int) song.sources.size()) { c.takes.clear(); c.take = 0; break; }
+        song.clips.push_back(c); out.push_back((int) song.clips.size() - 1);
+    }
+    return out;
+}
+
+void Studio::quantise(int ci, double q, float strength, bool ends) {
+    if (q < 16) return;
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (ci < 0 || ci >= (int) song.clips.size() || !song.clips[(size_t) ci].isMidi()) return;
+    auto& c = song.clips[(size_t) ci];
+    double zero = (double) (c.start - c.offset);          // the timeline position of the content's start: the grid is the song's
+    for (auto& n : c.notes) {
+        double abs = zero + n.start, end = abs + n.len;
+        double qs = std::round(abs / q) * q;
+        n.start = juce::jlimit(0.0, (double) juce::jmax(1L, c.midiLen) - 1, n.start + (qs - abs) * strength);
+        if (ends) { double qe = std::round(end / q) * q; if (qe <= qs) qe = qs + q; double ne = end + (qe - end) * strength; n.len = juce::jmax(q / 4, ne - (zero + n.start)); }
+    }
+    std::sort(c.notes.begin(), c.notes.end(), [](const StudioNote& a, const StudioNote& b) { return a.start < b.start; });
+}
+
+int Studio::importMidi(const juce::File& f, int lane, long at, juce::String& why) {
+    juce::FileInputStream in(f);
+    juce::MidiFile mf;
+    if (!in.openedOk() || !mf.readFrom(in)) { why = "not a MIDI file"; return -1; }
+    const short tf = mf.getTimeFormat();
+    double fileBpm = 0;
+    for (int t = 0; t < mf.getNumTracks() && fileBpm <= 0; ++t) for (auto* e : *mf.getTrack(t)) if (e->message.isTempoMetaEvent()) { fileBpm = 60.0 / e->message.getTempoSecondsPerQuarterNote(); break; }
+    if (tf <= 0) mf.convertTimestampTicksToSeconds();
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    if (song.clips.empty() && fileBpm > 20 && fileBpm < 400) song.bpm = std::round(fileBpm * 100) / 100;   // an empty song takes its tempo
+    ensureReturns();
+    auto toS = [&](double ts) { return tf > 0 ? ts / tf * song.beatLen() : ts * song.sr; };
+    int firstClip = -1, used = 0;
+    for (int t = 0; t < mf.getNumTracks(); ++t) {
+        juce::MidiMessageSequence seq(*mf.getTrack(t));
+        seq.updateMatchedPairs();
+        std::vector<StudioNote> notes; juce::String tname;
+        for (int i = 0; i < seq.getNumEvents(); ++i) {
+            auto& m = seq.getEventPointer(i)->message;
+            if (m.isTrackNameEvent() && tname.isEmpty()) tname = m.getTextFromTextMetaEvent();
+            if (!m.isNoteOn()) continue;
+            double on = toS(m.getTimeStamp()), off = on + song.beatLen() / 4;
+            if (auto* up = seq.getEventPointer(i)->noteOffObject) off = toS(up->message.getTimeStamp());
+            notes.push_back({ on, juce::jmax(64.0, off - on), m.getNoteNumber(), m.getFloatVelocity() });
+        }
+        if (notes.empty()) continue;
+        int li = (used == 0 && lane >= 0 && lane < (int) song.lanes.size() && song.lanes[(size_t) lane].kind == LaneInstrument) ? lane : -1;
+        if (li < 0) li = addLane(LaneInstrument, (tname.isNotEmpty() ? tname : f.getFileNameWithoutExtension()).substring(0, 16).toUpperCase());
+        double end = 0; for (auto& n : notes) end = std::max(end, n.start + n.len);
+        StudioClip c; c.lane = li; c.source = -1; c.start = std::max(0L, at); c.loop = false; c.notes = notes;
+        c.midiLen = c.length = (long) (std::max(1.0, std::ceil(end / song.barLen())) * song.barLen());
+        c.name = tname.isNotEmpty() ? tname : f.getFileNameWithoutExtension();
+        song.clips.push_back(c); if (firstClip < 0) firstClip = (int) song.clips.size() - 1;
+        ++used;
+    }
+    if (firstClip < 0) why = "the MIDI file has no notes";
+    prepareRuntime(rt, song);
+    return firstClip;
+}
+
+bool Studio::exportMidi(int ci, const juce::File& f) {
+    StudioClip c; double bl, bpm; int beats;
+    { const juce::ScopedLock sl(lock); if (ci < 0 || ci >= (int) song.clips.size() || !song.clips[(size_t) ci].isMidi()) return false; c = song.clips[(size_t) ci]; bl = song.beatLen(); bpm = song.bpm; beats = song.beats; }
+    const int ppq = 960;
+    juce::MidiMessageSequence seq;
+    seq.addEvent(juce::MidiMessage::tempoMetaEvent((int) std::lround(60000000.0 / bpm)), 0);
+    seq.addEvent(juce::MidiMessage::timeSignatureMetaEvent(beats, 4), 0);
+    seq.addEvent(juce::MidiMessage::textMetaEvent(3, c.name.isNotEmpty() ? c.name : juce::String("ARCO")), 0);
+    // as it plays: the content repeated (loop) and cut at the clip's ends
+    long reps = c.loop && c.midiLen > 0 ? (c.length + c.offset) / c.midiLen + 1 : 1;
+    for (long k = 0; k < reps; ++k) for (auto& n : c.notes) {
+        double on = n.start + (double) k * c.midiLen - c.offset, off = on + n.len;
+        if (on < 0 || on >= c.length) continue;
+        off = std::min(off, (double) c.length);
+        seq.addEvent(juce::MidiMessage::noteOn(1, n.pitch, juce::jlimit(0.01f, 1.0f, n.vel)), on / bl * ppq);
+        seq.addEvent(juce::MidiMessage::noteOff(1, n.pitch), off / bl * ppq);
+    }
+    seq.sort(); seq.updateMatchedPairs();
+    juce::MidiFile mf; mf.setTicksPerQuarterNote(ppq); mf.addTrack(seq);
+    f.deleteFile();
+    juce::FileOutputStream out(f);
+    return out.openedOk() && mf.writeTo(out);
 }
 
 // ------------------------------------------------------------------ export
@@ -760,16 +1100,21 @@ bool Studio::save(const juce::File& folder) {
     o->setProperty("sr", s.sr); o->setProperty("bpm", s.bpm); o->setProperty("beats", s.beats); o->setProperty("master", s.masterDb); o->setProperty("glue", s.glue);
     o->setProperty("loopOn", s.loopOn); o->setProperty("loopStart", (juce::int64) s.loopStart); o->setProperty("loopEnd", (juce::int64) s.loopEnd);
     o->setProperty("metronome", s.metronome); o->setProperty("countIn", s.countIn);
+    o->setProperty("punchOn", s.punchOn); o->setProperty("punchStart", (juce::int64) s.punchStart); o->setProperty("punchEnd", (juce::int64) s.punchEnd);
+    o->setProperty("autoXfade", s.autoXfade); o->setProperty("ripple", s.ripple);
     juce::Array<juce::var> srcs, clips, lanes, mk, mdev;
     for (auto& sp : s.sources) { auto* x = new juce::DynamicObject(); x->setProperty("name", sp ? sp->name : juce::String()); x->setProperty("id", sp ? sp->id : juce::String()); srcs.add(juce::var(x)); }
     for (auto& c : s.clips) { auto* x = new juce::DynamicObject(); x->setProperty("lane", c.lane); x->setProperty("source", c.source); x->setProperty("start", (juce::int64) c.start);
         x->setProperty("length", (juce::int64) c.length); x->setProperty("offset", (juce::int64) c.offset); x->setProperty("loop", c.loop); x->setProperty("gain", c.gainDb);
         x->setProperty("fin", c.fadeIn); x->setProperty("fout", c.fadeOut); x->setProperty("rev", c.reverse); x->setProperty("mute", c.muted); x->setProperty("name", c.name); x->setProperty("colour", c.colour);
+        if (!c.takes.empty()) { juce::Array<juce::var> tk; for (auto& t : c.takes) { auto* q = new juce::DynamicObject(); q->setProperty("s", t.source); q->setProperty("d", (juce::int64) t.delta); q->setProperty("n", t.name); tk.add(juce::var(q)); }
+            x->setProperty("takes", tk); x->setProperty("take", c.take); }
         if (c.isMidi()) { x->setProperty("midiLen", (juce::int64) c.midiLen); juce::Array<juce::var> ns; for (auto& n : c.notes) { ns.add(n.start); ns.add(n.len); ns.add(n.pitch); ns.add(n.vel); } x->setProperty("notes", ns); }
         clips.add(juce::var(x)); }
     for (size_t li = 0; li < s.lanes.size(); ++li) { auto& L = s.lanes[li]; auto* x = new juce::DynamicObject(); x->setProperty("name", L.name); x->setProperty("colour", L.colour); x->setProperty("kind", L.kind);
         x->setProperty("vol", L.vol); x->setProperty("pan", L.pan); x->setProperty("mute", L.mute); x->setProperty("solo", L.solo); x->setProperty("input", L.input);
         x->setProperty("sendA", L.sendA); x->setProperty("sendB", L.sendB); x->setProperty("height", L.height);
+        if (L.frozen) { x->setProperty("frozen", true); x->setProperty("freezeSrc", L.freezeSrc); x->setProperty("freezeAt", (juce::int64) L.freezeAt); }
         x->setProperty("strip", li < laneStrip.size() ? laneStrip[li] : -1);
         juce::Array<juce::var> dv; for (auto& d : L.devices) dv.add(devToVar(d)); x->setProperty("devices", dv);
         x->setProperty("autos", autosToVar(L.autos));
@@ -790,6 +1135,8 @@ bool Studio::load(const juce::File& folder) {
     s.sr = v.getProperty("sr", 48000.0); s.bpm = v.getProperty("bpm", 120.0); s.beats = v.getProperty("beats", 4); s.masterDb = v.getProperty("master", 0.0f); s.glue = v.getProperty("glue", 20.0f);
     s.loopOn = v.getProperty("loopOn", false); s.loopStart = (juce::int64) v.getProperty("loopStart", 0); s.loopEnd = (juce::int64) v.getProperty("loopEnd", 0);
     s.metronome = v.getProperty("metronome", false); s.countIn = v.getProperty("countIn", true);
+    s.punchOn = v.getProperty("punchOn", false); s.punchStart = (juce::int64) v.getProperty("punchStart", 0); s.punchEnd = (juce::int64) v.getProperty("punchEnd", 0);
+    s.autoXfade = v.getProperty("autoXfade", true); s.ripple = v.getProperty("ripple", 0);
     juce::AudioFormatManager fm; fm.registerBasicFormats();
     auto readWav = [&](const juce::File& f, const juce::String& name, const juce::String& id) {
         auto S = std::make_shared<StudioSource>(); S->name = name; S->id = id.isNotEmpty() ? id : juce::Uuid().toString().substring(0, 12);
@@ -806,10 +1153,12 @@ bool Studio::load(const juce::File& folder) {
     if (auto* a = v["clips"].getArray()) for (auto& x : *a) { StudioClip c; c.lane = x["lane"]; c.source = x["source"]; c.start = (juce::int64) x["start"]; c.length = (juce::int64) x["length"];
         c.offset = (juce::int64) x["offset"]; c.loop = x["loop"]; c.gainDb = x["gain"]; c.fadeIn = x["fin"]; c.fadeOut = x["fout"]; c.reverse = x.getProperty("rev", false); c.muted = x.getProperty("mute", false);
         c.name = x.getProperty("name", "").toString(); c.colour = x.getProperty("colour", -1);
+        if (auto* tk = x["takes"].getArray()) { for (auto& q : *tk) c.takes.push_back({ (int) q["s"], (long) (juce::int64) q["d"], q["n"].toString() }); c.take = juce::jlimit(0, juce::jmax(0, (int) c.takes.size() - 1), (int) x.getProperty("take", 0)); }
         if (c.source < 0) { c.midiLen = (juce::int64) x.getProperty("midiLen", 0); if (auto* ns = x["notes"].getArray()) for (int i = 0; i + 3 < ns->size(); i += 4) c.notes.push_back({ (double) (*ns)[i], (double) (*ns)[i + 1], (int) (*ns)[i + 2], (float) (*ns)[i + 3] }); }
         s.clips.push_back(c); }
     if (auto* a = v["lanes"].getArray()) for (auto& x : *a) { StudioLane L; L.name = x["name"].toString(); L.colour = x["colour"]; L.kind = x.getProperty("kind", 0); L.vol = x["vol"]; L.pan = x["pan"];
-        L.mute = x["mute"]; L.solo = x["solo"]; L.input = x.getProperty("input", 0); L.sendA = x.getProperty("sendA", 0.0f); L.sendB = x.getProperty("sendB", 0.0f); L.height = x.getProperty("height", 74.0f);
+        L.mute = x["mute"]; L.solo = x["solo"]; L.input = x.getProperty("input", 0);
+        L.frozen = x.getProperty("frozen", false); L.freezeSrc = x.getProperty("freezeSrc", -1); L.freezeAt = (juce::int64) x.getProperty("freezeAt", 0); L.sendA = x.getProperty("sendA", 0.0f); L.sendB = x.getProperty("sendB", 0.0f); L.height = x.getProperty("height", 74.0f);
         if (auto* dv = x["devices"].getArray()) for (auto& d : *dv) L.devices.push_back(devFromVar(d));
         L.autos = autosFromVar(x["autos"]);
         if (auto* sy = x["synth"].getDynamicObject()) for (auto& p : sy->getProperties()) L.synth[p.name.toString().toStdString()] = (float) p.value;

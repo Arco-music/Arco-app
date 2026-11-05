@@ -335,6 +335,154 @@ inline int runStudioCheck(AudioHost& h) {
         check(q > 60, "  what you hear is the song, exactly (dB of difference)", q);
         delete mc;
     }
+    // ---------------------------------------------------------------- 8 a full DAW: takes, comping, punch, crossfades, freeze, ripple, time, clipboard, MIDI
+    say("== 8. takes, comping, punch, crossfades, freeze, ripple, time, copy / paste, MIDI files");
+    auto peakOf = [](const StudioSource& src, long a, long b) { float pk = 0; for (long i = juce::jmax(0L, a); i < juce::jmin(b, src.size()); ++i) pk = juce::jmax(pk, std::abs(src.l[(size_t) i])); return pk; };
+    auto peakOut = [](const juce::AudioBuffer<float>& b, long a, long e) { float pk = 0; for (long i = juce::jmax(0L, a); i < juce::jmin(e, (long) b.getNumSamples()); ++i) pk = juce::jmax(pk, std::abs(b.getSample(0, (int) i))); return pk; };
+    {   // loop recording: every pass a take; the last whole one plays; another chosen
+        fresh();
+        int li = S.addLane(LaneAudio, "LOOPREC"); S.song.lanes[(size_t) li].input = 1; S.song.lanes[(size_t) li].arm = true; S.song.lanes[(size_t) li].vol = 0;
+        S.song.bpm = 120; S.song.loopOn = true; S.song.loopStart = 0; S.song.loopEnd = (long) S.song.barLen();
+        S.collectRecordings(); S.pos = 0; S.play(); S.startRecording();
+        double bar = S.song.barLen() / sr;
+        inAmp = 0.2f; run(bar); inAmp = 0.4f; run(bar); inAmp = 0.6f; run(bar * 0.5);
+        inAmp = 0; S.stopRecording(); S.stop();
+        const StudioClip* c = nullptr; for (auto& x : S.song.clips) if (x.lane == li) c = &x;
+        bool ok = c != nullptr && c->takes.size() == 3 && c->start == 0 && c->length == S.song.loopEnd;
+        float a0 = ok ? peakOf(*S.song.sources[(size_t) c->takes[0].source], 2000, (long) (sr * bar) - 2000) : 0;
+        float a1 = ok ? peakOf(*S.song.sources[(size_t) c->takes[1].source], 2000, (long) (sr * bar) - 2000) : 0;
+        float a2 = ok ? peakOf(*S.song.sources[(size_t) c->takes[2].source], 2000, (long) (sr * bar * 0.4)) : 0;
+        check(ok && std::abs(a0 - 0.2f) < 0.03f && std::abs(a1 - 0.4f) < 0.03f && std::abs(a2 - 0.6f) < 0.03f, "loop recording: 3 passes = 3 takes of one clip, each its own sound", c ? (double) c->takes.size() : 0.0);
+        check(ok && c->take == 1, "  the last whole pass plays (take 2)", ok ? c->take + 1 : 0);
+        int ci = (int) (c - S.song.clips.data());
+        S.chooseTake(ci, 2);
+        juce::AudioBuffer<float> out; render(out);
+        float pk = peakOut(out, (long) (0.1 * sr), (long) (0.4 * bar * sr));
+        check(std::abs(pk - 0.6f) < 0.04f, "  take 3 chosen: it is what plays", pk);
+        S.undo(); render(out); pk = peakOut(out, (long) (0.1 * sr), (long) (0.4 * bar * sr));
+        check(std::abs(pk - 0.4f) < 0.04f, "  UNDO: take 2 again", pk);
+    }
+    {   // recording over a clip: the old one becomes a take; comping: split, a take for each piece
+        fresh();
+        auto b = sine(220.0, 3.0, 48000, 0.5f, 1);
+        auto p = plan(writeTestFile(dir, "old.wav", b, 48000)); juce::String why;
+        int ci = S.importAudio(p, -1, 0, false, why); int li = S.song.clips[(size_t) ci].lane;
+        juce::AudioBuffer<float> before; render(before);
+        S.song.lanes[(size_t) li].input = 1; S.song.lanes[(size_t) li].arm = true; S.song.loopOn = false;
+        S.collectRecordings(); S.pos = (long) (0.5 * sr); S.play(); S.startRecording(); inAmp = 0.3f; run(2.0); inAmp = 0; S.stopRecording(); S.stop();
+        int nc = -1; for (int i = 0; i < (int) S.song.clips.size(); ++i) if (S.song.clips[(size_t) i].takes.size() == 2) nc = i;
+        check(nc >= 0 && S.song.clips[(size_t) nc].take == 1, "recording over a clip: the old sound is kept as take 1 of the new clip", nc >= 0 ? (double) S.song.clips[(size_t) nc].takes.size() : 0.0);
+        if (nc >= 0) {
+            S.chooseTake(nc, 0);
+            juce::AudioBuffer<float> out; render(out);
+            long a = (long) (0.6 * sr), n = (long) (1.8 * sr);
+            double q = snr(before.getReadPointer(0) + a, out.getReadPointer(0) + a, (int) n);
+            check(q > 60, "  take 1 chosen: the old sound plays exactly as before (dB of difference)", q);
+            // comp: split the clip in two, the second half takes the new take
+            { const juce::ScopedLock sl(S.lock); auto& c = S.song.clips[(size_t) nc]; StudioClip r = c; long half = c.length / 2; c.length = half; r.start += half; r.offset += half; r.length -= half; S.song.clips.push_back(r); }
+            S.chooseTake((int) S.song.clips.size() - 1, 1);
+            render(out);
+            float firstPk = peakOut(out, (long) (0.6 * sr), (long) (1.4 * sr)), secondPk = peakOut(out, (long) (1.6 * sr), (long) (2.4 * sr));
+            check(std::abs(firstPk - 0.5f) < 0.04f && std::abs(secondPk - 0.3f) < 0.04f, "  comping: split, the first half the old take, the second the new", secondPk);
+        }
+    }
+    {   // punch: only what falls between the punch points
+        fresh();
+        int li = S.addLane(LaneAudio, "PUNCH"); S.song.lanes[(size_t) li].input = 1; S.song.lanes[(size_t) li].arm = true;
+        S.song.punchOn = true; S.song.punchStart = (long) (1.0 * sr); S.song.punchEnd = (long) (1.5 * sr);
+        S.collectRecordings(); S.pos = 0; S.play(); S.startRecording(); inAmp = 0.3f; run(2.2); inAmp = 0; S.stopRecording(); S.stop();
+        const StudioClip* c = nullptr; for (auto& x : S.song.clips) if (x.lane == li) c = &x;
+        check(c != nullptr && std::abs(c->start - (long) sr) < 2 && std::abs(c->length - (long) (0.5 * sr)) < 2, "PUNCH: the take starts and ends on the punch points", c ? c->length / sr : 0.0);
+    }
+    {   // crossfades
+        fresh();
+        auto b = sine(440.0, 3.0, 48000, 0.5f, 1);
+        auto p = plan(writeTestFile(dir, "xf.wav", b, 48000)); juce::String why;
+        int ci = S.importAudio(p, -1, 0, false, why);
+        { const juce::ScopedLock sl(S.lock); auto& a = S.song.clips[(size_t) ci]; a.length = (long) sr; a.fadeOut = 0; StudioClip c2 = a; c2.start = (long) (0.8 * sr); c2.offset = (long) (0.8 * sr); c2.length = (long) sr; c2.fadeIn = 0; S.song.clips.push_back(c2); }
+        juce::AudioBuffer<float> out; render(out);
+        float pk = peakOut(out, (long) (0.8 * sr), (long) sr);
+        double jump = 0; for (long i = (long) (0.79 * sr); i < (long) (1.01 * sr); ++i) jump = juce::jmax(jump, (double) std::abs(out.getSample(0, (int) i) - out.getSample(0, (int) i - 1)));
+        S.song.autoXfade = false; juce::AudioBuffer<float> raw; render(raw); float pkRaw = peakOut(raw, (long) (0.8 * sr), (long) sr); S.song.autoXfade = true;
+        check(std::abs(pk - 0.5f) < 0.01f && pkRaw > 0.95f, "AUTO-CROSSFADE: the same sound overlapped - seamless, its own level (not doubled)", pk);
+        { const juce::ScopedLock sl(S.lock); S.song.clips.back().offset = (long) (0.8 * sr) + 37; }       // a different place in the sound: equal power
+        juce::AudioBuffer<float> o2; render(o2); float pk2 = peakOut(o2, (long) (0.8 * sr), (long) sr);
+        check(pk2 < 0.72f && pk2 > 0.45f, "  two different sounds: an equal-power crossfade", pk2);
+        { const juce::ScopedLock sl(S.lock); S.song.clips.back().offset = (long) (0.8 * sr); }
+        check(jump < 0.05, "  no click anywhere across it (largest step)", jump);
+    }
+    {   // freeze: the same sound, from a recording of itself; unfreeze: as before
+        fresh();
+        auto b = makeGroove({ 100, 2, 4, 48000, 1, 0, 0, false }, 5); b.applyGain(0.5f / b.getMagnitude(0, b.getNumSamples()));
+        auto p = plan(writeTestFile(dir, "fz.wav", b, 48000)); juce::String why;
+        int ci = S.importAudio(p, -1, 0, false, why); int lane = S.song.clips[(size_t) ci].lane;
+        S.addChain(lane, 3); S.song.lanes[(size_t) lane].vol = -2; S.song.lanes[(size_t) lane].sendA = 0.2f;
+        int il = S.addLane(LaneInstrument, "SYN"); StudioClip mc; mc.lane = il; mc.source = -1; mc.start = 0; mc.length = (long) (sr * 2); mc.midiLen = mc.length; mc.notes.push_back({ 0.0, sr * 1.2, 64, 0.8f }); S.song.clips.push_back(mc); S.refresh();
+        juce::AudioBuffer<float> before; render(before);
+        bool f1 = S.freezeLane(lane, why), f2 = S.freezeLane(il, why);
+        juce::AudioBuffer<float> after; render(after);
+        int n = juce::jmin(before.getNumSamples(), after.getNumSamples()) - 400;
+        double q = snr(before.getReadPointer(0) + 200, after.getReadPointer(0) + 200, n);
+        check(f1 && f2 && S.song.lanes[(size_t) lane].frozen && q > 50, "FREEZE (audio with effects + a synth): it sounds the same (dB of difference)", q);
+        S.unfreezeLane(lane); S.unfreezeLane(il);
+        juce::AudioBuffer<float> back; render(back);
+        double q2 = snr(before.getReadPointer(0) + 200, back.getReadPointer(0) + 200, n);
+        check(!S.song.lanes[(size_t) lane].frozen && q2 > 50, "  UNFREEZE: its clips, synth and effects play again, the same", q2);
+    }
+    {   // ripple, time, copy / paste
+        fresh();
+        auto b = sine(330.0, 1.0, 48000, 0.4f, 1);
+        auto p = plan(writeTestFile(dir, "rp.wav", b, 48000)); juce::String why;
+        int c0 = S.importAudio(p, -1, 0, false, why); int lane = S.song.clips[(size_t) c0].lane;
+        S.importAudio(p, lane, (long) sr, false, why); S.importAudio(p, lane, (long) (2 * sr), false, why);
+        S.song.ripple = 0; S.removeClips({ 1 });
+        bool stay = S.song.clips.size() == 2 && S.song.clips[1].start == (long) (2 * sr);
+        S.undo(); S.song.ripple = 1; S.removeClips({ 1 });
+        bool moved = S.song.clips.size() == 2 && S.song.clips[1].start == (long) sr;
+        check(stay && moved, "RIPPLE: off - nothing moves; on - what is after the deleted clip moves left", moved);
+        S.undo(); S.song.ripple = 0;
+        S.removeTime((long) (0.5 * sr), (long) (1.5 * sr));
+        long ends = 0; for (auto& c : S.song.clips) ends = juce::jmax(ends, c.end());
+        check(ends == (long) (2 * sr) && S.song.clips.size() == 3, "  delete a stretch of time: the song is that much shorter, clips cut", ends / sr);
+        S.insertTime((long) (0.5 * sr), (long) sr);
+        ends = 0; for (auto& c : S.song.clips) ends = juce::jmax(ends, c.end());
+        check(ends == (long) (3 * sr), "  insert silence: the song is longer again", ends / sr);
+        S.copyClips({ 0 }); auto got = S.pasteClips((long) (5 * sr), lane);
+        check(got.size() == 1 && S.song.clips.back().start == (long) (5 * sr) && S.song.clips.back().source == S.song.clips[0].source, "  copy / paste: the clip again, at the playhead", (double) got.size());
+    }
+    {   // MIDI: quantise, a file out and back in
+        fresh();
+        S.song.bpm = 120;
+        int il = S.addLane(LaneInstrument, "KEYS");
+        StudioClip mc; mc.lane = il; mc.source = -1; mc.start = 0; mc.midiLen = mc.length = (long) S.song.barLen(); mc.name = "riff";
+        double bt = S.song.beatLen();
+        mc.notes = { { bt * 0.03, bt * 0.5, 60, 0.8f }, { bt * 1.1, bt * 0.4, 64, 0.6f }, { bt * 1.96, bt * 0.9, 67, 0.7f } };
+        S.song.clips.push_back(mc); int ci = (int) S.song.clips.size() - 1;
+        S.quantise(ci, bt, 1.0f, false);
+        bool qOk = true; for (auto& n : S.song.clips[(size_t) ci].notes) qOk &= std::abs(std::fmod(n.start, bt)) < 1e-6 || std::abs(std::fmod(n.start, bt) - bt) < 1e-6;
+        check(qOk, "QUANTISE: every note on the beat", qOk);
+        auto mf = dir.getChildFile("riff.mid");
+        bool wr = S.exportMidi(ci, mf);
+        juce::String why; int back = S.importMidi(mf, -1, (long) S.song.barLen(), why);
+        bool same = back >= 0 && S.song.clips[(size_t) back].notes.size() == 3;
+        if (same) for (int i = 0; i < 3; ++i) { auto& a = S.song.clips[(size_t) ci].notes[(size_t) i]; auto& b2 = S.song.clips[(size_t) back].notes[(size_t) i];
+            same &= a.pitch == b2.pitch && std::abs(a.start - b2.start) < 30 && std::abs(a.len - b2.len) < 30 && std::abs(a.vel - b2.vel) < 0.02f; }
+        check(wr && same, "a MIDI file: saved and opened again, the same notes", back >= 0 ? (double) S.song.clips[(size_t) back].notes.size() : 0.0);
+    }
+    {   // all of it saved and opened
+        fresh();
+        auto b = sine(330.0, 1.0, 48000, 0.4f, 1);
+        auto p = plan(writeTestFile(dir, "sv.wav", b, 48000)); juce::String why;
+        int ci = S.importAudio(p, -1, 0, false, why); int lane = S.song.clips[(size_t) ci].lane;
+        { const juce::ScopedLock sl(S.lock); auto& c = S.song.clips[(size_t) ci]; c.takes = { { c.source, 0, "a" }, { c.source, 100, "b" } }; c.take = 0; }
+        S.chooseTake(ci, 1); S.freezeLane(lane, why);
+        S.song.punchOn = true; S.song.punchStart = 1000; S.song.punchEnd = 50000; S.song.ripple = 2; S.song.autoXfade = false;
+        auto folder = dir.getChildFile("song23"); folder.createDirectory();
+        bool sv = S.save(folder); fresh(); bool ld = S.load(folder);
+        bool same = ld && S.song.clips.size() == 1 && S.song.clips[0].takes.size() == 2 && S.song.clips[0].take == 1 && S.song.lanes[(size_t) lane].frozen
+                    && S.song.punchOn && S.song.punchEnd == 50000 && S.song.ripple == 2 && !S.song.autoXfade;
+        check(sv && same, "save and open: takes, the take playing, freeze, punch, ripple, crossfades", same);
+    }
     say("studio check: %d of %d failed", fails, total);
     fresh();
     dir.deleteRecursively();

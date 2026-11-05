@@ -29,6 +29,9 @@ struct StudioSource {                               // audio at the studio rate;
 using SourcePtr = std::shared_ptr<const StudioSource>;
 
 struct StudioNote { double start = 0, len = 0; int pitch = 60; float vel = 0.8f; };   // samples, from the clip's content start
+// 2.3: TAKES - every pass of a recording kept in the clip; one plays. `delta`: where this take's sound sits against the
+// one playing now (0 for the playing one), so trimming, moving and splitting keep them all in line (comping: split, choose)
+struct StudioTake { int source = -1; long delta = 0; juce::String name; };
 struct StudioClip {
     int lane = 0, source = -1;                      // source: an audio source; -1 = a MIDI clip (notes)
     long start = 0, length = 0;                     // on the timeline (samples)
@@ -38,7 +41,10 @@ struct StudioClip {
     bool reverse = false, muted = false;
     juce::String name; int colour = -1;
     std::vector<StudioNote> notes; long midiLen = 0; // MIDI: the notes and the length of the content (bars)
+    std::vector<StudioTake> takes;                  // 2.3: empty = one take; else every take, `take` the one playing
+    int take = 0;
     bool isMidi() const { return source < 0; }
+    long end() const { return start + length; }
 };
 struct AutoPoint { double t = 0; float v = 0; };
 struct StudioAuto { std::string param; std::vector<AutoPoint> pts; };   // "vol", "pan", "sendA", "sendB", "d<i>p<k>"
@@ -53,6 +59,9 @@ struct StudioLane {
     std::vector<StudioAuto> autos;
     std::map<std::string, float> synth;             // INSTRUMENT: its SYNTH 2 sound (parameter -> value)
     int showAuto = -1;                              // which automation is shown under the lane (-1 none)
+    // 2.3: FREEZE - the lane played from a recording of itself (its clips, synth and effects rendered once): light to
+    // play, nothing lost (UNFREEZE brings it all back). Its volume, pan, sends and automation of them still work
+    bool frozen = false; int freezeSrc = -1; long freezeAt = 0;
     float height = 74;
     // 1.2 songs: the simple EQ / compressor become devices when opened
     float lo = 0, mid = 0, hi = 0, midHz = 1000, comp = 0, hp = 0;
@@ -69,6 +78,11 @@ struct StudioSong {
     bool loopOn = false; long loopStart = 0, loopEnd = 0;
     bool metronome = false; bool countIn = true;
     std::vector<StudioMarker> markers;
+    // 2.3: PUNCH - recording keeps only what falls between these; AUTO-CROSSFADE where two clips overlap on a lane;
+    // RIPPLE - deleting a clip / time pulls what comes after it to the left (0 off, 1 that lane, 2 every lane)
+    bool punchOn = false; long punchStart = 0, punchEnd = 0;
+    bool autoXfade = true;
+    int ripple = 0;
     long length() const { long l = 0; for (auto& c : clips) l = std::max(l, c.start + c.length); return l; }
     double barLen() const { return 60.0 / bpm * beats * sr; }
     double beatLen() const { return 60.0 / bpm * sr; }
@@ -122,6 +136,21 @@ public:
     void input(const float* const* in, int numIn, const float* live[4], const float* mixL, const float* mixR, int n);   // audio thread: what can be recorded
     void collectRecordings();                                           // message thread, often: the recorded audio into clips
     long recordLatency = 0;                                              // samples the recording is moved earlier (the sound card's delay)
+    // ---- 2.3 editing like a full DAW (message thread; each one takes an undo step itself)
+    bool chooseTake(int clip, int take);            // the take that plays (others kept)
+    int explodeTakes(int clip);                     // every take on a lane of its own under it (returns the first new lane)
+    bool deleteOtherTakes(int clip);
+    bool freezeLane(int lane, juce::String& why);
+    bool unfreezeLane(int lane);
+    bool removeClips(std::vector<int> clips);       // with RIPPLE as set
+    void removeTime(long a, long b);                // the time between a and b gone on every lane (clips cut, after pulled left)
+    void insertTime(long at, long len);             // silence inserted (what is after moves right)
+    std::vector<StudioClip> clipboard; long clipboardStart = 0;
+    void copyClips(const std::vector<int>& clips);
+    std::vector<int> pasteClips(long at, int lane); // the first copied clip's lane goes to `lane` (the others keep their distance)
+    void quantise(int clip, double grid, float strength, bool ends);   // grid in samples
+    int importMidi(const juce::File& f, int lane, long at, juce::String& why);   // returns the first new clip
+    bool exportMidi(int clip, const juce::File& f);
     // MIDI from the keyboard (recorded into an armed INSTRUMENT lane, and heard on it)
     void midiNote(int note, float vel, bool on);
     // export (any thread)
@@ -174,7 +203,10 @@ private:
     struct Take { int lane = -1; long startPos = 0; std::vector<float> l, r; juce::AbstractFifo fifo { 1 << 17 }; std::vector<float> fl, fr; bool stereo = false; };
     std::vector<std::unique_ptr<Take>> takes;        // one per armed lane while recording
     juce::CriticalSection takeLock;
-    struct MidiRec { int lane = -1; long startPos = 0; std::vector<StudioNote> notes; std::map<int, StudioNote> open; };
+    struct MidiRec { int lane = -1; long startPos = 0; bool looped = false; std::vector<StudioNote> notes; std::map<int, StudioNote> open; };
+    std::atomic<bool> recLooped { false }; long recLoopStart = 0, recLoopEnd = 0;      // 2.3: recording inside the loop - every pass a take
+    void addTakeClip(int lane, long startPos, std::vector<float> l, std::vector<float> r, const juce::String& name);
+    bool renderLaneAlone(const StudioSong& copy, int lane, long first, long last, juce::AudioBuffer<float>& out);
     MidiRec midiRec;
     std::atomic<int> liveNotes[128] {};              // keyboard notes heard on the armed instrument lane (audio thread plays them)
     std::atomic<int> liveVel[128] {};

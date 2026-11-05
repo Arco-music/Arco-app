@@ -71,7 +71,7 @@ private:
     std::vector<int> selClips;                   // more clips (shift-click)
     enum Detail { DClip, DLane, DMaster } detail = DLane;
     // ---- dragging
-    enum Drag { None, Move, TrimL, TrimR, FadeIn, FadeOut, Seek, LoopMake, LoopMove, Vol, AutoPt, NoteMove, NoteLen, NoteVel, Browser, ScrollV, Split, Resize };
+    enum Drag { None, Move, TrimL, TrimR, FadeIn, FadeOut, Seek, LoopMake, LoopMove, PunchMake, Vol, AutoPt, NoteMove, NoteLen, NoteVel, Browser, ScrollV, Split, Resize };
     Drag drag = None; juce::Point<float> downAt;
     long dragStart = 0, dragLen = 0, dragOff = 0; float dragFade = 0; int dragLane = 0, dragPt = -1, dragNote = -1; double dragNoteStart = 0, dragNoteLen = 0; int dragPitch = 0; float dragVel = 0;
     std::vector<std::pair<int, long>> dragGroup;  // other chosen clips: index, start
@@ -118,6 +118,15 @@ private:
     void doExport();
     void rename(int li);
     void newMidiClip(int li, long at);
+    // 2.3
+    void editMenu();                             // cut / copy / paste, time, ripple, crossfades, punch, MIDI files
+    void takesMenu(int ci);
+    void quantiseMenu();
+    void togglePunch();
+    void copySel(bool cut);
+    void paste();
+    void importMidiFiles(const juce::StringArray& files, int lane, long at);
+    std::vector<int> chosenClips() const { auto a = selClips; if (selClip >= 0 && std::find(a.begin(), a.end(), selClip) == a.end()) a.push_back(selClip); return a; }
     // ---- jobs on the thread
     enum Job { JNone, JExport, JStems, JPrint, JTranspose } job = JNone;
     int jobLane = 0, jobClip = -1; double jobSemis = 0; std::atomic<float> progress { 0 }; std::atomic<bool> jobDone { false };
