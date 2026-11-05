@@ -95,6 +95,15 @@ void PhoneRemote::text(juce::Graphics& g, const juce::String& t, juce::Rectangle
 }
 void PhoneRemote::button(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, juce::Colour c, std::function<void()> tap, float fs, bool scrolls) {
     bool down = active >= 0 && active < (int) ctls.size() && ctls[(size_t) active].r == r && !dragging;
+    if (Theme::softUI()) {          // 2.2: the station's silicone keys - plain keys raised, a key that is on pressed in and lit
+        bool plain = c == Theme::btn() || c == Theme::card() || c == Theme::card2() || c == Theme::bg();
+        float rad = juce::jmin(r.getHeight() * 0.5f, 22.0f * u);
+        softKeyLite(g, r, rad, down || !plain, c, plain ? 0.0f : 0.85f);
+        g.setColour(plain ? Theme::txt() : Theme::ink(c)); g.setFont(Theme::font((fs > 0 ? fs : 11.0f) * u, 2));
+        g.drawFittedText(t, r.toNearestInt().reduced(4, 0), juce::Justification::centred, 2, 0.75f);
+        ctls.push_back({ r, 0, {}, 0, 0, std::move(tap), scrolls });
+        return;
+    }
     auto col = down ? c.darker(0.2f) : c;
     g.setColour(col); g.fillRoundedRectangle(r, 10.0f * u);
     g.setColour(Theme::textOn(col)); g.setFont(Theme::font((fs > 0 ? fs : 11.0f) * u, 2));
@@ -104,10 +113,18 @@ void PhoneRemote::button(juce::Graphics& g, juce::Rectangle<float> r, const juce
 void PhoneRemote::slider(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& label, const std::string& id, juce::Colour c, bool scrolls) {
     auto* d = RemoteState::defOf(id); if (d == nullptr) return;
     double v = st.par(id), t = (v - d->lo) / juce::jmax(1e-9, d->hi - d->lo);
-    g.setColour(Theme::card2()); g.fillRoundedRectangle(r, r.getHeight() * 0.3f);
     float zero = d->lo < 0 && d->hi > 0 ? (float) (-d->lo / (d->hi - d->lo)) : 0.0f;
     float a = juce::jmin(zero, (float) t), b = juce::jmax(zero, (float) t);
-    g.setColour(Theme::arc(c).withAlpha(0.9f)); g.fillRoundedRectangle(r.withX(r.getX() + r.getWidth() * a).withWidth(juce::jmax(r.getHeight() * 0.3f, r.getWidth() * (b - a))), r.getHeight() * 0.3f);
+    if (Theme::softUI()) {          // a groove in the skin, the value lit inside it
+        float rad = r.getHeight() * 0.5f;
+        softWellLite(g, r, rad);
+        auto in = r.reduced(3.0f * u);
+        auto f = in.withX(in.getX() + in.getWidth() * a).withWidth(juce::jmax(in.getHeight(), in.getWidth() * (b - a)));
+        g.setColour(c.withAlpha(Theme::lightMode() ? 0.55f : 0.45f)); g.fillRoundedRectangle(f, in.getHeight() * 0.5f);
+    } else {
+        g.setColour(Theme::card2()); g.fillRoundedRectangle(r, r.getHeight() * 0.3f);
+        g.setColour(Theme::arc(c).withAlpha(0.9f)); g.fillRoundedRectangle(r.withX(r.getX() + r.getWidth() * a).withWidth(juce::jmax(r.getHeight() * 0.3f, r.getWidth() * (b - a))), r.getHeight() * 0.3f);
+    }
     text(g, label, r.reduced(12 * u, 0), 9.5f, Theme::txt(), 2);
     juce::String vs = d->kind == 1 ? (v > 0.5 ? "ON" : "OFF") : juce::String((int) std::round(v));
     text(g, vs, r.reduced(12 * u, 0), 9.5f, Theme::txt(), 1, juce::Justification::centredRight);
@@ -118,7 +135,7 @@ static const char* STATE[11] = { "empty", "waiting", "recording", "playing", "ar
 
 void PhoneRemote::paint(juce::Graphics& g) {
     ctls.clear();
-    g.fillAll(Theme::bg());
+    Theme::backdrop(g, getLocalBounds());
     auto area = getLocalBounds().toFloat();
    #if JUCE_IOS
     if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) area = d->safeAreaInsets.subtractedFrom(getLocalBounds()).toFloat();
@@ -144,7 +161,7 @@ void PhoneRemote::paint(juce::Graphics& g) {
         button(g, mb, on ? U8("● MIC ON") : U8("MIC OFF"), on ? Theme::red() : Theme::btn(), [this] { host.phoneLink.micOn.store(!host.phoneLink.micOn.load()); }, 9.5f, false);
         mic.removeFromLeft(8 * u);
         auto lv = mic.removeFromLeft(60 * u).withSizeKeepingCentre(60 * u, 8 * u);
-        g.setColour(Theme::card2()); g.fillRoundedRectangle(lv, 4 * u);
+        if (Theme::softUI()) softWellLite(g, lv, lv.getHeight() * 0.5f); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(lv, 3 * u); }
         g.setColour(Theme::green()); g.fillRoundedRectangle(lv.withWidth(lv.getWidth() * juce::jmin(1.0f, host.phoneLink.level.load() * 2.0f)), 4 * u);
         mic.removeFromLeft(8 * u);
         int live = (int) st.snap("live");
@@ -226,7 +243,7 @@ void PhoneRemote::drawPlay(juce::Graphics& g, juce::Rectangle<float> r) {
         auto row2 = r.removeFromTop(56 * u).reduced(0, 3 * u);
         float pack = (float) st.snap(k < 4 ? "statA" : "statB");
         int s = ((int) pack >> (4 * (k % 4))) & 15;
-        g.setColour(Theme::card()); g.fillRoundedRectangle(row2, 12 * u);
+        if (Theme::softUI()) softRaised(g, row2, 18 * u, 5.0f, Theme::card()); else { g.setColour(Theme::card()); g.fillRoundedRectangle(row2, 12 * u); }
         g.setColour(Theme::strip(4 + k)); g.fillEllipse(row2.getX() + 12 * u, row2.getCentreY() - 5 * u, 10 * u, 10 * u);
         auto lab = row2.withTrimmedLeft(30 * u).removeFromLeft(110 * u);
         text(g, "TRACK " + juce::String(k + 1), lab.removeFromTop(lab.getHeight() * 0.55f), 11.0f, Theme::txt(), 2);
@@ -255,7 +272,7 @@ void PhoneRemote::drawMix(juce::Graphics& g, juce::Rectangle<float> r) {
     int nl = juce::jlimit(1, 4, (int) st.snap("nlive")), ntn = juce::jlimit(1, 8, (int) st.snap("ntn")); if (st.snap("ntn") < 1) ntn = 4;
     auto strip = [&](int s) {
         auto box = r.removeFromTop(112 * u).reduced(0, 4 * u);
-        g.setColour(Theme::card()); g.fillRoundedRectangle(box, 12 * u);
+        if (Theme::softUI()) softRaised(g, box, 18 * u, 5.0f, Theme::card()); else { g.setColour(Theme::card()); g.fillRoundedRectangle(box, 12 * u); }
         auto in = box.reduced(12 * u, 8 * u);
         auto top = in.removeFromTop(26 * u);
         g.setColour(Theme::strip(s)); g.fillEllipse(top.getX(), top.getCentreY() - 5 * u, 10 * u, 10 * u);
@@ -271,7 +288,7 @@ void PhoneRemote::drawMix(juce::Graphics& g, juce::Rectangle<float> r) {
         button(g, mm, "S", st.par(ss) > 0.5 ? Theme::blue() : Theme::btn(), [this, ss] { setPar(ss, st.par(ss) > 0.5 ? 0 : 1); }, 9.0f);
         in.removeFromTop(4 * u);
         auto meter = in.removeFromTop(4 * u);
-        g.setColour(Theme::card2()); g.fillRoundedRectangle(meter, 2 * u);
+        if (Theme::softUI()) softWellLite(g, meter, meter.getHeight() * 0.5f); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(meter, 3 * u); }
         g.setColour(lv > 0.9f ? Theme::red() : Theme::green()); g.fillRoundedRectangle(meter.withWidth(meter.getWidth() * lv), 2 * u);
         in.removeFromTop(4 * u);
         auto sl = in.removeFromTop(30 * u);
@@ -310,7 +327,7 @@ void PhoneRemote::drawFx(juce::Graphics& g, juce::Rectangle<float> r) {
         std::string key = cd.key;
         bool open = openCard == cd.key;
         auto head = r.removeFromTop(50 * u).reduced(0, 3 * u);
-        g.setColour(Theme::card()); g.fillRoundedRectangle(head, 12 * u);
+        if (Theme::softUI()) softRaised(g, head, 18 * u, 5.0f, Theme::card()); else { g.setColour(Theme::card()); g.fillRoundedRectangle(head, 12 * u); }
         g.setColour(Theme::fx(key)); g.fillEllipse(head.getX() + 12 * u, head.getCentreY() - 5 * u, 10 * u, 10 * u);
         text(g, U8(cd.name), head.withTrimmedLeft(30 * u).withWidth(130 * u), 11.0f, Theme::txt(), 2);
         // the send of the chosen strip, right on the header
@@ -400,13 +417,13 @@ void PhoneRemote::drawAudio(juce::Graphics& g, juce::Rectangle<float> r) {
     {   // the volume (this phone only)
         auto vr = r.removeFromTop(44 * u).reduced(0, 6 * u);
         float v = host.listenVol.load();
-        g.setColour(Theme::card2()); g.fillRoundedRectangle(vr, vr.getHeight() * 0.3f);
+        if (Theme::softUI()) softWellLite(g, vr, vr.getHeight() * 0.5f); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(vr, 3 * u); }
         g.setColour(Theme::arc(Theme::green()).withAlpha(0.9f)); g.fillRoundedRectangle(vr.withWidth(juce::jmax(vr.getHeight() * 0.3f, vr.getWidth() * v)), vr.getHeight() * 0.3f);
         text(g, U8("VOLUME"), vr.reduced(12 * u, 0), 9.5f, Theme::txt(), 2);
         text(g, juce::String(juce::roundToInt(v * 100)), vr.reduced(12 * u, 0), 9.5f, Theme::txt(), 1, juce::Justification::centredRight);
         ctls.push_back({ vr, 1, "listenvol", 0, 1, nullptr, true });
         auto lv = r.removeFromTop(14 * u).withSizeKeepingCentre(vr.getWidth(), 6 * u);
-        g.setColour(Theme::card2()); g.fillRoundedRectangle(lv, 3 * u);
+        if (Theme::softUI()) softWellLite(g, lv, lv.getHeight() * 0.5f); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(lv, 3 * u); }
         g.setColour(Theme::green()); g.fillRoundedRectangle(lv.withWidth(lv.getWidth() * juce::jmin(1.0f, host.phoneLink.listen.level.load())), 3 * u);
     }
     text(g, host.phoneLink.connected() ? U8("The station's sound comes to this phone over Wi-Fi or the cable (about ") + juce::String(juce::roundToInt(host.phoneLink.listen.delayMs.load() + 15)) + U8(" ms late): to hear the mix around the room, or your own headphone mix (CUE, click).")

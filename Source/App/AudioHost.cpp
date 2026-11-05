@@ -8,14 +8,26 @@
 
 namespace arco {
 
+size_t audioHostSizeHere() { return sizeof(AudioHost); }   // (tests: every file must agree on the size)
+size_t studioSizeHere() { return sizeof(Studio); }
+size_t engineSizeHere() { return sizeof(Engine); }
+
 AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     keys.addListener(this);
     synth.setParamSource([this](const char* n) { return model.get(n); });
-    synth.onFirstNote = [this] { if (synthInto == 0) { setSynthInto(1); status = U("the SYNTH plays into LIVE 2"); } };
+    synth.onFirstNote = [this] { synthNeedsStrip(); };
     formats.registerBasicFormats();
     writerThread.startThread();
     engine.prepare(48000.0);
     rack.prepare(48000.0); engine.ext.store(&rack);
+    patcher = std::make_unique<px::Runtime>(); patcher->prepare(48000.0);      // 2.4: PATCHER
+    patcher->onLine = [this](const px::Line& l) { patchLog.push_back(l); while (patchLog.size() > 400) patchLog.pop_front(); ++patchLogGen; };
+    patcher->onAction = [this](const px::Action& a) { patcherAction(a); };
+    patcherCompile(true);
+    engine.patcher.store(patcher.get());
+    patcherPump.startTimerHz(200);
+    // 2.0: the DRUM MACHINE's kits are made in the background (the samples decoded, the classic machines modelled)
+    juce::Thread::launch([this] { auto* b = DrumKits::bank(); engine.drumMachine.bank.store(b); });
     model.sendAll();
     loadSetup(openDevice);
     if (openDevice) fxpresets::applyDefaults(model);
@@ -78,6 +90,47 @@ void AudioHost::phoneCommand(PhoneConn& c, const juce::String& line) {
     else if (w == "card" && t.size() >= 3) { if (t[2] == "1") visibleCards.addIfNotAlreadyThere(t[1]); else visibleCards.removeString(t[1]); if (onCardsChanged) onCardsChanged(); saveSetup(); }
 }
 
+void AudioHost::restartSound() {
+   #if JUCE_IOS
+    ios::configureSession();
+   #endif
+    devices.closeAudioDevice();
+    devices.restartLastAudioDevice();
+   #if JUCE_IOS
+    ios::applyInput();
+   #endif
+    applyRouting();
+    seenCallbacks = callbacks.load(); callbacksStill = juce::Time::getMillisecondCounterHiRes();
+}
+
+void AudioHost::soundWatch() {
+    auto* d = devices.getCurrentAudioDevice();
+    double now = juce::Time::getMillisecondCounterHiRes();
+    auto c = callbacks.load(std::memory_order_relaxed);
+    if (d != nullptr && d->getTypeName() != "ARCO test") {
+        // the inputs: a sound card that had a microphone and lost it (the file window, a call) gets it back
+        int ins = d->getActiveInputChannels().countNumberOfSetBits();
+        auto want = devices.getAudioDeviceSetup();
+        bool wanted = want.useDefaultInputChannels || want.inputChannels.countNumberOfSetBits() > 0;   // what SETUP asks for
+        if (ins > 0 || !wanted) { hadInputs = ins; inputsGoneAt = 0; }
+        else if (!d->getInputChannelNames().isEmpty()) {
+            if (inputsGoneAt == 0) inputsGoneAt = now;
+            else if (now - inputsGoneAt > 1500 && restarts < 3) { ++restarts; inputsGoneAt = 0; restartSound(); status = U("the microphone had stopped - started again"); return; }
+        }
+    }
+    if (c != seenCallbacks || d == nullptr || d->getTypeName() == "ARCO test") { seenCallbacks = c; callbacksStill = now; return; }
+    if (now - callbacksStill < 1500) return;                       // still for 1.5 s while a sound card is open
+   #if JUCE_IOS
+    if (! juce::Process::isForegroundProcess()) { callbacksStill = now; return; }   // in the background iOS may stop it: not now
+   #endif
+    static double windowStart = 0;
+    if (now - windowStart > 60000) { windowStart = now; restarts = 0; }
+    if (restarts >= 3) { callbacksStill = now; status = U("the sound card does not answer - SETUP › Sound card"); return; }
+    ++restarts;
+    restartSound();
+    status = U("the sound had stopped - started again");
+}
+
 void AudioHost::tickPhones() {
     phones.tick();
     static const char* SN[] = { "statA", "statB", "transport", "scenes", "smask", "ebpm", "barno", "beatno", "loopbars", "ntn", "undoav", "spdk", "lscene", "sv_bts", "beat", "halo_key", "pitch", "tn_pitch", "syn_n" };
@@ -112,6 +165,7 @@ void AudioHost::tickPhones() {
 
 AudioHost::~AudioHost() {
     engine.ext.store(nullptr);
+    engine.patcher.store(nullptr); patcherPump.stopTimer();
     if (live) saveSetup();
     devices.removeMidiInputDeviceCallback({}, this);
     stopTimer();
@@ -131,10 +185,12 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
     double r = d->getCurrentSampleRate();
     studio.recordLatency = d->getInputLatencyInSamples() + d->getOutputLatencyInSamples();
     for (auto& b : phoneBuf) b.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f);
+    mixTapL.assign((size_t) juce::jmax(8192, d->getCurrentBufferSizeSamples() * 2), 0.0f); mixTapR = mixTapL;
     if (r != lastRate) {                     // a new sample rate: the engine starts again (loops are kept only at the same rate)
         lastRate = r;
         engine.prepare(r);
         rack.prepare(r);
+        if (patcher) patcher->prepare(r);
         engineRestarted = true;
     }
     triggerAsyncUpdate();                    // every (re)start: the inputs / outputs may be different now
@@ -152,6 +208,7 @@ void AudioHost::handleAsyncUpdate() {
 
 void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n,
                                                  const juce::AudioIODeviceCallbackContext&) {
+    callbacks.fetch_add(1, std::memory_order_relaxed);
     if (micMode.load()) {                        // this device is a phone for a station: only send the microphone
         if (numIn > 0 && in[0] != nullptr) phoneLink.push(in[0], n, lastRate > 0 ? lastRate : 48000.0);
         for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], n);
@@ -172,11 +229,20 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int num
             else engine.phoneData[j] = nullptr;
         }
     }
+    {   // the clock: STUDIO's position and tempo (it runs on top of the station, the arpeggiator / drums follow it)
+        bool sp = studio.playing.load();
+        engine.clock.studioRun.store(sp);
+        if (sp) { double bl = 60.0 / juce::jmax(20.0, studio.song.bpm) * juce::jmax(8000.0, studio.song.sr);
+                  engine.clock.studioBeat.store((double) studio.pos.load() / bl); engine.clock.studioBpm.store(studio.song.bpm); engine.clock.studioSeq.fetch_add(1); }
+    }
     engine.process(in, numIn, out, numOut, n);
     {   // STUDIO: what it can record (the station's inputs, the sound card's inputs, the station's mix), then it plays on top
         const float* live[4] = {};
-        for (int j = 0; j < 4; ++j) { int ch = inputCh[j] - 1; live[j] = engine.phoneData[j] != nullptr ? engine.phoneData[j] : (ch >= 0 && ch < numIn ? in[ch] : nullptr); }
-        studio.input(in, numIn, live, numOut > 0 ? out[0] : nullptr, numOut > 1 ? out[1] : nullptr, n);
+        for (int j = 0; j < 4; ++j) { int ch = engine.inputChannel[j].load(); if (ch < 0) ch = inputCh[j] - 1;
+            live[j] = engine.phoneData[j] != nullptr ? engine.phoneData[j] : (ch >= 0 && ch < numIn ? in[ch] : nullptr); }
+        if ((int) mixTapL.size() < n) { mixTapL.resize((size_t) n); mixTapR.resize((size_t) n); }      // (sized in audioDeviceAboutToStart; never here in practice)
+        engine.pullMainMix(mixTapL.data(), mixTapR.data(), n);
+        studio.input(in, numIn, live, mixTapL.data(), mixTapR.data(), n);
     }
     if (numOut >= 2 && out[0] != nullptr && out[1] != nullptr) {     // STUDIO plays on top
         bool rendered = studio.renderBlock(out[0], out[1], n);
@@ -233,6 +299,7 @@ bool AudioHost::isPedalCC(int cc, int ch) const {
 
 void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) {
     int type = 0, num = 0, ch = m.getChannel();
+    if (patcher && !m.isNoteOnOrOff()) patcher->midiIn(m);      // the PATCHER hears every knob and wheel (the notes come through the keys)
     // ---- MIDI learn and the learned controls come first
     {
         int lt = 0, ln = 0, lv = 0;
@@ -293,12 +360,36 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
     if (type == 1) { int n = num; float v = m.getFloatVelocity(); juce::MessageManager::callAsync([this, ch, n, v] { keys.noteOn(ch, n, v); }); }
 }
 
+void AudioHost::patcherKeep() {
+    if (!patcher) return;
+    for (auto& b : patchDoc.boxes) if (auto o = patcher->objOf(b.id)) { auto k = o->keep(); if (!k.isVoid()) b.state = k; }
+}
+void AudioHost::patcherAction(const px::Action& a) {
+    juce::String w(a.what);
+    if (w == "note") { int n = (int) a.a, v = (int) a.b; if (v > 0) playOn(n, v / 127.0f); else playOff(n); return; }
+    if (w == "cc") { int c = (int) a.a, v = (int) a.b; if (c == 64) setSustain(v >= 64); else if (c == 1) model.set("l_pitch", v / 127.0 * 60.0); return; }
+    if (w == "bend") { synth.pitchBend((float) a.a * 2.0f); return; }
+    if (onPatcherAction) onPatcherAction(a);
+}
+
 void AudioHost::recordSynthOn(int track) {
     if (track < 1 || track > 8) return;
-    if (synthInto == 0) setSynthInto(1);
+    synthNeedsStrip();
     model.set("src" + std::to_string(track), synthInto + 1);   // that track listens to the LIVE input the synth plays into
     model.press("st_looper", "rec" + std::to_string(track));
     status = "TRACK " + juce::String(track) + U(" records the SYNTH");
+}
+
+void AudioHost::recordDrumsOn(int track) {
+    if (track < 1 || track > 8) return;
+    if (drumsInto <= 0 || drumsInto < nLive) {                  // a LIVE strip that is not an input in use, and not the SYNTH's
+        int v = 3; for (int c = juce::jmax(1, nLive); c <= 3; ++c) if (c != synthInto && phoneOnLive(c + 1).isEmpty()) { v = c; break; }
+        setDrumsInto(v);
+    }
+    if (model.get("dm_run") < 0.5) model.set("dm_run", 1);      // it plays while it is recorded
+    model.set("src" + std::to_string(track), drumsInto + 1);    // that track listens to the drums' LIVE strip
+    model.press("st_looper", "rec" + std::to_string(track));
+    status = "TRACK " + juce::String(track) + U(" records the DRUM MACHINE (through LIVE ") + juce::String(drumsInto + 1) + ")";
 }
 
 void AudioHost::scanMidi() {                     // every MIDI keyboard / pedal that is plugged in is listened to
@@ -307,6 +398,8 @@ void AudioHost::scanMidi() {                     // every MIDI keyboard / pedal 
 }
 
 void AudioHost::applyRouting() {
+    // a LIVE strip that became an input in use is given back by the drum machine (or the input would be muted)
+    if (drumsInto > 0 && drumsInto < nLive) setDrumsInto(0);
     // every channel of the sound card is open (openAllChannels), so the callback's channel k is the card's channel k:
     // choosing a live input or the headphone outputs never has to reopen the card
     auto setup = devices.getAudioDeviceSetup();
@@ -320,6 +413,7 @@ void AudioHost::applyRouting() {
     phonesShared = devices.getCurrentAudioDevice() != nullptr && pf + 1 >= nOut;
     if (phonesShared) pf = 0;                 // a laptop / 2-output card: headphones = outputs 1-2
     engine.phonesFirst.store(pf);
+    if (synthInto > 0 && synthInto < nLive) synthNeedsStrip();      // that strip is an input now: the synth moves on
 }
 
 void AudioHost::openAllChannels() {
@@ -400,10 +494,14 @@ static bool writeBuffer(SharedBuffer& b, const juce::File& f, double sr, long fr
 // a fresh song: no loops, every song and scene setting back to its start (this computer's settings stay)
 void AudioHost::newSong() {
     studio.playing = false; { const juce::ScopedLock sl(studio.lock); studio.song = StudioSong(); }
+    setDrumsInto(0);                          // a new song: the drum machine plays on its own again
     model.press("st_looper", "rstall");
     model.resetSong();
     rack.fromVar({});
+    patchDoc = px::PatchDoc(); patcherCompile(true);
     fxpresets::applyDefaults(model);          // the effects as you like them for new songs
+    loadDrums(juce::File());                  // 2.0: empty patterns, empty LIVE LOOPS
+    if (onOpenExtra) onOpenExtra(juce::File());
     songFolder = juce::File();
     sigSettle = 20;
     status = "new song";
@@ -419,9 +517,12 @@ juce::String AudioHost::loopsSignature() {
 bool AudioHost::saveSong(const juce::File& folder) {
     if (!folder.createDirectory()) { status = "could not make the folder"; return false; }
     if (!studio.song.clips.empty()) studio.save(folder);           // STUDIO's arrangement goes with the song
+    saveDrums(folder);                                             // 2.0: the drum machine's patterns
+    if (onSaveExtra) onSaveExtra(folder);                          // ... and LIVE LOOPS
     auto name = folder.getFileName();
     auto root = model.songState();
-    root.getDynamicObject()->setProperty("instrument", rack.toVar());   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
+    root.getDynamicObject()->setProperty("instrument", rack.toVar());
+    patcherKeep(); root.getDynamicObject()->setProperty("patcher", patchDoc.toVar());   // 2.4: the PATCHER's program   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
     auto* sess = new juce::DynamicObject();
     for (auto* k : { "sv_bl", "sv_bts", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3",
                      "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "sv_ntr" })
@@ -445,7 +546,7 @@ bool AudioHost::saveSong(const juce::File& folder) {
 }
 
 static void readInto(juce::AudioFormatManager& fm, const juce::File& f, SharedBuffer& b) {
-    std::fill(b.data.begin(), b.data.end(), 0.0f);
+    b.data.zero();
     std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
     if (r == nullptr) return;
     long n = juce::jmin((long) r->lengthInSamples, b.len);
@@ -472,6 +573,9 @@ bool AudioHost::openSong(const juce::File& sel) {
     }
     model.loadSongState(v);
     rack.fromVar(v["instrument"]);
+    patchDoc = v["patcher"].isObject() ? px::PatchDoc::fromVar(v["patcher"]) : px::PatchDoc(); patcherCompile(true);
+    loadDrums(folder);
+    if (onOpenExtra) onOpenExtra(folder);
     auto s = v["session"];
     static const char* RS[15] = { "rs_bl", "rs_bts", "rs_len0", "rs_len1", "rs_len2", "rs_len3", "rs_mask0", "rs_mask1", "rs_mask2", "rs_mask3",
                                   "rs_spd0", "rs_spd1", "rs_spd2", "rs_spd3", "rs_ntr" };
@@ -501,6 +605,21 @@ bool AudioHost::importFile(const juce::File& f, int track) {
     imports.push_back({ b, track, r->sampleRate, f.getFileName() });
     status = U("importing ") + f.getFileName() + U(" …");
     return true;
+}
+
+bool AudioHost::importKeep(const ImportPlan& plan, int track) {
+    auto piece = pieceInfo(false);
+    if (!piece.hasLoops && plan.fileBpm >= 30 && plan.fileBpm <= 300 && plan.audio.getNumSamples() > 64) {
+        model.set("bpm", plan.fileBpm);                    // the piece takes the file's tempo
+        PieceInfo pc = piece; pc.sr = engine.sr; pc.bpm = plan.fileBpm; pc.beatLen = 60.0 * engine.sr / plan.fileBpm; pc.loopLen = 0;
+        ImportPlan p2; p2.file = plan.file; p2.fileSr = plan.fileSr; p2.seconds = plan.seconds; p2.tempo = plan.tempo; p2.key = plan.key;
+        p2.fileBpm = plan.fileBpm; p2.matchTempo = true; p2.matchKey = false; p2.cut = plan.cut;
+        p2.audio.makeCopyOf(plan.audio);
+        planImport(p2, pc);
+        auto out = renderImport(p2, pc);
+        if (out.getNumSamples() > 64) return importBuffer(out, track, plan.file.getFileName());
+    }
+    return importFile(plan.file, track);
 }
 
 bool AudioHost::importBuffer(const juce::AudioBuffer<float>& in, int track, const juce::String& name) {
@@ -607,6 +726,39 @@ void AudioHost::stopRecording() {
     if (threaded != nullptr) { threaded.reset(); status = U("show recording saved ✓"); }
 }
 
+// ------------------------------------------------------------------ 2.0: the drum machine's patterns (drums.json in the song)
+void AudioHost::saveDrums(const juce::File& folder) {
+    auto& D = engine.drumMachine;
+    auto* o = new juce::DynamicObject(); juce::Array<juce::var> pats;
+    bool any = false;
+    for (int p = 0; p < DrumMachine::NPAT; ++p) {
+        auto* po = new juce::DynamicObject(); po->setProperty("len", D.patLen[p].load()); po->setProperty("res", D.patRes[p].load());
+        juce::Array<juce::var> rows;
+        for (int pd = 0; pd < DrumMachine::NPAD; ++pd) { juce::String r; for (int s = 0; s < DrumMachine::NSTEP; ++s) { auto w = D.steps[p][pd][s].load(); any |= w != 0; r << juce::String::toHexString((juce::int64) w) << (s + 1 < DrumMachine::NSTEP ? "," : ""); } rows.add(r); }
+        po->setProperty("steps", rows); pats.add(juce::var(po));
+    }
+    auto f = folder.getChildFile("drums.json");
+    if (!any) { f.deleteFile(); return; }
+    o->setProperty("patterns", pats);
+    f.replaceWithText(juce::JSON::toString(juce::var(o)));
+}
+void AudioHost::loadDrums(const juce::File& folder) {
+    auto& D = engine.drumMachine;
+    for (auto& a : D.steps) for (auto& b : a) for (auto& c : b) c.store(0);
+    for (int p = 0; p < DrumMachine::NPAT; ++p) { D.patLen[p].store(16); D.patRes[p].store(1); }
+    auto v = juce::JSON::parse(folder.getChildFile("drums.json"));
+    if (auto* pats = v["patterns"].getArray())
+        for (int p = 0; p < juce::jmin(DrumMachine::NPAT, pats->size()); ++p) {
+            juce::var po = (*pats)[p];
+            D.patLen[p].store(juce::jlimit(1, DrumMachine::NSTEP, (int) po.getProperty("len", 16))); D.patRes[p].store(juce::jlimit(0, 3, (int) po.getProperty("res", 1)));
+            if (auto* rows = po["steps"].getArray())
+                for (int pd = 0; pd < juce::jmin(DrumMachine::NPAD, rows->size()); ++pd) {
+                    auto t = juce::StringArray::fromTokens((*rows)[pd].toString(), ",", "");
+                    for (int s = 0; s < juce::jmin(DrumMachine::NSTEP, t.size()); ++s) D.steps[p][pd][s].store((uint32_t) t[s].getHexValue64());
+                }
+        }
+}
+
 // ------------------------------------------------------------------ this computer
 void AudioHost::saveSetup() {
     if (!live) return;                       // tests / screenshots never touch this computer's settings
@@ -624,6 +776,7 @@ void AudioHost::saveSetup() {
     o->setProperty("listenVol", listenVol.load());
     o->setProperty("layout", speakerLayout);
     o->setProperty("palette", Theme::pal().name);
+    o->setProperty("look2", true); o->setProperty("look3", true); o->setProperty("beq1", true);
     o->setProperty("lastDark", Theme::palettes()[(size_t) Theme::lastDark()].name);
     o->setProperty("lastLight", Theme::palettes()[(size_t) Theme::lastLight()].name);
     juce::Array<juce::var> g;
@@ -660,16 +813,18 @@ void AudioHost::loadSetup(bool openDevice) {
        #endif
         listenVol.store((float) v.getProperty("listenVol", 0.8));
         speakerLayout = (int) v.getProperty("layout", 0);
-        Theme::lastDark() = juce::jmin(1, Theme::paletteByName(v.getProperty("lastDark", "Black").toString()));
-        Theme::lastLight() = juce::jmax(2, Theme::paletteByName(v.getProperty("lastLight", "Light").toString()));
+        { int d = Theme::paletteByName(v.getProperty("lastDark", "Noir").toString()); Theme::lastDark() = Theme::palettes()[(size_t) d].light ? 4 : d; }
+        { int l = Theme::paletteByName(v.getProperty("lastLight", "Light").toString()); Theme::lastLight() = Theme::palettes()[(size_t) l].light ? l : 2; }
         if (v.hasProperty("palette")) Theme::setPalette(Theme::paletteByName(v["palette"].toString()));
-        else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 0);
+        else Theme::setPalette((int) v.getProperty("theme", 0) == 1 ? 2 : 4);
+        if (!v.hasProperty("look3")) { Theme::lastDark() = 6; Theme::lastLight() = 7; Theme::setPalette(6); }   // 2.1: everyone starts in SOFT DARK (the others stay a choice in VIEW)
         if (auto* g = v["grid"].getArray()) for (int i = 0; i + 1 < g->size(); i += 2) engine.grid[(int) (*g)[i]][(int) (*g)[i + 1]].store(1.0f);
         if (auto* ph = v["phones"].getArray()) for (auto& x : *ph) phones.remembered[x["name"].toString()] = juce::jlimit(0, 4, (int) x["live"]);
         if (auto* pm = v["phoneAddresses"].getArray()) for (auto& a : *pm) phones.addAddress(a.toString());
         { auto old = v.getProperty("phoneWifi", "").toString(); if (old.isNotEmpty() && (int) v.getProperty("phoneLive", 0) > 0) phones.addAddress(old); }
         if (auto* rs = v["recent"].getArray()) for (auto& k : *rs) if (juce::File(k.toString()).isDirectory()) recentSongs.add(k.toString());
         if (auto* vc = v["cards"].getArray()) { visibleCards.clear(); for (auto& k : *vc) visibleCards.add(k.toString()); }
+        if (!v.hasProperty("beq1") && !visibleCards.contains("beq")) visibleCards.insert(1, "beq");   // 2.4: the new BAND EQ shows once
         if (auto* ml = v["midimap"].getArray()) { const juce::ScopedLock sl(midiLock); midiLinks.clear();
             for (auto& x : *ml) midiLinks.push_back({ x["id"].toString(), (int) x["t"], (int) x["n"], (int) x["c"] }); }
         if (auto* pd = v["pedals"].getArray())

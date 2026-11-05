@@ -41,6 +41,7 @@ struct StudioWindow : public juce::DocumentWindow {
 };
 }
 void Canvas::openStudio() {
+    if (inShell && onOpenStudio) { onOpenStudio(); return; }
    #if JUCE_IOS
     if (!studioWindow) {
         auto* v = new StudioView(*this); studioView = v; studioWindow.reset(v);

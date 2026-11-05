@@ -1,10 +1,12 @@
 // ARCO 1.2: tempo, key, onsets, and the high-quality stretch. (This file is built without -ffast-math: see CMakeLists.txt.)
 #include "Analysis.h"
+#include "../Engine/Engine.h"
 #include "../ThirdParty/signalsmith/signalsmith-stretch.h"
 #include <complex>
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <array>
 
 namespace arco {
 namespace analysis {
@@ -77,7 +79,7 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     Tempo t;
     auto e = onsetEnvelope(x, n, sr);
     int F = (int) e.v.size();
-    if (F < 150) return t;                                   // under 1.5 s: too short to tell
+    if (F < 95) return t;                                    // under a second: too short to tell
     double fps = sr / e.hop;
     auto& v = e.v;
     if (*std::max_element(v.begin(), v.end()) < 0.6f) return t;   // no attacks at all: no beat
@@ -113,26 +115,54 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     for (double mult : { 1.0, 2.0, 0.5, 1.5, 2.0 / 3.0 }) {
         double cand = bestBpm * mult;
         if (cand < 50 || cand > 220) continue;
-        if (mult != 1.0 && score(cand) < best * 0.6) continue;
+        if (mult != 1.0 && score(cand) < best * (mult == 2.0 || mult == 0.5 ? 0.6 : 0.9)) continue;
         double bars = secs * cand / 60.0 / bpb;
         for (int nb : { 1, 2, 3, 4, 6, 8, 12, 16, 24, 32 }) {
             double exactBpm = nb * bpb * 60.0 / secs;
-            double err = std::abs(exactBpm / cand - 1.0) + (mult == 1.0 ? 0.0 : 0.01);
-            if (err < 0.035 && err < loopErr) { loopErr = err; bestLoop = exactBpm; t.bars = nb; }
+            // a loop cut on its bar line matches the heard tempo closely (a long excerpt matches some bar count by chance:
+            // the tolerance shrinks with the number of beats, where the heard tempo is more precise)
+            double tol = juce::jlimit(0.004, 0.02, 0.6 / (nb * bpb));
+            double err = std::abs(exactBpm / cand - 1.0) + (mult == 1.0 ? 0.0 : 0.002);
+            if (err < tol && err < loopErr) { loopErr = err; bestLoop = exactBpm; t.bars = nb; }
             juce::ignoreUnused(bars);
         }
     }
     if (bestLoop > 0) { bestBpm = bestLoop; t.wholeBars = true; }
-    else if (std::abs(bestBpm - std::round(bestBpm)) < 0.2) bestBpm = std::round(bestBpm);   // most music is made at a whole BPM
+    else {
+        // not a loop: fine-tune the tempo so the beat grid stays on the attacks over the whole file
+        // (an error of 0.3 % drifts 30 ms over 8 bars)
+        std::vector<float> both((size_t) F);
+        double lm = std::accumulate(e.low.begin(), e.low.end(), 0.0) / F + 1e-9;
+        for (int i = 0; i < F; ++i) both[(size_t) i] = (float) (v[(size_t) i] / (mean + 1e-9) + 1.5 * e.low[(size_t) i] / lm);
+        auto fit = [&](double bpm) {
+            double Pp = fps * 60.0 / bpm, bs = -1;
+            for (double ph = 0; ph < Pp; ph += 0.5) {
+                double sm = 0; int cnt = 0;
+                for (double q = ph; q < F - 1; q += Pp) { int i = (int) q; double fr = q - i; sm += both[(size_t) i] * (1 - fr) + both[(size_t) i + 1] * fr; ++cnt; }
+                if (cnt && sm / cnt > bs) bs = sm / cnt; }
+            return bs; };
+        double fb = bestBpm, fs = fit(bestBpm);
+        for (double b = bestBpm * 0.992; b <= bestBpm * 1.008; b += bestBpm * 0.0005) { double sc2 = fit(b); if (sc2 > fs * 1.0001) { fs = sc2; fb = b; } }
+        bestBpm = fb;
+        if (std::abs(bestBpm - std::round(bestBpm)) < 0.25) bestBpm = std::round(bestBpm);   // most music is made at a whole BPM
+    }
     t.bpm = bestBpm;
     // the beat grid: the phase where the onsets line up best
     double P = fps * 60.0 / bestBpm;
     auto gridSum = [&](double ph, double step, const std::vector<float>& env) {
         double s = 0; int cnt = 0;
-        for (double p = ph; p < F - 1; p += step) { int i = (int) std::round(p); s += env[(size_t) i] + 0.5 * (i > 0 ? env[(size_t) i - 1] : 0) + 0.5 * env[(size_t) i + 1]; ++cnt; }
+        for (double p = ph; p < F - 1; p += step) { int i = juce::jlimit(0, F - 1, (int) std::round(p));     // (it read one past the end: a random result now and then)
+            s += env[(size_t) i] + 0.5 * (i > 0 ? env[(size_t) i - 1] : 0) + 0.5 * (i + 1 < F ? env[(size_t) i + 1] : 0); ++cnt; }
         return cnt ? s / cnt : 0.0; };
     double bestPh = 0, bestS = -1;
-    for (double ph = 0; ph < P; ph += 0.25) { double s = gridSum(ph, P, v); if (s > bestS) { bestS = s; bestPh = ph; } }
+    double lowMean0 = std::accumulate(e.low.begin(), e.low.end(), 0.0) / F + 1e-9, vMean0 = mean + 1e-9;
+    for (double ph = 0; ph < P; ph += 0.25) { double s = gridSum(ph, P, v) / vMean0 + 1.5 * gridSum(ph, P, e.low) / lowMean0; if (s > bestS) { bestS = s; bestPh = ph; } }
+    // the beat or the off-beat? (hi-hats on the "and"): the beat is where the low notes and the chord changes are
+    {
+        double alt = std::fmod(bestPh + P * 0.5, P);
+        double lowA = gridSum(bestPh, P, e.low), lowB = gridSum(alt, P, e.low);
+        if (lowB > lowA * 1.25) bestPh = alt;
+    }
     // a loop that starts on its beat: keep the start
     bool snapped = t.wholeBars && (bestPh < 4.0 || P - bestPh < 4.0);
     if (snapped) bestPh = 0;
@@ -142,14 +172,65 @@ Tempo tempo(const float* x, int n, double sr, int bpb, double prefer) {
     double bestD = -1; int bestB = 0;
     double s0 = 0;
     double lowMean = std::accumulate(e.low.begin(), e.low.end(), 0.0) / F;
+    // the harmony: a chroma for every beat; the chords (and the bass notes) change on the bar line
+    std::vector<double> nov;
+    {
+        int NF = sr > 60000 ? 8192 : 4096;
+        double beatS = P * e.hop;
+        if (beatS > NF * 0.6) {
+            FFT fft(NF); auto win = hann(NF);
+            std::vector<float> fr((size_t) NF), mag((size_t) (NF / 2 + 1));
+            std::vector<std::array<double, 12>> chroma;
+            for (double bp = bestPh * e.hop + (snapped ? 0.0 : centre); ; bp += beatS) {
+                long a = (long) std::llround(bp + beatS * 0.15);
+                if (a + NF > n) break;
+                std::array<double, 12> c {}; double tot = 0;
+                if (a >= 0) {
+                    for (int i = 0; i < NF; ++i) fr[(size_t) i] = x[a + i] * win[(size_t) i];
+                    fft.mags(fr.data(), mag.data());
+                    for (int bn = 2; bn < NF / 2; ++bn) { double f = bn * sr / NF; if (f < 55 || f > 1800) continue;
+                        if (mag[(size_t) bn] < mag[(size_t) bn - 1] || mag[(size_t) bn] < mag[(size_t) bn + 1]) continue;
+                        int pc = (((int) std::lround(12.0 * std::log2(f / 440.0)) + 69) % 12 + 12) % 12;
+                        c[(size_t) pc] += mag[(size_t) bn]; tot += mag[(size_t) bn]; }
+                }
+                if (tot > 0) for (auto& vv : c) vv = std::sqrt(vv / tot);
+                chroma.push_back(c);
+            }
+            nov.assign(chroma.size(), 0.0);
+            for (size_t k = 1; k < chroma.size(); ++k) {
+                double dot = 0, na = 0, nb2 = 0;
+                for (int i = 0; i < 12; ++i) { dot += chroma[k][(size_t) i] * chroma[k - 1][(size_t) i]; na += chroma[k][(size_t) i] * chroma[k][(size_t) i]; nb2 += chroma[k - 1][(size_t) i] * chroma[k - 1][(size_t) i]; }
+                nov[k] = na > 0 && nb2 > 0 ? 1.0 - dot / std::sqrt(na * nb2) : 0.0;
+            }
+        }
+    }
+    double novB[16] = {}, novMean = 0; int novCnt = 0;
+    for (size_t k = 1; k < nov.size(); ++k) { novB[k % (size_t) bpb] += nov[k]; novMean += nov[k]; ++novCnt; }
+    if (novCnt > 0) novMean /= novCnt;
+    int perB[16] = {}; for (size_t k = 1; k < nov.size(); ++k) ++perB[k % (size_t) bpb];
+    // the harmony counts when it changes clearly more on one beat of the bar than on the others
+    double novBest = 0, novSecond = 0;
+    for (int b = 0; b < bpb; ++b) { double m = perB[b] ? novB[b] / perB[b] : 0; if (m > novBest) { novSecond = novBest; novBest = m; } else if (m > novSecond) novSecond = m; }
+    bool harmonyClear = novCnt >= bpb * 2 && novBest > 0.08 && novBest > novSecond * 1.6;
+    if (std::getenv("ARCO_DBG")) { std::fprintf(stderr, "nov: cnt %d best %.3f second %.3f clear %d :", novCnt, novBest, novSecond, (int) harmonyClear); for (int b = 0; b < bpb; ++b) std::fprintf(stderr, " %.3f", perB[b] ? novB[b] / perB[b] : 0.0); std::fprintf(stderr, "  ph %.1f P %.1f\n", bestPh, P); }
+    // each clue relative to its own average over the beats of the bar, so none drowns the others
+    double fLow[16] = {}, fAll[16] = {}, fNov[16] = {}, mLow = 0, mAll = 0, mNov = 0;
     for (int b = 0; b < bpb; ++b) {
-        double s = gridSum(bestPh + b * P, P * bpb, e.low) / (lowMean + 1e-9) * 2.0 + gridSum(bestPh + b * P, P * bpb, v) / (mean + 1e-9);
+        fLow[b] = gridSum(bestPh + b * P, P * bpb, e.low) / (lowMean + 1e-9); fAll[b] = gridSum(bestPh + b * P, P * bpb, v) / (mean + 1e-9);
+        fNov[b] = perB[b] ? novB[b] / perB[b] : 0.0;
+        mLow += fLow[b] / bpb; mAll += fAll[b] / bpb; mNov += fNov[b] / bpb; }
+    for (int b = 0; b < bpb; ++b) {
+        double s = 2.0 * fLow[b] / (mLow + 1e-9) + fAll[b] / (mAll + 1e-9);
+        if (harmonyClear) s += 4.0 * fNov[b] / (mNov + 1e-9);         // the chord changes: the strongest clue for the "one"
         if (b == 0) s0 = s;
         if (s > bestD) { bestD = s; bestB = b; }
     }
     // a loop is usually cut on its bar line: keep its start unless another beat is clearly the "one"
     if (t.wholeBars && bestPh == 0 && bestD < s0 * 1.3) bestB = 0;
+    // a loop cut on its beat starts on its "one": it was cut on the bar line (a 2-bar loop's chords can't tell 1 from 3)
+    if (t.wholeBars && snapped) bestB = 0;
     t.downbeatOffset = (bestPh + bestB * P) * e.hop + (snapped ? 0.0 : centre);
+    if (std::getenv("ARCO_DBG")) std::fprintf(stderr, "  bestB %d bestD %.2f s0 %.2f whole %d down %.0f\n", bestB, bestD, s0, (int) t.wholeBars, t.downbeatOffset);
     return t;
 }
 
@@ -320,16 +401,16 @@ juce::AudioBuffer<float> resample(const juce::AudioBuffer<float>& in, double fro
 juce::String ImportPlan::summary() const {
     juce::String s;
     s << (fileBpm > 0 ? juce::String(fileBpm, 1) + " BPM" : juce::String("no clear beat")) << juce::String::fromUTF8("  ·  ") << key.name();
-    if (cut) s << juce::String::fromUTF8("  ·  its first 42 s (a track holds 40 s; use STUDIO for long files)");
+    if (cut) s << juce::String::fromUTF8("  ·  its first ") << (int) trackSeconds() << juce::String::fromUTF8(" s (a track holds ") << (int) trackSeconds() << " s; use STUDIO for longer files)";
     return s;
 }
 
-bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::AudioFormatManager& fm, juce::String& error) {
+bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::AudioFormatManager& fm, juce::String& error, int bpb, double maxSeconds) {
     std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
     if (r == nullptr) { error = "can't read " + f.getFileName() + " (use WAV, AIFF, MP3, FLAC or M4A)"; return false; }
     p.file = f; p.fileSr = r->sampleRate;
     // a track holds up to 40 s: read only what can be used (a long file read whole filled the iPad's memory and it closed)
-    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * 42.0));
+    long n = juce::jmin((long) r->lengthInSamples, (long) (r->sampleRate * (maxSeconds > 0 ? maxSeconds : trackSeconds() + 2.0)));
     if (n < 32) { error = "the file is empty"; return false; }
     p.cut = r->lengthInSamples > n;
     juce::AudioBuffer<float> tmp((int) juce::jlimit(1u, 2u, r->numChannels), (int) n);
@@ -340,7 +421,16 @@ bool prepareImport(const juce::File& f, double engineSr, ImportPlan& p, juce::Au
     int an = juce::jmin(p.audio.getNumSamples(), (int) (engineSr * 90));
     std::vector<float> mono((size_t) an);
     for (int i = 0; i < an; ++i) { float s = 0; for (int c = 0; c < p.audio.getNumChannels(); ++c) s += p.audio.getSample(c, i); mono[(size_t) i] = s / p.audio.getNumChannels(); }
-    p.tempo = analysis::tempo(mono.data(), an, engineSr);
+    p.tempo = analysis::tempo(mono.data(), an, engineSr, juce::jlimit(2, 12, bpb));
+    // a long file is heard in its first 90 s: is the whole file a whole number of bars at that tempo? (a long loop)
+    if (p.audio.getNumSamples() > an && p.tempo.bpm > 0) {
+        double barS = juce::jlimit(2, 12, bpb) * 60.0 / p.tempo.bpm * engineSr;
+        double nb = p.audio.getNumSamples() / barS; int k = (int) std::round(nb);
+        if (k >= 1 && std::abs(nb - k) * barS < engineSr * 0.03 * juce::jmax(1.0, k / 32.0)) {        // within ~30 ms over the whole file
+            p.tempo.wholeBars = true; p.tempo.bars = k; p.tempo.bpm = k * juce::jlimit(2, 12, bpb) * 60.0 / (p.audio.getNumSamples() / engineSr);
+            p.tempo.downbeatOffset = std::fmod(p.tempo.downbeatOffset, barS) < barS * 0.1 ? 0.0 : p.tempo.downbeatOffset;
+        }
+    }
     p.key = analysis::key(mono.data(), an, engineSr);
     p.fileBpm = p.tempo.bpm;
     return true;
@@ -395,13 +485,17 @@ juce::AudioBuffer<float> renderImport(const ImportPlan& p, const PieceInfo& piec
         for (int c = 0; c < ch; ++c) { circ.copyFrom(c, 0, src, c, n - wrap, wrap); circ.copyFrom(c, wrap, src, c, 0, n); circ.copyFrom(c, wrap + n, src, c, 0, wrap); }
         int outLen = (int) std::llround(target);
         double r2 = (double) outLen / n;
-        auto st = analysis::stretch(circ, sr, (int) std::llround((n + 2 * wrap) * r2), p.semitones);
         out.setSize(ch, outLen);
-        int off = (int) std::llround(wrap * r2);
-        for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, st, c, off, juce::jmin(outLen, st.getNumSamples() - off));
+        if (std::abs(r2 - 1.0) < 1e-4 && p.semitones == 0) {      // its own tempo, its own key: the samples as they are
+            out.clear(); for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, src, c, 0, juce::jmin(outLen, n));
+        } else {
+            auto st = analysis::stretch(circ, sr, (int) std::llround((n + 2 * wrap) * r2), p.semitones);
+            int off = (int) std::llround(wrap * r2);
+            for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, st, c, off, juce::jmin(outLen, st.getNumSamples() - off));
+        }
     } else {
         int outLen = (int) std::llround(n * ratio);
-        auto st = analysis::stretch(src, sr, outLen, p.semitones);
+        auto st = std::abs(ratio - 1.0) < 1e-6 && p.semitones == 0 ? src : analysis::stretch(src, sr, outLen, p.semitones);
         out.setSize(ch, (int) target); out.clear();
         for (int c = 0; c < ch; ++c) out.copyFrom(c, 0, st, c, 0, (int) juce::jmin((long) st.getNumSamples(), target));
         // a gentle fade where it was cut

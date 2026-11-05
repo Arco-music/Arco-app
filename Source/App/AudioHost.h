@@ -12,6 +12,8 @@
 #include "Analysis.h"
 #include "Studio.h"
 #include "Instruments.h"
+#include "DrumKits.h"
+#include "../Engine/Patcher.h"
 
 namespace arco {
 
@@ -39,8 +41,22 @@ public:
     std::atomic<int> testTone { 0 };          // samples of test tone left
     std::atomic<int> testSpeaker { -1 }, testSpkLeft { 0 };   // SPEAKERS & SPACE: a soft noise on one speaker
     double testPhase = 0; juce::Random rnd; float pinkS = 0;
-    void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); }
+    void setSynthInto(int v) { synthInto = v; engine.synthInto.store(v); if (v > 0 && drumsInto == v) setDrumsInto(0); }
+    // 2.2: the DRUM MACHINE through a LIVE strip (as the SYNTH), so a track records it
+    void setDrumsInto(int v) { drumsInto = v; engine.drumsInto.store(v); if (v > 0 && synthInto == v) { synthInto = 0; engine.synthInto.store(0); } }
+    int drumsInto = 0;
+    void recordDrumsOn(int track);
     int synthInto = 0;
+    // 2.0: the SYNTH (or the KEYBOARD's instrument) plays through a LIVE strip that is not an input in use:
+    // LIVE 2 when only LIVE 1 is used, LIVE 3 when two are used ... (before, it always took LIVE 2 - and a second
+    // instrument plugged into LIVE 2 went silent at the first note)
+    int freeSynthStrip() {
+        for (int v = juce::jmax(1, nLive); v <= 3; ++v) if (phoneOnLive(v + 1).isEmpty()) return v;
+        return 3; }
+    void synthNeedsStrip() {
+        if (synthInto > 0 && (synthInto >= nLive || nLive >= 4)) return;     // it has one (that is not a used input)
+        int v = freeSynthStrip(); setSynthInto(v);
+        status = (nLive >= 4 ? juce::String("all four LIVE inputs are used - the SYNTH plays through LIVE 4") : "the SYNTH plays through LIVE " + juce::String(v + 1)); }
 
     // phones (1.2): the station finds iPhones running ARCO - each one a microphone (on a LIVE input) and a remote control
     Studio studio { *this };                 // STUDIO: the song as a timeline (plays into outputs 1-2 and the headphones)
@@ -54,7 +70,7 @@ public:
     juce::String phoneOnLive(int live);      // the name of the phone playing as LIVE n (or empty)
     static bool isPhone();                   // an iPhone: it runs as a phone (microphone + remote), not as a station
     std::function<void()> onCardsChanged;    // the effect cards were chosen from a phone
-    juce::StringArray visibleCards = defaultVisibleCards();
+    juce::StringArray visibleCards = [] { auto a = defaultVisibleCards(); a.insert(1, "beq"); return a; }();
     juce::StringArray recentSongs;            // File > Open Recent
     void addRecent(const juce::File& f) { recentSongs.removeString(f.getFullPathName()); recentSongs.insert(0, f.getFullPathName()); while (recentSongs.size() > 8) recentSongs.remove(8); saveSetup(); }
     void newSong();   // the effect cards on the main window (SETUP > EFFECTS)
@@ -65,18 +81,52 @@ public:
     void recordSynthOn(int track);            // REC on that track, listening to the synth
     std::atomic<bool> studioKeys { false };    // STUDIO is open with an instrument lane: the keys play it (and record into it)
     InstrumentRack rack;                       // 1.3: the KEYBOARD's instrument (MODULAR, a sampled instrument, a plug-in) - or the SYNTH
+    std::atomic<bool> drumKeys { false };      // 2.0: the DRUM MACHINE is open: MIDI notes play its pads (General MIDI drum notes)
+    // 2.4: PATCHER - your own program, saved with the song (its screen edits patchDoc and compiles it)
+    std::unique_ptr<px::Runtime> patcher;
+    px::PatchDoc patchDoc;
+    std::deque<px::Line> patchLog; int patchLogGen = 0;
+    std::atomic<bool> patcherKeys { false };          // the PATCHER is open: the keys play only into it ([notein])
+    std::function<void(const px::Action&)> onPatcherAction;   // the screen handles: tempo, play, buffers to read
+    int patcherInto = 0;
+    void setPatcherInto(int v) { patcherInto = juce::jlimit(0, 3, v); engine.patcherInto.store(patcherInto); }
+    void patcherCompile(bool fresh) { if (patcher) patcher->setDoc(patchDoc, fresh); }
+    void patcherKeep();                               // the objects' state (a slider, a table) into patchDoc, to save it
+    void patcherAction(const px::Action& a);
+    struct PatcherPump : juce::Timer { AudioHost& h; explicit PatcherPump(AudioHost& x) : h(x) {} void timerCallback() override { if (h.patcher) h.patcher->poll(); } };
+    PatcherPump patcherPump { *this };
     void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override {
+        if (patcher) patcher->midiIn(juce::MidiMessage::noteOn(1, note, vel));
+        if (patcherKeys.load()) return;
+        if (drumKeys.load()) { int p = DrumKits::padForNote(note); if (p < 0) p = ((note % 12) + 12) % 12; engine.drumMachine.play(p, vel); return; }
         if (studioKeys.load()) { studio.midiNote(note, vel, true); return; }
         if (latch) {                                    // HOLD: a touch turns a note on, the next touch turns it off
             if (latched.count(note)) { latched.erase(note); playOff(note); } else { latched.insert(note); playOn(note, vel); }
             return; }
         playOn(note, vel); }
     void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override {
+        if (patcher) patcher->midiIn(juce::MidiMessage::noteOff(1, note));
+        if (patcherKeys.load()) return;
+        if (drumKeys.load()) return;
         if (studioKeys.load()) { studio.midiNote(note, 0, false); return; }
         if (latch) return;
         playOff(note); }
-    void playOn(int note, float vel) { if (rack.takesNotes()) { if (synthInto == 0) setSynthInto(1); rack.noteOn(note, vel); } else synth.noteOn(note, vel); }
+    void playOn(int note, float vel) { if (rack.takesNotes()) { synthNeedsStrip(); rack.noteOn(note, vel); } else synth.noteOn(note, vel); }
     void playOff(int note) { rack.noteOff(note); synth.noteOff(note); }
+    // 2.3: a sound chosen is heard at once - a chord, then the notes up and down, a low note (about 3 s; a new one stops it)
+    int auditionGen = 0;
+    void audition() {
+        const int gen = ++auditionGen;
+        struct Ev { int ms, note; bool on; float vel; };
+        std::vector<Ev> ev;
+        for (int n : { 60, 64, 67, 72 }) { ev.push_back({ 0, n, true, 0.75f }); ev.push_back({ 900, n, false, 0 }); }
+        const int arp[8] = { 60, 64, 67, 72, 76, 72, 67, 64 };
+        for (int i = 0; i < 8; ++i) { ev.push_back({ 1000 + i * 150, arp[i], true, 0.7f }); ev.push_back({ 1000 + i * 150 + 130, arp[i], false, 0 }); }
+        ev.push_back({ 2250, 36, true, 0.85f }); ev.push_back({ 3150, 36, false, 0 });
+        for (auto e : ev) juce::Timer::callAfterDelay(e.ms, [this, e, gen] {
+            if (gen != auditionGen) { if (!e.on) playOff(e.note); return; }
+            if (e.on) playOn(e.note, e.vel); else playOff(e.note); });
+    }
     // 1.4: HOLD - notes stay on until touched again (easy chords on a screen; with the arpeggiator every touched note joins it)
     bool latch = false;
     std::set<int> latched;
@@ -123,8 +173,14 @@ public:
     int sigSettle = 0;             // ... as they were at the last SAVE / OPEN
     bool unsavedLoops() { return engine.snap("smask").v.load() > 0.5f && loopsSignature() != savedSignature; }
     bool openSong(const juce::File& settingsOrFolder);
+    void saveDrums(const juce::File& folder);
+    void loadDrums(const juce::File& folder);
+    std::function<void(const juce::File&)> onSaveExtra, onOpenExtra;     // 2.0: the shell's screens save with the song (LIVE LOOPS)
     // import an audio file into a track (1-8)
     bool importFile(const juce::File& f, int track);
+    // a file that was listened to (the IMPORT sheet), kept at its own tempo and key. The first file of a piece sets the
+    // piece's tempo: the station takes the file's BPM and the file becomes exactly whole bars from its first bar line
+    bool importKeep(const struct ImportPlan& plan, int track);
     // ... or audio already at the engine rate (the smart import: fitted to the piece)
     bool importBuffer(const juce::AudioBuffer<float>& b, int track, const juce::String& name);
     void pollImport();                               // ~30 x a second: hands queued imports to the looper, one by one
@@ -153,7 +209,16 @@ public:
 
 private:
     void handleAsyncUpdate() override;
-    void timerCallback() override { tickPhones(); }
+    void timerCallback() override { tickPhones(); soundWatch(); }
+    // 2.2: the sound's watchdog - if the sound card stops calling (iOS can stop it: the file window, a call, another
+    // app) while it should run, it is started again. (Before, the sound could stay off until ARCO was closed.)
+    std::atomic<juce::uint32> callbacks { 0 };
+    juce::uint32 seenCallbacks = 0; double callbacksStill = 0; int restarts = 0;
+    int hadInputs = 0; double inputsGoneAt = 0;               // the microphone / inputs it had (iOS can take them away)
+    void soundWatch();
+public:
+    void restartSound();                          // close and open the sound card again (also SETUP's button)
+private:
     juce::AudioFormatManager formats;
     struct PendingImport { std::shared_ptr<SharedBuffer> buf; int track; double sr; juce::String name; int stage = 0; double t = 0, started = 0; bool seenBusy = false; int stateBefore = 0; };
     std::deque<PendingImport> imports;
@@ -164,6 +229,7 @@ private:
     double lastRate = 0;
     juce::AudioIODevice* rawDone = nullptr;
     std::vector<float> phoneBuf[4];
+    std::vector<float> mixTapL, mixTapR;     // the station's main mix, for STUDIO
     int ccLast[16][128] = {};
     juce::File setupFile() const;
 };

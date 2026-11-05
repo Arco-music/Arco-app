@@ -12,8 +12,10 @@ void applyFactorySynthPreset(Model& m, int index);
 // SYNTH 2: three pages - SOUND (3 oscillators, sub, noise, filter, voice), MOVEMENT (3 envelopes, 3 LFOs, the modulation
 // list, 4 macros) and PLAY (the arpeggiator). Drag a source (the dots on LFOs, envelopes, macros) onto any knob to move it.
 // Below: four ways to play - piano keys, the slide pad, chord pads (set note by note), HARMONY - plus the computer keys and MIDI.
+class Synth2;
 class SynthPanel : public juce::Component, public juce::DragAndDropContainer, private juce::Timer {
 public:
+    Synth2& lfoSource();       // 2.4: the synth engine (its LFOs move the knobs on the screen)
     explicit SynthPanel(Canvas& c);
     ~SynthPanel() override;
     void paint(juce::Graphics& g) override;

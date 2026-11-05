@@ -215,7 +215,7 @@ void ImportSheet::run() {
     juce::String err;
     ImportPlan p;
     bool ok = false;
-    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err); }
+    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err, piece.beats); }
     catch (...) { err = "the file is too big to read"; ok = false; }
     if (!ok) { error = err; jobDone = true; return; }
     cv.host.listenKey(piece);
@@ -262,7 +262,7 @@ void ImportSheet::doImport() {
     if (stage != Ready) return;
     if (!match || (!plan.matchTempo && (plan.semitones == 0 || !plan.matchKey))) {
         // as it is: the looper reads the file itself
-        cv.host.importFile(file, track);
+        cv.host.importKeep(plan, track);
         setVisible(false); plan = {}; stage = Idle; return;
     }
     stage = Rendering; wantRender = true; progress = 0.02f; jobDone = false;
@@ -309,7 +309,7 @@ void ImportSheet::paintContent(juce::Graphics& g) {
     text(g, pl, 130, 212, 640, 10.5f, Theme::txt(), 2, 1);
     // the two choices
     auto card = [&](juce::Rectangle<int> r, bool on, const juce::String& head, const juce::StringArray& lines) {
-        g.setColour(on ? Theme::sel().withAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
+        g.setColour(on ? Theme::sel().withMultipliedAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
         g.setColour(on ? Theme::ink(Theme::sel()) : Theme::line()); g.drawRoundedRectangle(r.toFloat().reduced(0.5f), 14.0f, on ? 2.2f : 1.0f);
         g.setColour(Theme::ink(Theme::txt())); g.setFont(Theme::font(13.0f, 2));
         g.drawText((on ? juce::String::fromUTF8("●  ") : juce::String::fromUTF8("○  ")) + head, r.getX() + 18, r.getY() + 14, r.getWidth() - 30, 24, juce::Justification::centredLeft);
@@ -640,16 +640,10 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         m.addItem(item(cmdUndo, "Undo Last Recording", CMDKEY + "Z", cv.snap("undoav") > 0.5f));
         m.addItem(item(cmdResetAll, juce::String::fromUTF8("Clear All Loops…"), {}, loops));
         m.addSeparator();
-        m.addItem(item(cmdAutoMix, juce::String::fromUTF8("AUTO MIX…"), juce::String::fromUTF8("⇧") + CMDKEY + "M", loops));
-        m.addItem(item(cmdAB, "Compare Before / After AUTO MIX", {}, cv.autoMixAvailable()));
         m.addSeparator();
         m.addItem(item(cmdMidiLearn, cv.midiLearnActive() ? "Stop MIDI Learn" : juce::String::fromUTF8("MIDI Learn…"), CMDKEY + "L", true, cv.midiLearnActive()));
         m.addItem(item(cmdMidiClear, "Forget All MIDI Connections"));
     } else if (index == 2) {
-        auto& P = Theme::palettes();
-        juce::PopupMenu pal;
-        for (int i = 0; i < (int) P.size(); ++i) pal.addItem(item(cmdPalette + i, juce::String(P[(size_t) i].name) + (P[(size_t) i].light ? " (light)" : " (dark)"), {}, true, i == Theme::paletteIndex()));
-        m.addSubMenu("Colours", pal);
         m.addItem(item(cmdToggleLight, Theme::lightMode() ? "Dark Mode" : "Light Mode", juce::String::fromUTF8("⇧") + CMDKEY + "L"));
         m.addItem(item(cmdLook, juce::String::fromUTF8("Choose Effects…")));
         m.addSeparator();

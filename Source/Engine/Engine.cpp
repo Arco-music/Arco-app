@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "Patcher.h"
 #include <chrono>
 #include <cstring>
 #include <algorithm>
@@ -42,16 +43,16 @@ void Engine::prepare(double sampleRate) {
     for (auto& v : accIn) v.assign(SUB, 0.0f);
     for (auto& v : qOut) v.assign(SUB, 0.0f);
     for (auto& a : accPhone) a.assign(SUB, 0.0f);
-    mods.clear(); busToMod.clear(); graph.clear(); bus.clear();
+    synthNow.store(nullptr); mods.clear(); busToMod.clear(); graph.clear(); bus.clear();
     // ---- the shared buffers (sizes like the patch: 40 s loops, 2.3 s of pitch, 22 ms wave screens)
     auto mk = [&](const std::string& n, long frames, long ch) { auto& b = bufs[n]; b.name = n; b.resize(frames, ch); };
     for (const char* L : { "A", "B", "C", "D" }) {
-        mk(std::string("st_loops") + L, (long) (40.0 * sr), 8);
+        mk(std::string("st_loops") + L, (long) (trackSeconds() * sr), 8);
         mk(std::string("st_pitch") + L, (long) (2.3 * sr / 1.0), 8);
         mk(std::string("st_wave") + L, (long) (0.022 * sr), 8);
     }
     mk("st_wavel", (long) (0.022 * sr), 4);
-    mk("st_undo", (long) (40.0 * sr), 1);
+    mk("st_undo", (long) (trackSeconds() * sr), 1);
     importBuf = std::make_shared<SharedBuffer>(); importBuf->name = "st_import"; importBuf->resize(16, 2);
 
     auto b = [this](const std::string& n) { return B(n); };
@@ -60,15 +61,28 @@ void Engine::prepare(double sampleRate) {
     addNode<Listen>(this, mods, busToMod, graph, b, "st_listen", { "live_in1" }, { "pitch", "-", "lev1" });
     addNode<Tune>(this, mods, busToMod, graph, b, "st_tune", { "live_in1", "pitch" }, { "tune_out", "tn_pitch", "tn_corr", "tn_note" });
     {   // SYNTH 2
-        auto* sm = new Synth2Mod(); mods.emplace_back(sm); busToMod["st_syn"] = (int) mods.size() - 1; sm->syn.init(sr);
-        const float* pi = B("pitch"); const float* be = B("beat_prev"); const float* bp = B("ebpm");
+        auto* sm = new Synth2Mod(); mods.emplace_back(sm); busToMod["st_syn"] = (int) mods.size() - 1; sm->syn.init(sr); synthNow.store(&sm->syn);
+        const float* pi = B("pitch"); const float* be = B("gbeat_prev"); const float* bp = B("gbpm_prev");
         float* o[5] = { B("synL"), B("synR"), B("syn_mono"), B("syn_n"), B("syn_lfo") };
         graph.push_back([sm, pi, be, bp, o]() { sm->syn.process(pi, be, bp, o[0], o[1], o[2], o[3], o[4], SUB); });
-        graph.push_back([this, be, bp, o]() {     // the KEYBOARD's instrument joins it
+        const float* ins[4] = { B("live_in1"), B("live_in2"), B("live_in3"), B("live_in4") }; const float* mL = B("mainL"); const float* mR = B("mainR");
+        graph.push_back([this, be, bp, o, ins, mL, mR]() {     // the KEYBOARD's instrument joins it
             auto* x = ext.load(); if (x == nullptr) return;
+            x->setInputs(ins, mL, mR);
             float l[SUB] = {}, r[SUB] = {};
             x->render(l, r, SUB, sr, bp[0], be[0]);
             for (int i = 0; i < SUB; ++i) { o[0][i] += l[i]; o[1][i] += r[i]; o[2][i] += (l[i] + r[i]) * 0.5f; }
+        });
+    }
+    {   // 2.4: PATCHER - its own program hears the inputs (and the last block's mix), plays into its strip or the mix
+        const float* pin[6] = { B("live_in1"), B("live_in2"), B("live_in3"), B("live_in4"), B("mainL"), B("mainR") };
+        float* po[2] = { B("patL"), B("patR") }; const float* be = B("gbeat_prev"); const float* bp = B("gbpm_prev"); const float* gr = B("grun");
+        graph.push_back([this, pin, po, be, bp, gr]() {
+            auto* p = patcher.load();
+            if (p == nullptr) { std::fill(po[0], po[0] + SUB, 0.0f); std::fill(po[1], po[1] + SUB, 0.0f); return; }
+            p->bpm = bp[0] > 1 ? bp[0] : 120.0; p->beat = be[0]; p->running = gr[0] > 0.5f;
+            p->process(pin, 6, po, 2, SUB);
+            float g = patcherGain.load(); if (g != 1.0f) for (int i = 0; i < SUB; ++i) { po[0][i] *= g; po[1][i] *= g; }
         });
     }
     graph.push_back([this]() {                     // live 1 = input or TUNE; live 2-4 = input or SYNTH
@@ -76,12 +90,18 @@ void Engine::prepare(double sampleRate) {
         float target = tuneAmt > 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.02 * sr);
         for (int i = 0; i < SUB; ++i) { tuneMix += (tuneMix < target ? 1 : -1) * std::min(k, std::abs(target - tuneMix));
             l1[i] = li[i] * (1 - tuneMix) + tu[i] * tuneMix; }
-        float* sy = B("syn_mono");
+        float* sy = B("syn_mono"); float* pL = B("patL"); float* pR = B("patR");
         for (int j = 0; j < 3; ++j) {
             float* raw = B("live_in" + std::to_string(j + 2)); float* lv = B("live" + std::to_string(j + 2));
             float tg = synthInto.load() == j + 1 ? 1.0f : 0.0f; float kk = 1.0f / (float) (0.03 * sr);
+            float td = drumsInto.load() == j + 1 ? 1.0f : 0.0f;
+            if (dmPrev.size() < (size_t) SUB) dmPrev.assign(SUB, 0.0f);
             for (int i = 0; i < SUB; ++i) { synG[j] += (synG[j] < tg ? 1 : -1) * std::min(kk, std::abs(tg - synG[j]));
-                lv[i] = raw[i] * (1 - synG[j]) + sy[i] * synG[j]; }
+                dmG[j] += (dmG[j] < td ? 1 : -1) * std::min(kk, std::abs(td - dmG[j]));
+                float keep = 1.0f - std::max(synG[j], dmG[j]);
+                lv[i] = raw[i] * keep + sy[i] * synG[j] + dmPrev[(size_t) i] * dmG[j]; }
+            float tp = patcherInto.load() == j + 1 ? 1.0f : 0.0f;
+            for (int i = 0; i < SUB; ++i) { patG[j] += (patG[j] < tp ? 1 : -1) * std::min(kk, std::abs(tp - patG[j])); lv[i] += (pL[i] + pR[i]) * 0.5f * patG[j]; }
         }
     });
     auto LOUT = cat({ T, TP, { "click", "statA", "statB", "beat", "barno", "beatno", "loopbars", "scenes", "transport", "smask", "ebpm",
@@ -89,6 +109,14 @@ void Engine::prepare(double sampleRate) {
                      "spdk", "undoav", "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "pvw", "ntn", "sv_ntr", "lphase", "lscene", "imp_busy" } });
     addNode<Looper>(this, mods, busToMod, graph, b, "st_looper", { "live1", "live2", "live3", "live4", "pitch" }, LOUT);
     graph.push_back([this]() { std::memcpy(B("beat_prev"), B("beat"), sizeof(float) * SUB); });
+    {   // 2.0: the clock (STUDIO / the station / free), the SYNTH reads it one block later
+        float* tr = B("transport"); float* be = B("beat"); float* eb = B("ebpm");
+        float* gb = B("gbeat"); float* gt = B("gbpm"); float* gr = B("grun"); float* gbp = B("gbeat_prev"); float* gtp = B("gbpm_prev");
+        clock.init(sr);
+        graph.push_back([this, tr, be, eb, gb, gt, gr, gbp, gtp]() {
+            std::memcpy(gbp, gb, sizeof(float) * SUB); std::memcpy(gtp, gt, sizeof(float) * SUB);
+            clock.process(tr, be, eb, drumMachine.p.run > 0.5f || phrase.wantsClock() ? 1.0f : 0.0f, gb, gt, gr, SUB); });
+    }
     {   // the mixing desk of every strip: high-pass, EQ, compressor (flat = skipped)
         auto* sm = new StripMixMod(); mods.emplace_back(sm); busToMod["st_mix"] = (int) mods.size() - 1; sm->mx.init(sr); stripMix = &sm->mx;
         std::array<const float*, 12> ip; std::array<float*, 12> op;
@@ -109,6 +137,33 @@ void Engine::prepare(double sampleRate) {
     addNode<Grain>(this, mods, busToMod, graph, b, "st_grn", { "to_grn" }, { "grnL", "grnR" });
     addNode<FxBox>(this, mods, busToMod, graph, b, "st_fxb", { "to_fxb", "beat" }, { "fxbL", "fxbR", "fxb_mode" });
     addNode<Drums>(this, mods, busToMod, graph, b, "st_drm", { "beat", "transport", "loopbars" }, { "drmL", "drmR", "drm_sty", "drm_kit" });
+    {   // 2.0: the DRUM MACHINE (into the drums' buses, its SPACE send into SPACE) and PHRASE
+        auto* dm = new RefMod<DrumMachine>(); dm->t = &drumMachine; mods.emplace_back(dm); busToMod["st_dm"] = (int) mods.size() - 1; drumMachine.init(sr);
+        float* gb = B("gbeat"); float* gt = B("gbpm"); float* gr = B("grun"); float* L = B("drmL"); float* R = B("drmR"); float* sp = B("to_spc");
+        graph.push_back([this, gb, gt, gr, L, R, sp]() {
+            drumMachine.process(gb, gt, gr, L, R, sp, SUB);
+            // through a LIVE strip (a track can record it): the strip plays it next block, the direct sound fades out
+            if (dmPrev.size() < (size_t) SUB) dmPrev.assign(SUB, 0.0f);
+            float tgt = drumsInto.load() > 0 ? 0.0f : 1.0f, kk = 1.0f / (float) (0.03 * sr);
+            for (int i = 0; i < SUB; ++i) { dmPrev[(size_t) i] = 0.5f * (L[i] + R[i]);
+                dmDirect += (dmDirect < tgt ? 1 : -1) * std::min(kk, std::abs(tgt - dmDirect)); L[i] *= dmDirect; R[i] *= dmDirect; } });
+        auto* ph = new RefMod<Phrase>(); ph->t = &phrase; mods.emplace_back(ph); busToMod["st_phr"] = (int) mods.size() - 1; phrase.init(sr);
+        std::array<const float*, 4> lv; for (int i = 0; i < 4; ++i) lv[(size_t) i] = B("live" + std::to_string(i + 1));
+        float* pl = B("phrL"); float* pr = B("phrR");
+        float* dl = B("dryL"); float* dr = B("dryR");
+        graph.push_back([this, lv, gb, gt, gr, pl, pr, sp, dl, dr]() mutable {
+            phrase.process(lv.data(), gb, gt, gr, pl, pr, sp, SUB);
+            for (int i = 0; i < SUB; ++i) { dl[i] += pl[i]; dr[i] += pr[i]; } });
+        // LIVE LOOPS: records from the live inputs, the drums, the synth, PHRASE; plays into the mix
+        loopGrid.init(sr);
+        std::array<const float*, 18> li { B("live1"), B("live2"), B("live3"), B("live4"), L, R, B("synL"), B("synR"), pl, pr,
+                                          B("ch4"), B("ch5"), B("ch6"), B("ch7"), B("ch8"), B("ch9"), B("ch10"), B("ch11") };
+        graph.push_back([this, li, gb, gt, dl, dr]() mutable { loopGrid.process(li.data(), gb, gt, phrase.p.bpb, dl, dr, SUB); });
+        float* pL = B("patL"); float* pR = B("patR");
+        graph.push_back([this, dl, dr, pL, pR]() {      // the PATCHER on its own: straight into the mix
+            float tg = patcherInto.load() == 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.03 * sr);
+            for (int i = 0; i < SUB; ++i) { patDirect += (patDirect < tg ? 1 : -1) * std::min(k, std::abs(tg - patDirect)); dl[i] += pL[i] * patDirect; dr[i] += pR[i] * patDirect; } });
+    }
     addNode<Shadow>(this, mods, busToMod, graph, b, "st_shd", { "to_shd", "pitch", "halo_key" }, { "shdL", "shdR" });
     addNode<Orbit>(this, mods, busToMod, graph, b, "st_orb", { "to_orb" }, { "orbL", "orbR", "orb_pos", "orb_dm", "orb_mono" });
     {   // the new send effects: their returns join the dry mix (and SPACE) before the master
@@ -179,7 +234,7 @@ void Engine::prepare(double sampleRate) {
     for (auto& n : pk) { peaks[n].store(0.0f); peakList.push_back({ B(n), &peaks[n] }); }
     for (auto& e : extraFxDefs()) ringList.push_back({ B("xr_" + std::string(e.key)), &rings["xr_" + std::string(e.key)] });
     for (auto& n : std::vector<std::string> { "selsig", "choL", "dlyL", "revL", "fxbL", "haloL", "resL", "grnL", "frzL", "to_spc", "to_orb",
-                                              "drmL", "live1", "synL" })
+                                              "drmL", "live1", "synL", "phrL" })
         ringList.push_back({ B(n), &rings[n] });
 }
 
@@ -292,6 +347,8 @@ void Engine::runSub(const float* const* in, int numIn, float* const* out, int nu
         for (int i = 0; i < n; ++i) m = std::max(m, std::abs(p.first[i])); p.second->store(m, std::memory_order_relaxed); }
     for (auto& r : ringList) r.second->push(r.first, n);
     if (recorder) recorder(B("mainL"), B("mainR"), n);
+    { const float* ml = B("mainL"); const float* mr = B("mainR");
+      for (int i = 0; i < n; ++i) { tapL[(size_t) tapWr] = ml[i]; tapR[(size_t) tapWr] = mr[i]; tapWr = (tapWr + 1) % TAPN; if (tapWr == tapRd) tapRd = (tapRd + 1) % TAPN; } }
 }
 
 } // namespace arco

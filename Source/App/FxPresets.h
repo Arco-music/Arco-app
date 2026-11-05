@@ -41,7 +41,7 @@ inline void applyValues(Model& m, const juce::var& vals, bool allScenes) {
 }
 
 inline juce::StringArray names(const juce::String& card) {
-    juce::StringArray n; if (auto* o = readJson(presetFile(card)).getDynamicObject()) for (auto& p : o->getProperties()) n.add(p.name.toString());
+    juce::StringArray n; auto all = readJson(presetFile(card)); if (auto* o = all.getDynamicObject()) for (auto& p : o->getProperties()) n.add(p.name.toString());
     n.sortNatural(); return n;
 }
 inline void save(const Model& m, const juce::String& card, const juce::String& name) {
@@ -60,7 +60,8 @@ inline void setDefault(const Model& m, const juce::String& card) {
 inline void clearDefault(const juce::String& card) {
     auto all = readJson(defaultsFile()); all.getDynamicObject()->removeProperty(juce::Identifier(card)); writeJson(defaultsFile(), all); }
 inline void applyDefaults(Model& m) {
-    if (auto* o = readJson(defaultsFile()).getDynamicObject()) for (auto& p : o->getProperties()) applyValues(m, p.value, true);
+    auto all = readJson(defaultsFile());            // kept alive while it is read (a temporary was gone before the loop: memory used after it was freed)
+    if (auto* o = all.getDynamicObject()) for (auto& p : o->getProperties()) applyValues(m, p.value, true);
 }
 // the factory settings of a card
 inline void factory(Model& m, const std::string& card) { for (auto& id : paramsOf(card)) if (auto* d = m.def(id)) m.set(id, d->def); }

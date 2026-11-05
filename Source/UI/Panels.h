@@ -93,6 +93,19 @@ private:
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY())); return c; }
     void styleLaf();
     void timerCallback() override { if (isVisible()) repaint(box); }
+    // 2.2: one section at a time (a list on the left), bigger - it was everything on one crowded page
+    static constexpr int NSEC = 7;
+    int section = 0;
+    juce::Rectangle<int> secR(int s) const;              // where a section's controls are drawn in the old page (box coordinates)
+    juce::Rectangle<int> contentR() const { return { box.getX() + 252, box.getY() + 70, box.getWidth() - 252 - 22, box.getHeight() - 70 - 18 }; }
+    juce::AffineTransform secT(int s) const;             // the old place of section s -> the content area, 1.25 x
+    struct Placed { juce::Component::SafePointer<juce::Component> c; int sec; };
+    std::vector<Placed> placed;
+    std::vector<Pill*> nav;
+    void classify();                                     // which section each control belongs to
+public:
+    void showSection(int s);
+private:
 };
 
 } // namespace arco

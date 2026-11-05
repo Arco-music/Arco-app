@@ -28,7 +28,22 @@ public:
     void visibilityChanged() override;
     bool isInterestedInFileDrag(const juce::StringArray&) override { return true; }
     void filesDropped(const juce::StringArray& files, int x, int y) override;
+    // 2.2: files are listened to first (tempo, bars) on their own thread, then you choose: as it is, or fitted to the song
+    void importFiles(const juce::StringArray& files, int lane, long at);
+    void chooseImport(std::shared_ptr<std::vector<ImportPlan>> plans, int lane, long at);
+    std::atomic<int> listening { 0 };
+    // tests: press every button the studio shows, one by one (drawn again between); menus and dialogs are closed.
+    // Returns how many were pressed; `bad` gets what went wrong
+    int pressEverything(juce::StringArray& bad);
+    void printFx(int lane);                      // the track recorded with its effects
+    void showEffects(int group) { fxGroup = group; openBrowser(detail == DMaster ? -1 : selLane); }   // (tests, screenshots)
     std::function<void()> onClose;
+    // 2.0: inside the app shell - its top bar has the transport, the position and the tempo; here: the tools
+    bool embedded = false;
+    void setEmbedded(bool e) { embedded = e; topH = e ? 52.0f : 60.0f; resized(); repaint(); }
+    void togglePlay();
+    void toggleRecord();
+    void rewind() { studio.pos = studio.song.loopOn ? studio.song.loopStart : 0; scrollSec = 0; repaint(); }
     Studio& studio;
 private:
     Canvas& cv;
@@ -57,7 +72,7 @@ private:
     std::vector<int> selClips;                   // more clips (shift-click)
     enum Detail { DClip, DLane, DMaster } detail = DLane;
     // ---- dragging
-    enum Drag { None, Move, TrimL, TrimR, FadeIn, FadeOut, Seek, LoopMake, LoopMove, Vol, AutoPt, NoteMove, NoteLen, NoteVel, Browser, ScrollV, Split, Resize };
+    enum Drag { None, Move, TrimL, TrimR, FadeIn, FadeOut, Seek, LoopMake, LoopMove, PunchMake, Vol, AutoPt, NoteMove, NoteLen, NoteVel, Browser, ScrollV, Split, Resize };
     Drag drag = None; juce::Point<float> downAt;
     long dragStart = 0, dragLen = 0, dragOff = 0; float dragFade = 0; int dragLane = 0, dragPt = -1, dragNote = -1; double dragNoteStart = 0, dragNoteLen = 0; int dragPitch = 0; float dragVel = 0;
     std::vector<std::pair<int, long>> dragGroup;  // other chosen clips: index, start
@@ -92,8 +107,6 @@ private:
     double rollX(double t, juce::Rectangle<int> r) const;
     double rollT(float x, juce::Rectangle<int> r) const;
     // ---- actions
-    void togglePlay();
-    void toggleRecord();
     void split();
     void duplicate();
     void removeClip();
@@ -106,6 +119,23 @@ private:
     void doExport();
     void rename(int li);
     void newMidiClip(int li, long at);
+    // 2.3
+    void editMenu();                             // cut / copy / paste, time, ripple, crossfades, punch, MIDI files
+    void takesMenu(int ci);
+    void quantiseMenu();
+    void togglePunch();
+    // 2.3: the effects to choose, right in the bottom panel (studio's, the station's, plug-ins); -2 closed
+    int fxBrowse = -2, fxGroup = 1, fxPage = 0, builtBrowse = -3;
+    void openBrowser(int li) { fxBrowse = li; fxPage = 0; showDetail = true; builtFor = -2; resized(); repaint(); }
+    void paintBrowser2(juce::Graphics& g, juce::Rectangle<int> r);
+    void instrumentMenu(int li);
+    juce::String scanText;
+    void routeMenu(int li);                      // where a lane goes, its sends, a new bus
+    void keyMenu(int li, int dev);               // a compressor's / gate's sidechain
+    void copySel(bool cut);
+    void paste();
+    void importMidiFiles(const juce::StringArray& files, int lane, long at);
+    std::vector<int> chosenClips() const { auto a = selClips; if (selClip >= 0 && std::find(a.begin(), a.end(), selClip) == a.end()) a.push_back(selClip); return a; }
     // ---- jobs on the thread
     enum Job { JNone, JExport, JStems, JPrint, JTranspose } job = JNone;
     int jobLane = 0, jobClip = -1; double jobSemis = 0; std::atomic<float> progress { 0 }; std::atomic<bool> jobDone { false };

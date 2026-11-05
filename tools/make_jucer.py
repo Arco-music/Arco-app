@@ -39,6 +39,10 @@ for g, files in sorted(groups.items()):
 w('    <GROUP id="grpres" name="Resources">')
 for f in ["Inter-Regular.otf", "Inter-SemiBold.otf", "Inter-Bold.otf", "icon.png"]:
     w(f'      <FILE id="{uid(f)}" name="{f}" compile="0" resource="1" file="Resources/{f}"/>')
+# 2.0: the DRUM MACHINE's JAZZ kit (tools/drumkit)
+for f in sorted(os.listdir("Resources/drums")):
+    if f.endswith(".flac"):
+        w(f'      <FILE id="{uid("drums/" + f)}" name="{f}" compile="0" resource="1" file="Resources/drums/{f}"/>')
 w(f'      <FILE id="icnios" name="icon-ios.png" compile="0" resource="0" file="Resources/icon-ios.png"/>')
 w('    </GROUP>')
 w('  </MAINGROUP>')

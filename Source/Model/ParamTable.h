@@ -388,7 +388,8 @@ inline const std::vector<ParamDef>& paramTableBase() { static const std::vector<
   {"shd_v10", {"st_shd"}, 0.0, 0.0, 1.0, 0, 1},
   {"shd_v11", {"st_shd"}, 0.0, 0.0, 1.0, 0, 1},
   {"bpm", {"st_looper", "st_dly", "st_rev"}, 90.0, 30.0, 300.0, 1, 0},
-  {"beats", {"st_looper", "st_drm"}, 4.0, 1.0, 16.0, 1, 2},
+  {"beats", {"st_looper", "st_drm"}, 4.0, 1.0, 32.0, 1, 2},
+  {"beatden", {}, 4.0, 1.0, 16.0, 1, 2},                  // 2.3: the time signature's note (4 = quarters, 8 = eighths ...): one for the whole app
   {"bars", {"st_looper"}, 0.0, 0.0, 32.0, 1, 2},
   {"countin", {"st_looper"}, 1.0, 0.0, 1.0, 1, 1},
   {"clickall", {"st_looper"}, 0.0, 0.0, 1.0, 1, 1},

@@ -53,6 +53,7 @@ public:
     std::unique_ptr<juce::FileChooser> chooser;
     void chooseFile(const juce::String& title, const juce::String& pattern, bool save, std::function<void(juce::File)> done, bool dirs = false);
     void layoutStrips();
+    juce::String focusFx() const;
     void layoutCards();
     int cardPage = 0, numCardPages = 1; bool inLayout = false;
     std::vector<juce::Component*> pagePills;
@@ -66,7 +67,7 @@ public:
     bool fxUsed(const juce::String& key);           // is this effect working now (lit on the map)
     void showFamily(int f, int page = 0);
     void showCard(int cardIndex);
-    juce::Rectangle<int> mapR; int cardsPerPage = 4; int shotTracks = 0;   // screenshots: how many tracks to show
+    juce::Rectangle<int> mapR, fxPanelR; int fxCard = -1; int cardsPerPage = 4; int shotTracks = 0;   // screenshots: how many tracks to show
     std::unique_ptr<juce::Component> fxMap;
     void openLook(bool show);
     void openSpatial(bool show);
@@ -82,6 +83,13 @@ public:
     void layoutHeader();
     juce::Rectangle<int> grpR[9]; int headerBottom = 130;
     std::unique_ptr<MasterView> masterView;
+    // 2.0: inside the app shell - its top bar has the transport, the tempo, the song; HOME has the other windows
+    bool inShell = false;
+    void showStation(bool on);          // 2.0: in the shell, a window (SYNTH ...) is a screen of its own: nothing of the station behind it
+    bool stationShown = true;
+    bool synthOpen() const; bool keyboardOpen() const; bool modularOpen() const; bool spatialOpen() const;
+    std::function<void()> onOpenStudio;
+    std::function<void(int lane, int device)> onEditPatcher;        // 2.4: a STUDIO device's PATCHER program, opened in its screen
 private:
     struct HK { juce::Component* c; int grp; juce::Rectangle<int> rel; };
     std::vector<HK> hk; std::vector<juce::Component*> winBtns;
@@ -135,44 +143,6 @@ private:
     friend class MasterView;
     friend class CardView;
     friend class SynthPanel;
-};
-
-class MainComponent : public juce::Component {
-public:
-    explicit MainComponent(AudioHost& h) : canvas(h), phone(h) {
-        addAndMakeVisible(canvas); addChildComponent(phone);
-        phone.onBack = [this] { showMic(false); };
-        setSize(1440, 880);
-        if (AudioHost::isPhone()) { phone.showBack = false; showMic(true); }      // an iPhone is a phone: microphone + remote
-    }
-    void paint(juce::Graphics& g) override { g.fillAll(Theme::bg()); }
-    void resized() override {
-        auto area = getLocalBounds();
-       #if JUCE_IOS
-        if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) area = d->safeAreaInsets.subtractedFrom(area);   // notch, home bar
-       #endif
-        // a tall screen (iPad in portrait): the station rearranges itself, 1000 wide
-        bool tall = area.getHeight() > area.getWidth() * 1.05f;
-        // the design is 1440 wide (1000 standing up); its height follows the screen, so the whole screen is used
-        int w = tall ? 1000 : 1440;
-        int h = tall ? juce::jmax(1200, juce::roundToInt(1000.0f * area.getHeight() / juce::jmax(1, area.getWidth())))
-                     : juce::jlimit(880, 1300, juce::roundToInt(1440.0f * area.getHeight() / juce::jmax(1, area.getWidth())));
-        canvas.setLayout(tall, w, h);
-        float s = juce::jmin(area.getWidth() / (float) w, area.getHeight() / (float) h);
-        canvas.setBounds(0, 0, w, h);
-        float dx = area.getX() + (area.getWidth() - w * s) * 0.5f, dy = area.getY() + (area.getHeight() - h * s) * 0.5f;
-        canvas.setTransform(juce::AffineTransform::scale(s).translated(dx, dy));
-        phone.setBounds(getLocalBounds());
-    }
-    // this device as a phone for a station (iPad: from the menu; iPhone: always)
-    void showMic(bool on) {
-        if (on == phone.isVisible()) return;
-        phone.showBack = !AudioHost::isPhone();
-        phone.setVisible(on); canvas.setVisible(!on);
-        if (on) { phone.start(); phone.toFront(false); } else phone.stop();
-    }
-    Canvas canvas;
-    PhoneRemote phone;
 };
 
 } // namespace arco

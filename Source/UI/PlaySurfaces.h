@@ -127,7 +127,7 @@ public:
                 auto ctr = cellCentre(c, row); if (ctr.x + d * 0.5f > r.getRight()) continue;
                 int n = harmonyNote(c, row); bool on = sounding(n), root = ((n - key()) % 12 + 12) % 12 == 0;
                 auto e = juce::Rectangle<float>(d, d).withCentre(ctr);
-                g.setColour(on ? Theme::violet() : (root ? Theme::blue().withAlpha(0.55f) : (inKey(n) ? Theme::card() : Theme::card().withAlpha(0.45f))));
+                g.setColour(on ? Theme::violet() : (root ? Theme::blue().withAlpha(0.55f) : (inKey(n) ? Theme::card() : Theme::cardS().withAlpha(0.45f))));
                 g.fillEllipse(e);
                 if (!on && inKey(n)) { g.setColour(Theme::violet().withAlpha(0.35f)); g.drawEllipse(e.reduced(1), 1.4f); }
                 lbl(g, NOTE_NAMES[n % 12], e.toNearestInt(), 9.0f, on ? Theme::textOn(Theme::violet()) : (inKey(n) ? Theme::txt() : Theme::sub()));
@@ -184,7 +184,7 @@ public:
     }
     void playPad() { if (host().latch) return; for (int v : padNotes(editPad)) host().keys.noteOn(1, base() + v, 0.7f);
         juce::Timer::callAfterDelay(450, [sp = juce::Component::SafePointer<KeyPad>(this), ns = padNotes(editPad), b = base()] { if (sp) for (int v : ns) sp->host().keys.noteOff(1, b + v, 0.0f); }); }
-    void mouseDown(const juce::MouseEvent& e) override {
+    void mouseDown(const juce::MouseEvent& e) override { setViewportIgnoreDragFlag(true);
         if (mode == 1) { pad(e, 0); return; }
         if (mode == 2 && editing) { editTap(e.position); return; }
         int n = noteAt(e.position); if (n < 0) return;

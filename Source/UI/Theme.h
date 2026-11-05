@@ -18,11 +18,20 @@ struct Palette {
     // 0 red  1 moss/green  2 ochre/amber  3 blue  4 mauve  5 teal  6 warm grey  7 olive
     std::array<juce::Colour, 8> acc;
     int style = 0;       // 0 accents of the family; 1 classic: every effect and track its own clear colour (1.1 design)
+    // 2.0: "liquid glass" - surfaces are frosted glass (translucent white) over a deep black with soft glows;
+    // solidCard / solidCard2 stand for them where a contrast has to be measured
+    bool glass = false;
+    juce::Colour solidCard {}, solidCard2 {};
+    int glow = 0;        // the backdrop's glows: 0 cool (blue / violet), 1 warm (champagne)
+    // 2.1: SOFT - surfaces raised out of one material (neumorphic): a light from the top left (hi) and its shade (lo)
+    bool soft = false;
+    juce::Colour hi {}, lo {};
 };
 
 struct Theme {
     static juce::Colour rgb(float r, float g, float b) { return juce::Colour::fromFloatRGBA(r, g, b, 1.0f); }
     static juce::Colour hex(juce::uint32 v) { return juce::Colour(0xff000000u | v); }
+    static juce::Colour wa(float a) { return juce::Colour::fromFloatRGBA(1, 1, 1, a); }     // white glass
 
     // Four palettes: Black (the 1.1 design) and Storm (dark), Light and Chambray (light). Every effect keeps its own colour.
     // Text and marks are kept readable automatically where they are drawn (ink(), arc()).
@@ -37,19 +46,34 @@ struct Theme {
             // light: the same colours, softer, on warm mid-light grey (1.6: nothing near white, easy on the eyes)
             { "Light", true, hex(0xcdcbc5), hex(0xd9d7d1), hex(0xc9c7c0), hex(0xc8c6bf), hex(0xbfbdb6), hex(0x34353a), hex(0x5d5e64), hex(0xc4c2bb), hex(0xcac8c1), hex(0x9aa3b8), cLight(), 1 },
             { "Chambray", true, hex(0xd9e0e4), hex(0xedf1f3), hex(0xe2e8eb), hex(0xe6ecef), hex(0xc1ccd2), hex(0x1f2a32), hex(0x55656f), hex(0xd2dbe0), hex(0xd8e0e4), hex(0x7f93a3), cLight(), 1 },
+            // 2.0: black and glass. NOIR: cool, quiet colours; NOIR GOLD: the same with champagne
+            { "Noir", false, hex(0x222329), wa(0.08f), wa(0.12f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.26f), wa(0.12f), hex(0xffffff), hex(0xb6b7c0), wa(0.07f), wa(0.09f), wa(0.22f),
+              std::array<juce::Colour, 8> { hex(0xff6b72), hex(0x4fd6a0), hex(0xf2c46d), hex(0x7ea8ff), hex(0xb79cff), hex(0x62e3d1), hex(0xe7b98d), hex(0xc6d36c) }, 0, true, hex(0x343539), hex(0x3c3d42), 0 },
+            { "Noir Gold", false, hex(0x25221e), wa(0.08f), wa(0.12f), juce::Colour::fromFloatRGBA(0, 0, 0, 0.26f), wa(0.12f), hex(0xfffcf7), hex(0xbdb5a9), wa(0.07f), wa(0.09f), wa(0.22f),
+              std::array<juce::Colour, 8> { hex(0xf07a6a), hex(0x8fd1a2), hex(0xe2bf7e), hex(0xb9c7e6), hex(0xcbb5e8), hex(0x9cd8cc), hex(0xd9b48a), hex(0xd2cd8a) }, 0, true, hex(0x37342f), hex(0x3f3c37), 1 },
+            // 2.1: SOFT DARK / SOFT LIGHT - one soft material, dusty colours, light only where something is on
+            { "Soft Dark", false, hex(0x2a2e37), hex(0x2a2e37), hex(0x24272f), hex(0x23262d), hex(0x3a3f4a), hex(0xeceef3), hex(0x8f96a3), hex(0x5c6270), hex(0x2a2e37), hex(0x3d4559),
+              std::array<juce::Colour, 8> { hex(0xe3837a), hex(0x94c7b0), hex(0xdcbd8f), hex(0x9db0dc), hex(0xb3a7da), hex(0x8fc4c7), hex(0xd9a6bc), hex(0xc2c48f) }, 0, false, hex(0x2a2e37), hex(0x24272f), 0,
+              true, hex(0x363b47), hex(0x1b1e25) },
+            { "Soft Light", true, hex(0xe8e9ec), hex(0xe8e9ec), hex(0xdfe1e6), hex(0xdcdee3), hex(0xd3d6dc), hex(0x2a2d33), hex(0x767c88), hex(0xb3b7bf), hex(0xe8e9ec), hex(0xd3daea),
+              std::array<juce::Colour, 8> { hex(0xd9665d), hex(0x76ad95), hex(0xc9a36e), hex(0x7d93c4), hex(0x9a8cc4), hex(0x6aa5a8), hex(0xc48aa3), hex(0x9a9c5e) }, 0, false, hex(0xe8e9ec), hex(0xdfe1e6), 0,
+              true, hex(0xffffff), hex(0xc8ccd3) },
         };
         return P;
     }
-    static int& paletteIndex() { static int i = 0; return i; }
-    static int& lastDark() { static int i = 0; return i; }
-    static int& lastLight() { static int i = 2; return i; }   // Light
+    static int& paletteIndex() { static int i = 6; return i; }      // 2.1: SOFT DARK first
+    static int& lastDark() { static int i = 6; return i; }
+    static int& lastLight() { static int i = 7; return i; }   // Soft Light
     static const Palette& pal() { auto& P = palettes(); return P[(size_t) juce::jlimit(0, (int) P.size() - 1, paletteIndex())]; }
     static bool lightMode() { return pal().light; }
+    // 2.3: ARCO has two looks, SOFT DARK and SOFT LIGHT; any other (an old setting, an old menu) becomes the one of its kind
+    static constexpr int kDark = 6, kLight = 7;
     static void setPalette(int i) {
-        paletteIndex() = juce::jlimit(0, (int) palettes().size() - 1, i);
-        (pal().light ? lastLight() : lastDark()) = paletteIndex();
+        auto& P = palettes(); i = juce::jlimit(0, (int) P.size() - 1, i);
+        paletteIndex() = P[(size_t) i].light ? kLight : kDark;
+        lastDark() = kDark; lastLight() = kLight;
     }
-    static void toggleLight() { setPalette(lightMode() ? lastDark() : lastLight()); }
+    static void toggleLight() { setPalette(lightMode() ? kDark : kLight); }
     static int paletteByName(const juce::String& n) {
         auto& P = palettes(); for (int i = 0; i < (int) P.size(); ++i) if (n == P[(size_t) i].name) return i; return 0; }
 
@@ -72,7 +96,25 @@ struct Theme {
         return c;
     }
     // black or white text, whichever reads better on this background
+    static bool glass() { return pal().glass; }
+    static bool softUI() { return pal().soft; }
+    static juce::Colour hiC() { return pal().hi; }
+    static juce::Colour loC() { return pal().lo; }
+    // a translucent colour as it looks on the glass (for measuring contrast)
+    static juce::Colour flat(juce::Colour c) { return c.isOpaque() ? c : (glass() ? pal().solidCard : pal().bg).overlaidWith(c); }
+    static juce::Colour cardS() { return glass() ? pal().solidCard : pal().card; }
+    static juce::Colour card2S() { return glass() ? pal().solidCard2 : pal().card2; }
+    // 2.0: the backdrop of every screen: black, and (glass) two very soft glows the glass catches
+    static void backdrop(juce::Graphics& g, juce::Rectangle<int> r) {
+        g.setColour(pal().bg); g.fillRect(r);
+        if (!glass()) return;
+        // 2.1: clean - no haze, just a light from above fading into the graphite
+        auto rf = r.toFloat();
+        g.setGradientFill(juce::ColourGradient(pal().bg.brighter(0.18f), 0, rf.getY(), pal().bg.darker(0.12f), 0, rf.getBottom(), false));
+        g.fillRect(rf);
+    }
     static juce::Colour textOn(juce::Colour bgc) {
+        bgc = flat(bgc);
         return contrast(juce::Colours::white, bgc) >= contrast(juce::Colour(0xff111216), bgc) ? juce::Colours::white : juce::Colour(0xff111216); }
 
     // a colour from the (dark) design: kept on dark palettes, made deep enough on light ones
@@ -108,13 +150,13 @@ struct Theme {
     static juce::Colour btn()   { return pal().btn; }
     static juce::Colour sel()   { return pal().sel; }
     // 1.6: the knob face of the new design
-    static juce::Colour knobHi()   { return pal().light ? hex(0xe3e1db) : hex(0x2b2d33); }
-    static juce::Colour knobLo()   { return pal().light ? hex(0xc9c7c0) : hex(0x18191d); }
-    static juce::Colour knobEdge() { return pal().light ? hex(0xbab8b1) : hex(0x33363d); }
+    static juce::Colour knobHi()   { return glass() ? hex(0x232327) : pal().light ? hex(0xe3e1db) : hex(0x2b2d33); }
+    static juce::Colour knobLo()   { return glass() ? hex(0x08080a) : pal().light ? hex(0xc9c7c0) : hex(0x18191d); }
+    static juce::Colour knobEdge() { return glass() ? wa(0.16f) : pal().light ? hex(0xbab8b1) : hex(0x33363d); }
     static juce::Colour knobDot()  { return pal().light ? hex(0x3a3b40) : hex(0xeef0f4); }
     // readable versions, applied where things are drawn: text (4.5:1 on cards and background), marks (3:1)
-    static juce::Colour ink(juce::Colour c) { return ensure(ensure(c, pal().card, 4.5f), pal().bg, 4.5f); }
-    static juce::Colour arc(juce::Colour c) { float r = (pal().style == 1 && pal().light) ? 2.3f : 3.0f; return ensure(ensure(c, pal().card, r), pal().card2, r); }
+    static juce::Colour ink(juce::Colour c) { return ensure(ensure(flat(c), cardS(), 4.5f), pal().bg, 4.5f); }
+    static juce::Colour arc(juce::Colour c) { float r = (pal().style == 1 && pal().light) ? 2.3f : 3.0f; return ensure(ensure(flat(c), cardS(), r), card2S(), r); }
     static juce::Colour mark(juce::Colour d) { return ink(d); }
     // signal colours (soft, for buttons and fills; the button text picks black or white)
     static juce::Colour red()   { return pal().acc[0]; }
@@ -125,7 +167,7 @@ struct Theme {
     // each effect has a family colour from the palette's accents (drive = red, modulation = blue, space = teal ...)
     static int family(const std::string& k) {
         static const std::map<std::string, int> F = {
-            { "eq", 2 }, { "drv", 0 }, { "trm", 7 }, { "phs", 4 }, { "swl", 7 }, { "tun", 4 }, { "cho", 5 }, { "dly", 3 }, { "rev", 3 },
+            { "eq", 2 }, { "beq", 2 }, { "drv", 0 }, { "trm", 7 }, { "phs", 4 }, { "swl", 7 }, { "tun", 4 }, { "cho", 5 }, { "dly", 3 }, { "rev", 3 },
             { "fxb", 0 }, { "shd", 4 }, { "halo", 4 }, { "res", 2 }, { "grn", 7 }, { "frz", 5 }, { "spc", 5 }, { "orb", 1 }, { "drm", 6 },
             { "flg", 3 }, { "png", 3 }, { "wah", 2 }, { "oct", 4 }, { "tap", 0 }, { "flt", 1 }, { "rng", 0 }, { "stu", 2 }, { "vib", 1 }, { "crs", 0 },
             { "pdl", 2 }, { "fbk", 0 }, { "voc", 4 }, { "pit", 4 }, { "spr", 5 }, { "tlk", 2 } };
@@ -155,6 +197,10 @@ struct Theme {
                 { 0.30f, 0.82f, 0.76f }, { 0.38f, 0.64f, 1.00f }, { 0.64f, 0.50f, 1.00f }, { 0.93f, 0.47f, 0.86f } };
             int i = s < 4 ? s : 4 + (s - 4) % 8; return soft(rgb(S[i][0], S[i][1], S[i][2]));
         }
+        if (pal().soft) {      // 2.1: blue, lilac, sand, sage, rose ... (never the record red)
+            if (s < 4) { static const int LV[4] = { 3, 5, 4, 7 }; return pal().acc[(size_t) LV[s]]; }
+            static const int O[8] = { 4, 2, 1, 6, 3, 5, 7, 2 }; return pal().acc[(size_t) O[(s - 4) % 8]];
+        }
         // LIVE 1-4: soft blue-greys; TRACK 1-8: the accents in a pleasant order
         if (s < 4) { static const int LV[4] = { 3, 4, 5, 7 }; return pal().acc[(size_t) LV[s]]; }
         static const int O[8] = { 0, 6, 2, 7, 1, 5, 3, 4 };
@@ -167,7 +213,46 @@ struct Theme {
         static juce::Typeface::Ptr b = juce::Typeface::createSystemTypefaceFor(BinaryData::InterBold_otf, BinaryData::InterBold_otfSize);
         return w == 0 ? r : (w == 1 ? s : b);
     }
+    // 2.1: the small labels of the soft design (PAN, VOL, BAR, BPM, IN 1 ...): a monospace with a little air between the letters
+    static juce::Font mono(float size) {
+        static juce::String name = [] { juce::StringArray want { "SF Mono", "Menlo", "DejaVu Sans Mono", "Liberation Mono", "Courier New" };
+            auto have = juce::Font::findAllTypefaceNames(); for (auto& n : want) if (have.contains(n)) return n; return juce::Font::getDefaultMonospacedFontName(); }();
+        return juce::Font(juce::FontOptions(name, size * 1.18f, juce::Font::plain)).withExtraKerningFactor(0.14f); }
     static juce::Font font(float size, int weight = 0) { return juce::Font(juce::FontOptions(face(weight)).withHeight(size * 1.25f)); }
+    // 2.3: one voice for every key of the silicone skin - "Count-in", "Hide the loops", "+ Audio lane": a key written all
+    // in capitals is turned into that (short words that are names stay: FX, EQ, MIDI, BPM, A ... M S). Captions stay small mono.
+    static juce::String keyCase(const juce::String& s) {
+        if (!softUI() || s.isEmpty()) return s;
+        bool anyLower = false; for (auto c : s) anyLower |= juce::CharacterFunctions::isLowerCase(c);
+        if (anyLower) return capFirst(s);                                                     // written by hand: only its first letter
+        static const juce::StringArray keep { "FM", "AM", "PM", "FX", "EQ", "MIDI", "BPM", "LFO", "CPU", "OK", "MP3", "WAV", "AIFF", "FLAC", "M4A", "LUFS", "ADSR", "LR", "DJ", "ARCO", "XY", "AU", "VST", "VST3", "PDF", "HQ", "TV", "USB" };
+        juce::String out; juce::String word;
+        auto flush = [&] {
+            if (word.isEmpty()) return;
+            juce::String core = word.retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+            bool hasDigit = core.containsAnyOf("0123456789");
+            bool letters = core.containsAnyOf("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+            if (keep.contains(core) || core.length() <= 1 || (hasDigit && !letters) || (hasDigit && core.length() <= 3)) out << word;
+            else out << word.toLowerCase();
+            word.clear(); };
+        for (auto c : s) { if (c == ' ' || c == '\n' || c == '/' || c == '-' || c == '(' || c == ')' || c == ':' || c == ',' || c == '+') { flush(); out << juce::String::charToString(c); } else word << juce::String::charToString(c); }
+        flush();
+        return capFirst(out);
+    }
+    static juce::String capFirst(juce::String out) {
+        // the first letter of the key in capitals
+        static const juce::String lead = juce::String::fromUTF8(" +\xe2\x97\x8f\xe2\x96\xb8\xe2\x97\x82\xe2\x86\xa9\xe2\x9d\x84\xe2\x99\xaa(\xe2\x80\xa2\xe2\x9c\x95\xe2\x9f\xb3\xe2\x86\xbb\xe2\x9f\xb2\xc3\x97");   // " +●▸◂↩❄♪(•✕⟳↻⟲×"
+        for (int i = 0; i < out.length(); ++i) { auto c = out[i]; if (juce::CharacterFunctions::isLetter(c)) { if (juce::CharacterFunctions::isLowerCase(c)) out = out.substring(0, i) + juce::String::charToString(juce::CharacterFunctions::toUpperCase(c)) + out.substring(i + 1); break; } if (!lead.containsChar(c)) break; }
+        return out;
+    }
+    // a name (a lane, a track): every word with its capital - "TRACK 1" -> "Track 1"
+    static juce::String nameCase(const juce::String& s) {
+        if (!softUI()) return s;
+        for (auto c : s) if (juce::CharacterFunctions::isLowerCase(c)) return s;
+        juce::String out; bool start = true;
+        for (auto c : s) { out << juce::String::charToString(start ? c : juce::CharacterFunctions::toLowerCase(c)); start = !juce::CharacterFunctions::isLetterOrDigit(c); }
+        return out;
+    }
 };
 
 } // namespace arco

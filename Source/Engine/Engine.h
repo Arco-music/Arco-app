@@ -13,6 +13,10 @@
 #include "StripMix.h"
 #include "Synth2.h"
 #include "Ambisonics.h"
+#include "Clock.h"
+#include "DrumMachine.h"
+#include "Phrase.h"
+#include "LoopGrid.h"
 
 namespace arco {
 
@@ -76,6 +80,15 @@ struct Synth2Mod : IModule {
     double* data(const std::string&) override { return nullptr; }
 };
 
+// 2.0: modules that live as long as the engine (their patterns / takes survive a new sample rate)
+template <typename T> struct RefMod : IModule {
+    T* t = nullptr;
+    int paramIndex(const std::string& n) override { return t->paramIndex(n); }
+    void setp(int i, double v) override { t->setp(i, v); }
+    void bind(const std::string&, SharedBuffer&) override {}
+    double* data(const std::string&) override { return nullptr; }
+};
+
 // a single-producer single-consumer queue of parameter changes / commands
 struct Cmd { int module; int index; double value; };
 class CmdQueue {
@@ -99,10 +112,21 @@ struct Ring { static constexpr int N = 2048; std::array<float, N> d {}; std::ato
         w.store(ww, std::memory_order_release); } };
 
 // 1.3: an instrument outside the engine (MODULAR, a sampled instrument, a plug-in): it plays with the SYNTH (adds into it)
-struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) = 0; };
+struct ExtInstrument { virtual ~ExtInstrument() = default; virtual void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) = 0;
+    virtual void setInputs(const float* const* /*live4*/, const float* /*mixL*/, const float* /*mixR*/) {} };   // 2.3: what an IN module hears
 
+// how long a track can be: 6 minutes on the Mac, 40 s on the iPad / iPhone (memory)
+inline double trackSeconds() {
+   #if JUCE_MAC || JUCE_WINDOWS || JUCE_LINUX
+    return 360.0;
+   #else
+    return 40.0;
+   #endif
+}
+namespace px { struct Runtime; }
 class Engine {
 public:
+    std::atomic<Synth2*> synthNow { nullptr };      // 2.4: the synth engine now (its LFOs move the knobs on the screen)
     Engine();
     void prepare(double sampleRate);
     // device callback: in = live inputs 1-4 (may be null), out = device outputs
@@ -120,12 +144,22 @@ public:
     std::atomic<int> phonesFirst { 2 };                            // device output of headphones L (R = +1); -1 = none
     std::atomic<ExtInstrument*> ext { nullptr };                    // 1.3: the KEYBOARD's instrument (plays with the SYNTH)
     std::atomic<int> synthInto { 0 };                              // 0 off, 1 = LIVE 2, 2 = LIVE 3, 3 = LIVE 4
+    std::atomic<px::Runtime*> patcher { nullptr };                 // 2.4: PATCHER - your own program, every block
+    std::atomic<int> patcherInto { 0 };                            // 0 its own (straight into the mix), 1-3 = LIVE 2-4
+    std::atomic<float> patcherGain { 1.0f };
+    std::atomic<int> drumsInto { 0 };                              // 2.2: the DRUM MACHINE through a LIVE strip too (so a track records it)
+    float dmDirect = 1.0f;                                         // its direct sound (fades out while it plays through a strip)
     std::atomic<float> grid[14][NSPK];                             // direct outs: source x speaker
     // ---- what the interface reads
     Snap& snap(const std::string& bus);
     float peak(const std::string& bus);       // peak since last call
     Ring& ring(const std::string& bus);
     std::atomic<float> cpu { 0 };
+    // 2.0: the clock everything in tempo follows, the DRUM MACHINE, PHRASE
+    Clock clock;
+    DrumMachine drumMachine;
+    Phrase phrase;
+    LoopGrid loopGrid;
     std::atomic<int> selStrip { 0 };
     StripMix* stripMix = nullptr;             // for the meters (gain reduction)
     MasterMix* masterMix = nullptr;
@@ -134,6 +168,13 @@ public:
     double sr = 48000.0;
     // show recording: called with the main mix (L, R) of every sub-block (audio thread)
     std::function<void(const float*, const float*, int)> recorder;
+    // 2.0: the station's main mix (stereo, before the speakers), for STUDIO to record - the device outputs are not it
+    // (with more speakers, or headphones on outputs 1-2, they carry other things: the click, the CUE)
+    int pullMainMix(float* l, float* r, int n) {
+        int got = 0;
+        while (got < n && tapRd != tapWr) { l[got] = tapL[tapRd]; r[got] = tapR[tapRd]; tapRd = (tapRd + 1) % TAPN; ++got; }
+        for (int i = got; i < n; ++i) { l[i] = 0; r[i] = 0; }
+        return got; }
 
 private:
     std::vector<std::unique_ptr<IModule>> mods;
@@ -162,10 +203,14 @@ private:
     int accN = 0, outQ = 0;
     std::vector<float> accIn[MAXIO], accPhone[4], qOut[MAXIO];
     void processFifo(const float* const* in, int numIn, float* const* out, int numOut, int numSamples);
-    float tuneMix = 0, synG[3] = { 0, 0, 0 };
+    float tuneMix = 0, synG[3] = { 0, 0, 0 }, dmG[3] = { 0, 0, 0 };
+    float patG[3] = { 0, 0, 0 }, patDirect = 1.0f;
+    std::vector<float> dmPrev;                                     // the drum machine's last block, mono (a LIVE strip takes it)
     std::vector<float> beatPrev;
     double tuneAmt = 0;
     void runSub(const float* const* in, int numIn, float* const* out, int numOut, int off, int n);
+    static constexpr int TAPN = 16384;
+    std::array<float, TAPN> tapL {}, tapR {}; int tapRd = 0, tapWr = 0;
 };
 
 } // namespace arco
