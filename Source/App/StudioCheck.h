@@ -252,6 +252,46 @@ inline int runStudioCheck(AudioHost& h) {
         check(playsOk, "  ... and it still plays", 1);
         delete mc;
     }
+    // ---------------------------------------------------------------- 7 effects: one tap on, one tap recorded into the sound
+    say("== 7. effects: put on, then recorded into the sound (PRINT FX)");
+    {
+        fresh();
+        auto b = makeGroove({ 100, 2, 4, 48000, 1, 0, 0, false }, 41); b.applyGain(0.5f / b.getMagnitude(0, b.getNumSamples()));
+        auto p = plan(writeTestFile(dir, "fx.wav", b, 48000)); juce::String why;
+        int ci = S.importAudio(p, -1, 0, false, why); int lane = S.song.clips[(size_t) ci].lane;
+        S.song.lanes[(size_t) lane].vol = -3.0f; S.song.lanes[(size_t) lane].pan = 0.3f;     // a volume and a pan: kept as they are, not printed
+        S.addChain(lane, 3);                                         // warm: saturation, EQ
+        { auto& d = S.song.lanes[(size_t) lane].devices; if (!d.empty()) d[0].p[0] = 60; }   // a lot of drive: clearly heard
+        juce::AudioBuffer<float> before; render(before);
+        juce::AudioBuffer<float> dry; { auto saved = S.song.lanes[(size_t) lane].devices; for (auto& dv : S.song.lanes[(size_t) lane].devices) dv.on = false; S.refresh(); render(dry); S.song.lanes[(size_t) lane].devices = saved; S.refresh(); }
+        int nc = S.printLane(lane, why);
+        juce::AudioBuffer<float> after; render(after);
+        int n = juce::jmin(before.getNumSamples(), after.getNumSamples()) - 400;
+        double same = snr(before.getReadPointer(0) + 200, after.getReadPointer(0) + 200, n), sameR = snr(before.getReadPointer(1) + 200, after.getReadPointer(1) + 200, n);
+        double differs = snr(dry.getReadPointer(0) + 200, before.getReadPointer(0) + 200, n);
+        bool off = true; for (auto& dv : S.song.lanes[(size_t) lane].devices) off &= !dv.on;
+        int onLane = 0; for (auto& c : S.song.clips) onLane += c.lane == lane;
+        check(nc >= 0 && same > 60 && sameR > 60, "PRINT FX: the track sounds the same, now with the effects in its sound (dB of difference)", juce::jmin(same, sameR));
+        check(differs < 30, "  (the effects were really heard: the dry sound is different, dB)", differs);
+        check(off && onLane == 1 && std::abs(S.song.lanes[(size_t) lane].vol + 3) < 0.01f, "  its effects are off now (not twice), one clip, its volume kept", onLane);
+        S.undo();
+        bool back = false; for (auto& dv : S.song.lanes[(size_t) lane].devices) back |= dv.on;
+        check(back && S.song.clips[(size_t) ci].source >= 0 && (int) S.song.clips.size() == ci + 1, "  UNDO: the effects and the dry clip are back", back);
+        // a reverb: its tail is kept (the clip grows)
+        S.addChain(lane, 5);
+        long len0 = S.song.clips[(size_t) ci].length;
+        int nc2 = S.printLane(lane, why);
+        check(nc2 >= 0 && S.song.clips[(size_t) nc2].length > len0 + (long) (0.3 * sr), "  a reverb printed: its tail is kept (seconds longer)", nc2 >= 0 ? (S.song.clips[(size_t) nc2].length - len0) / sr : 0);
+        // an instrument lane: printed to a new audio lane, the instrument muted
+        int il = S.addLane(LaneInstrument, "SYNTH 1");
+        StudioClip mc; mc.lane = il; mc.source = -1; mc.start = 0; mc.length = (long) (sr * 2); mc.midiLen = mc.length; mc.notes.push_back({ 0.0, sr * 1.5, 60, 0.9f });
+        S.song.clips.push_back(mc); S.addChain(il, 5); S.refresh();
+        int nl = (int) S.song.lanes.size();
+        int nc3 = S.printLane(il, why);
+        float pk = 0; if (nc3 >= 0) for (float v : S.song.sources[(size_t) S.song.clips[(size_t) nc3].source]->l) pk = juce::jmax(pk, std::abs(v));
+        check(nc3 >= 0 && (int) S.song.lanes.size() == nl + 1 && S.song.lanes[(size_t) il].mute && S.song.clips[(size_t) nc3].lane == il + 1 && pk > 0.01f,
+              "  an instrument printed: its sound on a new audio track under it, the instrument muted", pk);
+    }
     // ---------------------------------------------------------------- 6 playing while the screen draws (the real app)
     say("== 6. playing in real time while the STUDIO screen draws itself");
     {

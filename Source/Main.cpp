@@ -8,6 +8,7 @@
 #include "App/Probe.h"
 #include "App/ImportCheck.h"
 #include "App/StudioCheck.h"
+#include "UI/Panels.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 #include "UI/StudioView.h"
@@ -265,7 +266,8 @@ public:
             for (int k = 0; k < 10; ++k) frame();
             std::printf("bench: first frame %.1f ms, then %.1f ms per full frame\n", t1 - t0, (juce::Time::getMillisecondCounterHiRes() - t1) / 10.0); std::fflush(stdout);
         }
-        if (cmd.contains("setup")) mc->canvas.openSetup(true);
+        if (cmd.contains("setup")) { mc->canvas.openSetup(true);
+            if (cmd.contains("ssec=")) for (auto* ch : mc->canvas.getChildren()) if (auto* sp = dynamic_cast<arco::SetupPanel*>(ch)) sp->showSection(cmd.fromFirstOccurrenceOf("ssec=", false, false).getIntValue()); }
         if (cmd.contains("synth")) { mc->canvas.openSynth(true); if (cmd.contains("spage=")) mc->canvas.synthPage(cmd.fromFirstOccurrenceOf("spage=", false, false).getIntValue());
             if (cmd.contains("skeys=")) mc->canvas.synthKeys(cmd.fromFirstOccurrenceOf("skeys=", false, false).getIntValue(), cmd.contains("sedit")); }
         if (cmd.contains("look")) mc->canvas.openLook(true);

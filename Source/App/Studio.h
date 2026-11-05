@@ -98,6 +98,12 @@ public:
     bool deleteLane(int lane);                      // with its clips
     int duplicateLane(int lane);                    // with its clips, right below it
     void refresh();                                 // the engine takes the song's lanes and clips as they are now (no stop)
+    // 2.2: the effects recorded into the sound: the lane played alone through its own effects (not its volume, pan,
+    // sends or the master) becomes one audio clip; its effects are then switched off (not heard twice). An instrument
+    // lane gives a new audio lane under it (and is muted). UNDO brings it all back. Returns the new clip (-1: failed)
+    int printLane(int lane, juce::String& why);
+    // ready-made effect chains for a lane: 0 voice, 1 instrument, 2 drums, 3 warm, 4 wide echo, 5 big room
+    void addChain(int lane, int chain);
     // 2.2: an audio file (already listened to: prepareImport) into the song at `at` on `lane` (-1: a new lane).
     // keep: its own speed and pitch, sample for sample (the first audio in an empty song gives the song its tempo);
     // fit: stretched to the song's tempo, same pitch. Its first bar line lands on a bar line. Returns the clip (-1: failed)

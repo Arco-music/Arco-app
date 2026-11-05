@@ -241,9 +241,17 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
         if (m.contains("key")) askKey(m);
     };
    #endif
-    add<Pill>({ 24 + 150, 14, 120, 26 }, "AUDIO & INPUTS", [] { return Theme::sel(); }, 8.5f, 7.0f);
-    auto* lk = add<Pill>({ 24 + 276, 14, 130, 26 }, U("LOOK & EFFECTS"), [] { return Theme::btn(); }, 8.5f, 7.0f);
+    // the sections, as a list on the left
+    static const char* SN[NSEC] = { "Sound card", "Live inputs", "Headphones", "Speakers", "Recording & tuner", "iPhones", "Pedals & keys" };
+    for (int s = 0; s < NSEC; ++s) {
+        auto* p = add<Pill>({ 22, 76 + s * 52, 206, 42 }, U(SN[s]), [] { return Theme::btn(); }, 10.0f, 10.0f);
+        p->onFn = [this, s] { return section == s; }; p->tint = true;
+        p->onClick = [this, s] { showSection(s); };
+        p->setComponentID("setup:sec" + juce::String(s)); nav.push_back(p);
+    }
+    auto* lk = add<Pill>({ 22, 76 + NSEC * 52 + 16, 206, 42 }, U("Effects on the main screen ▸"), [] { return Theme::btn(); }, 9.0f, 10.0f);
     lk->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); cv.openLook(true); };
+    lk->setComponentID("setup:look");
     auto* close = add<Pill>({ 1140 - 104, 16, 88, 26 }, U("✕ CLOSE"), [] { return Theme::btn(); }, 9.0f, 7.0f);
     close->onClick = [this] { cv.host.saveSetup(); cv.openSetup(false); };
     // ---- live inputs
@@ -299,13 +307,46 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
     wifi.setFont(Theme::font(8.5f, 1));
     wifi.setIndents(8, 4);
     wifi.onReturnKey = [this, &h] { h.phones.addAddress(wifi.getText().trim()); wifi.clear(); h.saveSetup(); };
+    wifi.setBounds(box.getX() + 24, box.getY() + 760, 220, 26);
     // ---- pedals & keys: learn a MIDI pedal for each action
     for (int a = 0; a < AudioHost::NumActions; ++a) {
         auto* p = add<Pill>({ 600 + a * 130, 716, 120, 22 }, "LEARN", [&h, a] { return h.learning.load() == a ? Theme::amber() : Theme::btn(); }, 7.5f, 5.0f);
         p->dynText = [&h, a] { return h.learning.load() == a ? juce::String(U("press the pedal …")) : juce::String("LEARN"); };
         p->onClick = [&h, a] { h.learning.store(h.learning.load() == a ? -1 : a); };
     }
+    classify();
+    showSection(0);
     startTimerHz(10);
+}
+
+juce::Rectangle<int> SetupPanel::secR(int s) const {
+    static const juce::Rectangle<int> R[NSEC] = { { 16, 44, 570, 384 }, { 16, 428, 570, 200 }, { 586, 44, 546, 196 }, { 586, 240, 546, 186 },
+                                                   { 586, 428, 546, 200 }, { 16, 628, 570, 182 }, { 586, 628, 546, 182 } };
+    return R[juce::jlimit(0, NSEC - 1, s)].translated(box.getX(), box.getY());
+}
+juce::AffineTransform SetupPanel::secT(int s) const {
+    auto r = secR(s), c = contentR();
+    return juce::AffineTransform::translation((float) -r.getX(), (float) -r.getY()).scaled(1.25f).translated((float) c.getX() + 6, (float) c.getY());
+}
+void SetupPanel::classify() {
+    placed.clear();
+    std::vector<juce::Component*> all; for (auto* k : kids) all.push_back(k);
+    for (juce::Component* k : { (juce::Component*) audio.get(), (juce::Component*) &phones, (juce::Component*) &wifi, (juce::Component*) phoneList.get() }) if (k) all.push_back(k);
+    for (auto* c : all) {
+        if (std::find(nav.begin(), nav.end(), c) != nav.end() || c->getComponentID().startsWith("setup:")) continue;
+        auto ctr = c->getBounds().getCentre(); int sec = -1;
+        for (int s = 0; s < NSEC; ++s) if (secR(s).contains(ctr)) { sec = s; break; }
+        if (sec >= 0) placed.push_back({ c, sec });
+    }
+}
+void SetupPanel::showSection(int s) {
+    section = juce::jlimit(0, NSEC - 1, s);
+    for (auto& p : placed) if (auto* c = p.c.getComponent()) {
+        bool on = p.sec == section;
+        c->setVisible(on);
+        if (on) c->setTransform(secT(section));
+    }
+    repaint();
 }
 
 // ================================================================== the phones
@@ -356,7 +397,8 @@ void SetupPanel::visibilityChanged() {
     wifi.setColour(juce::TextEditor::backgroundColourId, Theme::card2()); wifi.setColour(juce::TextEditor::textColourId, Theme::txt());
     wifi.setColour(juce::TextEditor::outlineColourId, Theme::card2()); wifi.setColour(juce::TextEditor::focusedOutlineColourId, Theme::green());
     wifi.applyColourToAllText(Theme::txt());
-    if (isVisible()) { phones.setLookAndFeel(nullptr); audio = nullptr; styleLaf(); audio = std::make_unique<AudioBox>(cv, laf.get()); addAndMakeVisible(*audio); audio->setBounds(box.getX() + 24, box.getY() + 98, 520, 300); phones.setLookAndFeel(laf.get()); phones.setSelectedItemIndex(cv.host.phonesPair, juce::dontSendNotification); }
+    if (isVisible()) { phones.setLookAndFeel(nullptr); audio = nullptr; styleLaf(); audio = std::make_unique<AudioBox>(cv, laf.get()); addAndMakeVisible(*audio); audio->setBounds(box.getX() + 24, box.getY() + 98, 520, 300); phones.setLookAndFeel(laf.get()); phones.setSelectedItemIndex(cv.host.phonesPair, juce::dontSendNotification);
+                       classify(); showSection(section); }
 }
 
 void SetupPanel::mouseDown(const juce::MouseEvent& e) {
@@ -370,11 +412,20 @@ void SetupPanel::paint(juce::Graphics& g) {
     int X = box.getX(), Y = box.getY();
     auto L = [&](const juce::String& t, int x, int y, int w, float fs, juce::Colour c, int wt = 0) { lab(g, t, { X + x, Y + y, w, (int) (fs * 2.4f) }, fs, c, wt); };
     auto head = [&](const juce::String& t, const juce::String& s, int x, int y, int w) {
-        g.setColour(Theme::card2()); g.fillRect(X + x - 8, Y + y - 10, w, 2);
         L(t, x, y, w, 11.0f, Theme::txt(), 2); L(s, x, y + 18, w - 20, 8.0f, Theme::sub()); };
-    L("SETUP", 24, 14, 200, 17.0f, Theme::txt(), 2);
-    L("ARCO " + juce::String(ProjectInfo::versionString) + (Updater::build() > 0 ? U(" · build ") + juce::String(Updater::build()) : juce::String()), 720, 6, 192, 7.5f, Theme::sub(), 0);
-    if (updateText.isNotEmpty()) L(updateText, 720, 26, 192, 7.5f, Theme::amber(), 1);
+    L("SETUP", 24, 18, 200, 17.0f, Theme::txt(), 2);
+    if (updateText.isNotEmpty()) L(updateText, 720, 26, 300, 7.5f, Theme::amber(), 1);
+    // the list's panel and the content's panel
+    auto navP = juce::Rectangle<float>((float) X + 10, (float) Y + 62, 230.0f, (float) box.getHeight() - 80);
+    auto conP = contentR().toFloat().expanded(8.0f, 6.0f);
+    if (Theme::softUI()) { softWellLite(g, navP, 22.0f); softRaised(g, conP, 22.0f, 6.0f, Theme::card()); }
+    else { g.setColour(Theme::card2()); g.fillRoundedRectangle(navP, 14.0f); g.setColour(Theme::card()); g.fillRoundedRectangle(conP, 14.0f); }
+    L("ARCO " + juce::String(ProjectInfo::versionString) + (Updater::build() > 0 ? U(" · build ") + juce::String(Updater::build()) : juce::String()), 30, 812 - 58, 200, 7.5f, Theme::sub(), 0);
+    L(U("remembered on this computer"), 30, 812 - 42, 200, 7.0f, Theme::sub(), 0);
+    g.saveState();
+    g.reduceClipRegion(contentR().expanded(4));
+    g.addTransform(secT(section));
+    { auto sr = secR(section); g.reduceClipRegion(sr); }
     head("AUDIO", "your sound card: where the sound goes, where it comes from", 24, 58, 540);
     head("LIVE INPUTS", "how many instruments / microphones, and on which input of your sound card", 24, 440, 540);
     L("LIVE INPUTS", 24, 484, 110, 8.5f, Theme::txt(), 2);
@@ -407,7 +458,7 @@ void SetupPanel::paint(juce::Graphics& g) {
     }
     L(U("Keyboard / page-turner pedal:  → or PgDn = REC   ·   Space or ↓ = PLAY/STOP   ·   ← or PgUp = UNDO   ·   ↑ = NEXT SCENE   ·   1-4 = scenes   ·   K = synth"),
       600, 742, 520, 7.5f, Theme::sub());
-    L("This window is remembered on this computer (Application Support / ARCO / setup.json).", 24, 780, 700, 8.0f, Theme::sub());
+    g.restoreState();
 }
 
 } // namespace arco

@@ -25,6 +25,7 @@ LoopsView::LoopsView(AppShell& s) : shell(s) {
     auto* br = add<Pill>("STATION LOOPS", [this] { return showBrowser ? Theme::sel() : Theme::btn(); }, 8.5f, 10.0f);
     br->textColour = [this] { return showBrowser ? Theme::textOn(Theme::sel()) : Theme::txt(); };
     br->onClick = [this] { showBrowser = !showBrowser; resized(); repaint(); }; br->setComponentID("lv:browser");
+    br->dynText = [this] { return showBrowser ? U("Hide the loops ▸") : U("◂ Station loops"); };
     auto* mv = add<KnobCell>("VOLUME", [this] { return lg().master.load() * 100.0; }, [this](double v) { lg().master.store((float) v / 100.0f); }, 0, 100, 80, [] { return Theme::txt(); }, nullptr);
     mv->setComponentID("lv:vol");
     startTimerHz(30);
@@ -102,17 +103,14 @@ void LoopsView::paint(juce::Graphics& g) {
         const bool soft = Theme::softUI();
         drawPanel(g, r.toFloat(), 12.0f);
         bool mu = L.mute[rw].load() != 0, pl = L.playing[rw].load() >= 0;
-        auto sr = juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22);
-        auto mr = juce::Rectangle<int>(r.getRight() - 84, r.getY() + 8, 34, 22);
-        auto st = juce::Rectangle<int>(r.getRight() - 44, r.getY() + 8, 34, 22);
-        auto vr = juce::Rectangle<float>((float) r.getRight() - 84, (float) r.getY() + 38, 74.0f, 8.0f);
+        auto sr = srcKey(rw), mr = muteKey(rw), st = stopKey(rw);
+        auto vr = volSlot(rw);
         float lvl = L.level[rw].load();
         if (soft) {                // 2.3: the row in silicone - its light, the source in a groove, M and stop as keys, the level as a slot
-            softLed(g, { (float) r.getX() + 13.0f, (float) r.getY() + 15.0f }, 3.2f, col, pl);
-            say(g, "Row " + juce::String(rw + 1), { r.getX() + 22, r.getY() + 6, 80, 18 }, 10.5f, Theme::txt(), 2);
-            softWellLite(g, sr.toFloat(), sr.getHeight() * 0.5f);
-            g.setColour(Theme::sub()); g.setFont(Theme::mono(7.5f));
-            g.drawText(juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())]) + juce::String::fromUTF8(" ▾"), sr, juce::Justification::centred);
+            // what this row records, big and in front: a key (tap: the list of sources)
+            softKeyLite(g, sr.toFloat(), sr.getHeight() * 0.5f, false);
+            softLed(g, { (float) sr.getX() + 15.0f, (float) sr.getCentreY() }, 3.2f, col, pl);
+            say(g, juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())]) + juce::String::fromUTF8("  ▾"), sr.withTrimmedLeft(26), 10.0f, Theme::txt(), 2, juce::Justification::centredLeft);
             softKeyLite(g, mr.toFloat(), mr.getHeight() * 0.5f, mu, Theme::red(), mu ? 0.5f : 0.0f);
             say(g, "M", mr, 9.0f, mu ? Theme::txt() : Theme::sub(), 2, juce::Justification::centred);
             softKeyLite(g, st.toFloat(), st.getHeight() * 0.5f, false);
@@ -122,8 +120,7 @@ void LoopsView::paint(juce::Graphics& g) {
             g.setColour(col.withAlpha(0.25f)); g.fillRoundedRectangle(vf.expanded(0, 1.5f), 2.5f); g.setColour(col); g.fillRoundedRectangle(vf, 1.5f);
             g.setColour(col.withAlpha(0.7f)); g.fillRoundedRectangle(vr.getX() + 2, vr.getBottom() + 4, (vr.getWidth() - 4) * juce::jmin(1.0f, lvl * 1.4f), 2.0f, 1.0f);
         } else {
-        g.setColour(col); g.fillRoundedRectangle((float) r.getX() + 8, (float) r.getY() + 10, 5.0f, r.getHeight() - 20.0f, 2.5f);
-        say(g, "ROW " + juce::String(rw + 1), { r.getX() + 22, r.getY() + 6, 80, 18 }, 9.0f, Theme::txt(), 2);
+        g.setColour(col); g.fillRoundedRectangle((float) r.getX() + 4, (float) r.getY() + 10, 4.0f, r.getHeight() - 20.0f, 2.0f);
         // the source (click: the next one)
         g.setColour(Theme::card2()); g.fillRoundedRectangle(sr.toFloat(), 6.0f);
         say(g, juce::String(SRCNAME[juce::jlimit(0, LoopGrid::NSrc - 1, L.src[rw].load())]) + juce::String::fromUTF8(" ▾"), sr, 7.6f, Theme::txt(), 2, juce::Justification::centred);
@@ -167,6 +164,7 @@ void LoopsView::paint(juce::Graphics& g) {
                 } else {
                     softWellLite(g, k, kr);
                     if (cr.contains(hover.toFloat()) || (dragItem >= 0 && cr.contains(dragNow.toFloat())) || selHere) softLed(g, k.getCentre(), 4.0f, Theme::red(), true);
+                    else { g.setColour(Theme::red().withAlpha(Theme::lightMode() ? 0.22f : 0.18f)); g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre(k.getCentre())); }   // a faint ●: tap to record here
                 }
                 if (selHere) { g.setColour(Theme::txt().withAlpha(0.35f)); g.drawRoundedRectangle(k.expanded(2.5f), kr + 2.5f, 1.5f); }
                 continue;
@@ -231,7 +229,7 @@ void LoopsView::paint(juce::Graphics& g) {
     for (auto* c : owned) { if (c->getComponentID() == "lv:len") say(g, "RECORD", { c->getX(), c->getY() - 22, 200, 16 }, 8.0f, Theme::sub(), 2);
                             if (c->getComponentID() == "lv:quant") say(g, "START", { c->getX(), c->getY() - 22, 200, 16 }, 8.0f, Theme::sub(), 2); }
     if (getHeight() > getWidth()) return;
-    juce::String hint = message.isNotEmpty() ? message : juce::String::fromUTF8("tap an empty cell to record into it  ·  tap a loop to start / stop it  ·  drop an audio file on a cell  ·  right-click: more");
+    juce::String hint = message.isNotEmpty() ? message : juce::String::fromUTF8("tap ● to record · a loop to play / stop · a row's name: its source");
     say(g, hint, { 960, getHeight() - 58, juce::jmax(100, getWidth() - 960 - 280), 40 }, 7.6f, message.isNotEmpty() ? Theme::ink(Theme::green()) : Theme::sub(), 1);
 }
 
@@ -242,7 +240,7 @@ void LoopsView::mouseDown(const juce::MouseEvent& e) {
     for (int c = 0; c < LoopGrid::COLS; ++c) if (colHead(c).contains(p)) { L.launchColumn(c); return; }
     for (int rw = 0; rw < LoopGrid::ROWS; ++rw) {
         auto r = rowRect(rw); if (!r.contains(p)) continue;
-        if (juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22).contains(p)) {
+        if (srcKey(rw).contains(p)) {
             // 2.2: where this row records from - a short menu (it was a long ‹ › round of every source)
             int now = L.src[rw].load();
             juce::PopupMenu m;
@@ -257,16 +255,17 @@ void LoopsView::mouseDown(const juce::MouseEvent& e) {
             m.addItem(1 + LoopGrid::SrcDrums, "the DRUM MACHINE", true, now == LoopGrid::SrcDrums);
             m.addItem(1 + LoopGrid::SrcPhrase, "PHRASE", true, now == LoopGrid::SrcPhrase);
             juce::Component::SafePointer<LoopsView> sp(this);
-            m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(juce::Rectangle<int>(r.getX() + 22, r.getY() + 28, 92, 22))), [sp, rw](int res) {
+            m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(srcKey(rw))), [sp, rw](int res) {
                 if (sp == nullptr || res <= 0) return;
                 sp->lg().src[rw].store(juce::jlimit(0, LoopGrid::NSrc - 1, res - 1));
                 sp->message = U("row ") + juce::String(rw + 1) + U(" records ") + SRCNAME[res - 1] + U(" - tap an empty cell to record");
                 sp->repaint(); });
             return;
         }
-        if (juce::Rectangle<int>(r.getRight() - 84, r.getY() + 8, 34, 22).contains(p)) { L.mute[rw].store(L.mute[rw].load() ? 0 : 1); return; }
-        if (juce::Rectangle<int>(r.getRight() - 44, r.getY() + 8, 34, 22).contains(p)) { L.stopRow(rw); return; }
-        if (p.y > r.getY() + 32 && p.x > r.getRight() - 90) { dragFromRow = 100 + rw; return; }      // the volume bar
+        if (muteKey(rw).contains(p)) { L.mute[rw].store(L.mute[rw].load() ? 0 : 1); return; }
+        if (stopKey(rw).contains(p)) { L.stopRow(rw); return; }
+        if (volSlot(rw).toNearestInt().expanded(0, 8).contains(p)) { dragFromRow = 100 + rw;                // the volume: tap or drag along it
+            auto v = volSlot(rw); L.vol[rw].store(juce::jlimit(0.0f, 1.0f, (p.x - v.getX()) / v.getWidth())); repaint(); return; }
         return;
     }
     int rw, c;
@@ -309,7 +308,7 @@ void LoopsView::mouseDown(const juce::MouseEvent& e) {
 void LoopsView::mouseDrag(const juce::MouseEvent& e) {
     setViewportIgnoreDragFlag(dragItem >= 0 || dragFromRow >= 0);   // dragging a loop or a volume: no scrolling (iPhone)
     dragNow = e.getPosition();
-    if (dragFromRow >= 100) { int rw = dragFromRow - 100; auto r = rowRect(rw); lg().vol[rw].store(juce::jlimit(0.0f, 1.0f, (e.position.x - (r.getRight() - 84)) / 74.0f)); repaint(); return; }
+    if (dragFromRow >= 100) { int rw = dragFromRow - 100; auto v = volSlot(rw); lg().vol[rw].store(juce::jlimit(0.0f, 1.0f, (e.position.x - v.getX()) / v.getWidth())); repaint(); return; }
     repaint();
 }
 void LoopsView::mouseUp(const juce::MouseEvent& e) {

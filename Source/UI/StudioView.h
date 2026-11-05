@@ -35,6 +35,7 @@ public:
     // tests: press every button the studio shows, one by one (drawn again between); menus and dialogs are closed.
     // Returns how many were pressed; `bad` gets what went wrong
     int pressEverything(juce::StringArray& bad);
+    void printFx(int lane);                      // the track recorded with its effects
     std::function<void()> onClose;
     // 2.0: inside the app shell - its top bar has the transport, the position and the tempo; here: the tools
     bool embedded = false;

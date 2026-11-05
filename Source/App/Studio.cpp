@@ -1,3 +1,4 @@
+#include <climits>
 #include "Studio.h"
 #include "AudioHost.h"
 #include "Analysis.h"
@@ -173,6 +174,72 @@ int Studio::duplicateLane(int li) {
     if (at <= (int) rt.lanes.size()) rt.lanes.insert(rt.lanes.begin() + at, LaneRt());
     prepareRuntime(rt, song);
     return at;
+}
+
+int Studio::printLane(int lane, juce::String& why) {
+    StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
+    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn) { why = "choose a track first"; return -1; }
+    long first = LONG_MAX, last = 0; for (auto& c : copy.clips) if (c.lane == lane) { first = std::min(first, c.start); last = std::max(last, c.start + c.length); }
+    if (first == LONG_MAX) { why = "this track has nothing on it yet"; return -1; }
+    // the lane alone, through its own effects only
+    auto& L = copy.lanes[(size_t) lane];
+    bool tails = false; for (auto& d : L.devices) tails |= d.on && (d.type == DevReverb || d.type == DevDelay);
+    L.vol = 0; L.pan = 0; L.sendA = L.sendB = 0; L.mute = false; L.solo = false;
+    L.autos.erase(std::remove_if(L.autos.begin(), L.autos.end(), [](const StudioAuto& a) { return a.param == "vol" || a.param == "pan" || a.param == "sendA" || a.param == "sendB"; }), L.autos.end());
+    copy.master.clear(); copy.masterDb = 0; copy.masterAutos.clear(); copy.loopOn = false;
+    for (auto& o : copy.lanes) if (&o != &L) { o.solo = false; }
+    long tail = (long) (copy.sr * (tails ? 3.0 : 0.05));
+    long total = last - first + tail;
+    juce::AudioBuffer<float> out(2, (int) total); out.clear();
+    Runtime R; prepareRuntime(R, copy);
+    for (long p = 0; p < total; p += 1024) {
+        int n = (int) std::min(1024L, total - p);
+        mix(copy, R, out.getWritePointer(0) + (int) p, out.getWritePointer(1) + (int) p, first + p, n, lane, nullptr, false, true);
+    }
+    // a reverb's tail that ends in silence: trimmed
+    if (tails) { long end = total; while (end > last - first + 64 && std::abs(out.getSample(0, (int) end - 1)) < 1e-5f && std::abs(out.getSample(1, (int) end - 1)) < 1e-5f) --end; out.setSize(2, (int) end, true); }
+    snapshot();
+    const juce::ScopedLock sl(lock);
+    auto& SL = song.lanes[(size_t) lane];
+    juce::String nm = SL.name.upToFirstOccurrenceOf(" +FX", false, false);
+    auto src = makeSource(nm + " (with effects)", std::vector<float>(out.getReadPointer(0), out.getReadPointer(0) + out.getNumSamples()),
+                          std::vector<float>(out.getReadPointer(1), out.getReadPointer(1) + out.getNumSamples()));
+    song.sources.push_back(src);
+    int target = lane;
+    if (SL.kind == LaneInstrument) {                     // the synth's notes stay; the sound goes on a new audio lane under it
+        StudioLane A; A.name = (nm + " +FX").substring(0, 20); A.kind = LaneAudio; A.colour = SL.colour; A.vol = SL.vol; A.pan = SL.pan; A.sendA = SL.sendA; A.sendB = SL.sendB;
+        song.lanes.insert(song.lanes.begin() + lane + 1, A);
+        laneStrip.insert(laneStrip.begin() + juce::jmin(lane + 1, (int) laneStrip.size()), -1); laneScene.insert(laneScene.begin() + juce::jmin(lane + 1, (int) laneScene.size()), 1);
+        for (auto& c : song.clips) if (c.lane > lane) ++c.lane;
+        song.lanes[(size_t) lane].mute = true;
+        target = lane + 1;
+    } else {
+        song.clips.erase(std::remove_if(song.clips.begin(), song.clips.end(), [lane](const StudioClip& c) { return c.lane == lane; }), song.clips.end());
+        for (auto& d : SL.devices) d.on = false;          // already in the sound now
+        SL.name = (nm + " +FX").substring(0, 20);
+    }
+    StudioClip c; c.lane = target; c.source = (int) song.sources.size() - 1; c.start = first; c.length = (long) src->size(); c.name = nm + " +FX";
+    c.fadeIn = c.fadeOut = (float) (0.002 * song.sr);
+    song.clips.push_back(c);
+    prepareRuntime(rt, song);
+    return (int) song.clips.size() - 1;
+}
+
+void Studio::addChain(int lane, int chain) {
+    const juce::ScopedLock sl(lock);
+    if (lane < -1 || lane >= (int) song.lanes.size()) return;
+    auto& v = lane < 0 ? song.master : song.lanes[(size_t) lane].devices;
+    auto add = [&](int type, std::initializer_list<std::pair<int, float>> set) { if (v.size() >= 16) return; auto d = StudioDevice::make(type); for (auto& kv : set) d.p[(size_t) kv.first] = kv.second; v.push_back(d); };
+    switch (chain) {
+        case 0: add(DevEQ, { { 0, 90 } }); add(DevComp, {}); if (lane >= 0) song.lanes[(size_t) lane].sendA = juce::jmax(song.lanes[(size_t) lane].sendA, 0.18f); break;   // voice
+        case 1: add(DevEQ, { { 0, 40 } }); add(DevComp, {}); break;                                                                                                       // an instrument
+        case 2: add(DevComp, {}); add(DevSat, {}); break;                                                                                                                 // drums
+        case 3: add(DevSat, {}); add(DevEQ, {}); break;                                                                                                                   // warm
+        case 4: add(DevDelay, {}); add(DevChorus, {}); break;                                                                                                             // wide echo
+        case 5: add(DevReverb, {}); break;                                                                                                                                // a big room
+        default: break;
+    }
+    prepareRuntime(rt, song);
 }
 
 int Studio::importAudio(const ImportPlan& plan, int lane, long at, bool fit, juce::String& why) {

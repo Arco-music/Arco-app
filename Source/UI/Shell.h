@@ -130,7 +130,8 @@ public:
         addAndMakeVisible(shell); addChildComponent(phone);
         phone.onBack = [this] { showMic(false); };
         setSize(1440, 880);
-        // 2.1: an iPhone opens the whole ARCO too (a phone-sized design); being a microphone / remote is in the menu
+        // an iPhone is the iPad's remote and microphone (the whole ARCO is for the iPad and the Mac)
+        if (AudioHost::isPhone()) { phone.showBack = false; showMic(true); }
     }
     void paint(juce::Graphics& g) override { Theme::backdrop(g, getLocalBounds()); }
     void resized() override {
@@ -158,7 +159,7 @@ public:
     // this device as a phone for a station (iPad: from the menu; iPhone: always)
     void showMic(bool on) {
         if (on == phone.isVisible()) return;
-        phone.showBack = true;
+        phone.showBack = !AudioHost::isPhone();
         phone.setVisible(on); shell.setVisible(!on);
         if (on) { phone.start(); phone.toFront(false); } else phone.stop();
     }

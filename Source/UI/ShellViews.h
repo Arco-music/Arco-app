@@ -98,6 +98,11 @@ private:
     juce::Rectangle<int> gridR, headR, browR;
     juce::Rectangle<int> cellRect(int row, int col) const;
     juce::Rectangle<int> rowRect(int row) const;
+    // 2.2: the row's head - what it records (a key), mute, stop, its volume across the row
+    juce::Rectangle<int> srcKey(int row) const { auto r = rowRect(row); return { r.getX() + 12, r.getY() + 8, r.getWidth() - 12 - 92, 30 }; }
+    juce::Rectangle<int> muteKey(int row) const { auto r = rowRect(row); return { r.getRight() - 84, r.getY() + 12, 34, 22 }; }
+    juce::Rectangle<int> stopKey(int row) const { auto r = rowRect(row); return { r.getRight() - 44, r.getY() + 12, 34, 22 }; }
+    juce::Rectangle<float> volSlot(int row) const { auto r = rowRect(row); return { (float) r.getX() + 14, (float) r.getY() + 50, (float) r.getWidth() - 28, 8.0f }; }
     juce::Rectangle<int> colHead(int col) const;
     bool cellAt(juce::Point<int> p, int& row, int& col) const;
     juce::OwnedArray<juce::Component> owned;
