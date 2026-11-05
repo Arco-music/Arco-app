@@ -123,6 +123,8 @@ private:
     void takesMenu(int ci);
     void quantiseMenu();
     void togglePunch();
+    void routeMenu(int li);                      // where a lane goes, its sends, a new bus
+    void keyMenu(int li, int dev);               // a compressor's / gate's sidechain
     void copySel(bool cut);
     void paste();
     void importMidiFiles(const juce::StringArray& files, int lane, long at);

@@ -43,13 +43,36 @@ struct StudioDevice {
     int type = DevEQ;
     bool on = true;
     std::array<float, 12> p {};
+    int side = -1;                          // 2.3: SIDECHAIN - the lane whose sound drives this compressor / gate (-1: its own)
+    int fx = -1;                            // 2.3: DevStation - which of the station's effects
     static StudioDevice make(int type) { StudioDevice d; d.type = type; auto& I = devInfo()[(size_t) type]; for (size_t i = 0; i < I.p.size(); ++i) d.p[i] = I.p[i].def; return d; }
+    static StudioDevice makeStation(int which);
 };
+
+// 2.3: the station's own effects as studio devices (StationFx.h, run by Studio.cpp)
+constexpr int DevStation = 100;
+struct StationRunBase {
+    virtual ~StationRunBase() = default;
+    int fx = -1;
+    virtual void process(const StudioDevice& d, float* L, float* R, int n, double bpm, double beat) = 0;
+};
+std::unique_ptr<StationRunBase> makeStationRun(int which, double sampleRate);
+int stationFxCount();
+const DevInfo& stationFxInfo(int which);
+int stationFxGroup(int which);              // 0 inserts, 1 send effects, 2 the newer effects
+inline const DevInfo& devInfoOf(const StudioDevice& d) { return d.type == DevStation ? stationFxInfo(d.fx) : devInfo()[(size_t) std::max(0, std::min((int) DevCount - 1, d.type))]; }
+inline StudioDevice StudioDevice::makeStation(int which) { StudioDevice d; d.type = DevStation; d.fx = which; auto& I = stationFxInfo(which); for (size_t i = 0; i < I.p.size() && i < 12; ++i) d.p[i] = I.p[i].def; return d; }
 
 // ---------------------------------------------------------------- the running device (audio thread)
 class DeviceDsp {
 public:
     void prepare(double sampleRate) { sr = sampleRate; reset(); }
+    // 2.3: for this device (a station effect gets its own copy of the station's DSP)
+    void prepareFor(const StudioDevice& d, double sampleRate) { prepare(sampleRate); st = d.type == DevStation ? makeStationRun(d.fx, sampleRate) : nullptr; key = keyOf(d); }
+    static int keyOf(const StudioDevice& d) { return d.type * 1000 + (d.type == DevStation ? d.fx : 0); }
+    int key = -1;
+    double beatPos = 0;                     // where the song is (beats), for the station's effects in tempo
+    std::unique_ptr<StationRunBase> st;
     void reset() {
         for (auto& c : eq) for (auto& b : c) b.reset();
         env = 0; gSm = 1; gateG = 0; holdLeft = 0;
@@ -74,11 +97,13 @@ public:
             case DevUtility: utilProc(d, L, R, n); break;
             case DevLimiter: limProc(d, L, R, n); break;
             case DevFilter: filterProc(d, L, R, n); break;
+            case DevStation: if (st && st->fx == d.fx) st->process(d, L, R, n, bpm, beatPos); break;
             default: break;
         }
         for (int i = 0; i < n; ++i) if (!std::isfinite(L[i]) || !std::isfinite(R[i])) { reset(); std::fill(L, L + n, 0.0f); std::fill(R, R + n, 0.0f); return; }
     }
     float grDb = 0;                         // for the meters (compressor, limiter, gate)
+    const float* keyL = nullptr; const float* keyR = nullptr;   // 2.3: the sidechain's sound for this block (null: its own)
 private:
     double sr = 48000;
     // EQ
@@ -106,7 +131,7 @@ private:
         float att = 1.0f - std::exp(-1.0f / (float) (std::max(0.1f, d.p[2]) * 0.001 * sr)), rel = 1.0f - std::exp(-1.0f / (float) (std::max(5.0f, d.p[3]) * 0.001 * sr));
         float maxRed = 0;
         for (int i = 0; i < n; ++i) {
-            float a = std::max(std::abs(L[i]), std::abs(R[i]));
+            float a = keyL ? std::max(std::abs(keyL[i]), std::abs(keyR[i])) : std::max(std::abs(L[i]), std::abs(R[i]));
             env += (a > env ? att : rel) * (a - env);
             float over = 20.0f * std::log10(std::max(env, 1e-6f)) - thr, red = 0;
             if (over > knee * 0.5f) red = over * (1 - 1 / ratio);
@@ -200,7 +225,7 @@ private:
         float att = 1.0f - std::exp(-1.0f / (float) (std::max(0.1f, d.p[1]) * 0.001 * sr)), rel = 1.0f - std::exp(-1.0f / (float) (std::max(5.0f, d.p[3]) * 0.001 * sr));
         int hold = (int) (d.p[2] * 0.001 * sr);
         for (int i = 0; i < n; ++i) {
-            float a = std::max(std::abs(L[i]), std::abs(R[i]));
+            float a = keyL ? std::max(std::abs(keyL[i]), std::abs(keyR[i])) : std::max(std::abs(L[i]), std::abs(R[i]));
             env += (a > env ? 0.2f : 0.002f) * (a - env);
             bool open = env > thr; if (open) holdLeft = hold; else if (holdLeft > 0) { --holdLeft; open = true; }
             float tgt = open ? 1.0f : range;

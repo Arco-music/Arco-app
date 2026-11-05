@@ -48,13 +48,19 @@ struct StudioClip {
 };
 struct AutoPoint { double t = 0; float v = 0; };
 struct StudioAuto { std::string param; std::vector<AutoPoint> pts; };   // "vol", "pan", "sendA", "sendB", "d<i>p<k>"
-enum LaneKind { LaneAudio = 0, LaneInstrument = 1, LaneReturn = 2 };
+enum LaneKind { LaneAudio = 0, LaneInstrument = 1, LaneReturn = 2, LaneBus = 3 };
+// 2.3: a send to any bus or return (beside the two fixed ones, A and B); pre: before the fader
+struct StudioSend { int to = -1; float amt = 0.5f; bool pre = false; };
 struct StudioLane {
     juce::String name; int colour = 4; int kind = LaneAudio;
     float vol = 0, pan = 0;                         // dB, -1..1
     bool mute = false, solo = false, arm = false, monitor = false;
     int input = 0;                                  // recording from: 0-3 = LIVE 1-4 (the station's inputs, dry), 4+ = the sound card's input n-4, -1 = the station's mix
     float sendA = 0, sendB = 0;                     // 0..1, after the fader
+    // 2.3 ROUTING: where it goes (-1 the master, else a BUS or RETURN lane), more sends; a BUS can fold its lanes away
+    int out = -1;
+    std::vector<StudioSend> sends;
+    bool folded = false;
     std::vector<StudioDevice> devices;
     std::vector<StudioAuto> autos;
     std::map<std::string, float> synth;             // INSTRUMENT: its SYNTH 2 sound (parameter -> value)
@@ -88,6 +94,11 @@ struct StudioSong {
     double beatLen() const { return 60.0 / bpm * sr; }
     int returnA() const { for (int i = 0; i < (int) lanes.size(); ++i) if (lanes[(size_t) i].kind == LaneReturn) return i; return -1; }
     int returnB() const { int f = 0; for (int i = 0; i < (int) lanes.size(); ++i) if (lanes[(size_t) i].kind == LaneReturn && f++ == 1) return i; return -1; }
+    // 2.3 routing
+    bool isTarget(int i) const { return i >= 0 && i < (int) lanes.size() && (lanes[(size_t) i].kind == LaneBus || lanes[(size_t) i].kind == LaneReturn); }
+    bool feeds(int from, int to) const;             // does `from` reach `to` (by its output or a send, through buses)?
+    bool canRoute(int from, int to) const { return to == -1 || (isTarget(to) && to != from && !feeds(to, from)); }
+    bool hidden(int i) const;                       // inside a folded bus
 };
 
 // one parameter that can be automated: its name and range
@@ -109,6 +120,9 @@ public:
     bool addStationScene(int scene, long at, int repeats, juce::String& why);
     void ensureReturns();                           // RETURN A (reverb) and RETURN B (delay), a master chain
     int addLane(int kind, const juce::String& name);
+    void laneInserted(int at);                      // 2.3: every lane number (outputs, sends, sidechains) after it moves down
+    void laneRemoved(int at);
+    int addBus(const juce::String& name, const std::vector<int>& lanesIn);   // a bus (folder) right above the first of them, they go into it
     bool deleteLane(int lane);                      // with its clips
     int duplicateLane(int lane);                    // with its clips, right below it
     void refresh();                                 // the engine takes the song's lanes and clips as they are now (no stop)
@@ -191,6 +205,8 @@ private:
         std::vector<DeviceDsp> master;
         std::vector<float> buf[6];                  // lane L/R, return A L/R, return B L/R
         std::vector<float> zero, synL, synR, synM, synN, synLfo, beat, bpm, pitch;
+        std::vector<float> busIn, key;              // 2.3: per lane, 2 x 64: what comes into a bus / return; the lane's sound before its fader (sidechains)
+        std::vector<int> order;                     // the lanes in the order they are mixed (what feeds a bus before it)
         double clickPh = 0; long clickLeft = 0; float clickHz = 0;
         std::array<Meter, 64>* meters = nullptr;   // the live engine's lane meters (null when exporting)
     };

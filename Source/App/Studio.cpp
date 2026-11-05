@@ -2,8 +2,14 @@
 #include "Studio.h"
 #include "AudioHost.h"
 #include "Analysis.h"
+#include "StationFx.h"
 
 namespace arco {
+
+std::unique_ptr<StationRunBase> makeStationRun(int which, double sampleRate) { return makeStationRunImpl(which, sampleRate); }
+int stationFxCount() { return (int) stationCatalogue().size(); }
+const DevInfo& stationFxInfo(int which) { static DevInfo none { "?", "", {} }; return which >= 0 && which < stationFxCount() ? stationCatalogue()[(size_t) which].info : none; }
+int stationFxGroup(int which) { if (which < 0 || which >= stationFxCount()) return 0; int k = stationCatalogue()[(size_t) which].kind; return k == StChan ? 0 : k == StExtra ? 2 : 1; }
 
 static const char* LL[4] = { "A", "B", "C", "D" };
 
@@ -14,7 +20,7 @@ std::vector<AutoParam> autoParams(const StudioLane& L) {
     std::vector<AutoParam> p = { { "vol", "VOLUME", -60, 6 }, { "pan", "PAN", -1, 1 } };
     if (L.kind != LaneReturn) { p.push_back({ "sendA", "SEND A (reverb)", 0, 1 }); p.push_back({ "sendB", "SEND B (delay)", 0, 1 }); }
     for (size_t i = 0; i < L.devices.size(); ++i) {
-        auto& I = devInfo()[(size_t) L.devices[i].type];
+        auto& I = devInfoOf(L.devices[i]);
         for (size_t k = 0; k < I.p.size(); ++k)
             p.push_back({ "d" + std::to_string(i) + "p" + std::to_string(k), juce::String(I.name) + " " + I.p[k].name, I.p[k].lo, I.p[k].hi });
     }
@@ -29,6 +35,58 @@ float autoValue(const StudioAuto& a, double t, float fallback) {
     auto& b = *it; auto& a0 = *(it - 1);
     double f = b.t > a0.t ? (t - a0.t) / (b.t - a0.t) : 0.0;
     return (float) (a0.v + (b.v - a0.v) * f);
+}
+
+// ------------------------------------------------------------------ 2.3 routing
+bool StudioSong::feeds(int from, int to) const {
+    if (from < 0 || from >= (int) lanes.size()) return false;
+    std::vector<int> stack { from }; std::vector<char> seen(lanes.size(), 0);
+    const int rA = returnA(), rB = returnB();
+    while (!stack.empty()) {
+        int x = stack.back(); stack.pop_back();
+        if (x < 0 || x >= (int) lanes.size() || seen[(size_t) x]) continue;
+        seen[(size_t) x] = 1;
+        auto& L = lanes[(size_t) x];
+        auto go = [&](int t) { if (t == to) return true; if (isTarget(t)) stack.push_back(t); return false; };
+        if (go(L.out)) return true;
+        if (L.kind != LaneReturn) { if (L.sendA > 0 && rA >= 0 && go(rA)) return true; if (L.sendB > 0 && rB >= 0 && go(rB)) return true; }
+        for (auto& sd : L.sends) if (go(sd.to)) return true;
+    }
+    return false;
+}
+bool StudioSong::hidden(int i) const {
+    if (i < 0 || i >= (int) lanes.size()) return false;
+    int x = lanes[(size_t) i].out;
+    for (int h = 0; h < 16 && x >= 0 && x < (int) lanes.size(); ++h) { if (lanes[(size_t) x].kind == LaneBus && lanes[(size_t) x].folded) return true; x = lanes[(size_t) x].out; }
+    return false;
+}
+void Studio::laneInserted(int at) {
+    auto mv = [at](int& v) { if (v >= at) ++v; };
+    for (auto& L : song.lanes) { mv(L.out); for (auto& sd : L.sends) mv(sd.to); for (auto& d : L.devices) mv(d.side); }
+    for (auto& d : song.master) mv(d.side);
+}
+void Studio::laneRemoved(int at) {
+    auto mv = [at](int& v) { if (v == at) v = -1; else if (v > at) --v; };
+    for (auto& L : song.lanes) { mv(L.out); for (auto& sd : L.sends) mv(sd.to);
+        L.sends.erase(std::remove_if(L.sends.begin(), L.sends.end(), [](const StudioSend& x) { return x.to < 0; }), L.sends.end());
+        for (auto& d : L.devices) mv(d.side); }
+    for (auto& d : song.master) mv(d.side);
+}
+int Studio::addBus(const juce::String& name, const std::vector<int>& in) {
+    const juce::ScopedLock sl(lock);
+    int at = INT_MAX; for (int i : in) if (i >= 0 && i < (int) song.lanes.size() && song.lanes[(size_t) i].kind != LaneReturn) at = std::min(at, i);
+    if (at == INT_MAX) { at = (int) song.lanes.size(); for (int i = 0; i < (int) song.lanes.size(); ++i) if (song.lanes[(size_t) i].kind == LaneReturn) { at = i; break; } }
+    StudioLane B; B.kind = LaneBus; B.name = name; B.colour = 11; B.height = 52;
+    // the bus goes where the first lane went (a lane already in a bus: the new bus inside that one)
+    if (at < (int) song.lanes.size()) B.out = song.lanes[(size_t) at].out;
+    song.lanes.insert(song.lanes.begin() + at, B);
+    laneInserted(at);                                   // (the bus's own output moves with the others)
+    laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1); laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
+    for (auto& c : song.clips) if (c.lane >= at) ++c.lane;
+    for (int i : in) { int li = i >= at ? i + 1 : i; if (li >= 0 && li < (int) song.lanes.size() && li != at && song.lanes[(size_t) li].kind != LaneReturn && song.canRoute(li, at)) song.lanes[(size_t) li].out = at; }
+    if (rt.lanes.size() >= (size_t) at) rt.lanes.insert(rt.lanes.begin() + at, LaneRt());
+    prepareRuntime(rt, song);
+    return at;
 }
 
 // ------------------------------------------------------------------ building
@@ -63,9 +121,11 @@ int Studio::addLane(int kind, const juce::String& name) {
     // before the returns
     int at = (int) song.lanes.size(); for (int i = 0; i < (int) song.lanes.size(); ++i) if (song.lanes[(size_t) i].kind == LaneReturn) { at = i; break; }
     song.lanes.insert(song.lanes.begin() + at, L);
+    laneInserted(at);
     laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1);
     laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
     for (auto& c : song.clips) if (c.lane >= at) ++c.lane;
+    if (rt.lanes.size() >= (size_t) at) rt.lanes.insert(rt.lanes.begin() + at, LaneRt());   // the others keep their running effects
     prepareRuntime(rt, song);                   // heard at once, even while playing (no stop / start)
     return at;
 }
@@ -153,6 +213,7 @@ bool Studio::deleteLane(int li) {
     song.clips.erase(std::remove_if(song.clips.begin(), song.clips.end(), [li](const StudioClip& c) { return c.lane == li; }), song.clips.end());
     for (auto& c : song.clips) if (c.lane > li) --c.lane;
     song.lanes.erase(song.lanes.begin() + li);
+    laneRemoved(li);
     if (li < (int) laneStrip.size()) laneStrip.erase(laneStrip.begin() + li);
     if (li < (int) laneScene.size()) laneScene.erase(laneScene.begin() + li);
     if (li < (int) rt.lanes.size()) rt.lanes.erase(rt.lanes.begin() + li);    // the others keep their running effects
@@ -166,6 +227,7 @@ int Studio::duplicateLane(int li) {
     auto copy = song.lanes[(size_t) li]; copy.name = (copy.name + " 2").substring(0, 20); copy.arm = false;
     int at = li + 1;
     song.lanes.insert(song.lanes.begin() + at, copy);
+    laneInserted(at);
     laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1);
     laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
     for (auto& c : song.clips) if (c.lane >= at) ++c.lane;
@@ -181,7 +243,7 @@ bool Studio::renderLaneAlone(const StudioSong& src, int lane, long first, long l
     StudioSong copy = src;
     if (lane < 0 || lane >= (int) copy.lanes.size()) return false;
     auto& L = copy.lanes[(size_t) lane];
-    L.frozen = false;
+    L.frozen = false; L.out = -1; L.sends.clear();             // not through its bus either
     bool tails = false; for (auto& d : L.devices) tails |= d.on && (d.type == DevReverb || d.type == DevDelay);
     L.vol = 0; L.pan = 0; L.sendA = L.sendB = 0; L.mute = false; L.solo = false;
     L.autos.erase(std::remove_if(L.autos.begin(), L.autos.end(), [](const StudioAuto& a) { return a.param == "vol" || a.param == "pan" || a.param == "sendA" || a.param == "sendB"; }), L.autos.end());
@@ -203,7 +265,7 @@ bool Studio::renderLaneAlone(const StudioSong& src, int lane, long first, long l
 
 int Studio::printLane(int lane, juce::String& why) {
     StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
-    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn) { why = "choose a track first"; return -1; }
+    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn || copy.lanes[(size_t) lane].kind == LaneBus) { why = "choose a track first (a bus or return is printed with its tracks)"; return -1; }
     long first = LONG_MAX, last = 0; for (auto& c : copy.clips) if (c.lane == lane) { first = std::min(first, c.start); last = std::max(last, c.start + c.length); }
     if (first == LONG_MAX) { why = "this track has nothing on it yet"; return -1; }
     juce::AudioBuffer<float> out;
@@ -219,7 +281,10 @@ int Studio::printLane(int lane, juce::String& why) {
     int target = lane;
     if (SL.kind == LaneInstrument) {                     // the synth's notes stay; the sound goes on a new audio lane under it
         StudioLane A; A.name = (nm + " +FX").substring(0, 20); A.kind = LaneAudio; A.colour = SL.colour; A.vol = SL.vol; A.pan = SL.pan; A.sendA = SL.sendA; A.sendB = SL.sendB;
+        A.out = SL.out; A.sends = SL.sends;
         song.lanes.insert(song.lanes.begin() + lane + 1, A);
+        laneInserted(lane + 1);
+        if (rt.lanes.size() >= (size_t) lane + 1) rt.lanes.insert(rt.lanes.begin() + lane + 1, LaneRt());
         laneStrip.insert(laneStrip.begin() + juce::jmin(lane + 1, (int) laneStrip.size()), -1); laneScene.insert(laneScene.begin() + juce::jmin(lane + 1, (int) laneScene.size()), 1);
         for (auto& c : song.clips) if (c.lane > lane) ++c.lane;
         song.lanes[(size_t) lane].mute = true;
@@ -316,17 +381,18 @@ void Studio::prepareRuntime(Runtime& R, const StudioSong& s) {
     R.lanes.resize(s.lanes.size());
     for (size_t i = 0; i < s.lanes.size(); ++i) {
         auto& L = s.lanes[i]; auto& lr = R.lanes[i];
-        if ((int) lr.dev.size() != (int) L.devices.size() || lr.nDev != (int) L.devices.size()) {
-            lr.dev.resize(L.devices.size());
-            for (auto& d : lr.dev) d.prepare(s.sr);
-            lr.nDev = (int) L.devices.size();
-        }
+        if ((int) lr.dev.size() != (int) L.devices.size()) { lr.dev.resize(L.devices.size()); lr.nDev = (int) L.devices.size(); }
+        for (size_t k = 0; k < L.devices.size(); ++k)            // a new device (or another in its place): its own DSP; the others keep running
+            if (lr.dev[k].key != DeviceDsp::keyOf(L.devices[k])) lr.dev[k].prepareFor(L.devices[k], s.sr);
         if (L.kind == LaneInstrument && lr.syn == nullptr) { lr.syn = std::make_unique<Synth2>(); lr.syn->init(s.sr); lr.synthSet.clear(); }
     }
-    if (R.master.size() != s.master.size()) { R.master.resize(s.master.size()); for (auto& d : R.master) d.prepare(s.sr); }
+    if (R.master.size() != s.master.size()) R.master.resize(s.master.size());
+    for (size_t k = 0; k < s.master.size(); ++k) if (R.master[k].key != DeviceDsp::keyOf(s.master[k])) R.master[k].prepareFor(s.master[k], s.sr);
     const int B = 64;
     for (auto& b : R.buf) b.assign(B, 0.0f);
     for (auto* v : { &R.zero, &R.synL, &R.synR, &R.synM, &R.synN, &R.synLfo, &R.beat, &R.bpm, &R.pitch }) v->assign(B, 0.0f);
+    if (R.busIn.size() < s.lanes.size() * 128) R.busIn.assign(std::max<size_t>(s.lanes.size(), 16) * 128 * 2, 0.0f);       // (room to grow: no allocation on most edits)
+    if (R.key.size() < s.lanes.size() * 128) R.key.assign(std::max<size_t>(s.lanes.size(), 16) * 128 * 2, 0.0f);
 }
 
 void Studio::laneSynth(const StudioSong& s, const StudioLane& L, int li, LaneRt& lr, Runtime& R, long start, int n, float* outL, float* outR, bool clipsOn) {
@@ -369,20 +435,35 @@ void Studio::laneSynth(const StudioSong& s, const StudioLane& L, int li, LaneRt&
 void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long start, int n, int onlyLane, const float* liveIn[64], bool metro, bool clipsOn) {
     const int nl = (int) s.lanes.size();
     if ((int) R.lanes.size() < nl) return;                  // not prepared yet
+    if (nl > 128 || (int) R.busIn.size() < nl * 128 || (int) R.key.size() < nl * 128) return;
+    // 2.3 ROUTING: every lane is mixed before what it feeds (its bus, the returns it sends to): by how far it is from the master
+    const int rA = s.returnA(), rB = s.returnB();
+    int lev[128] = {}, ord[128];
+    auto targets = [&](int li, int* t) { int k = 0; auto& L = s.lanes[(size_t) li];
+        if (s.isTarget(L.out) && L.out != li) t[k++] = L.out;
+        if (L.kind != LaneReturn) { if (rA >= 0 && rA != li) t[k++] = rA; if (rB >= 0 && rB != li) t[k++] = rB; }
+        for (auto& sd : L.sends) if (k < 12 && s.isTarget(sd.to) && sd.to != li) t[k++] = sd.to;
+        return k; };
+    for (int it = 0; it < 16; ++it) { bool ch = false;
+        for (int li = 0; li < nl; ++li) { int t[12]; int k = targets(li, t); for (int j = 0; j < k; ++j) if (lev[li] < lev[t[j]] + 1 && lev[t[j]] < 64) { lev[li] = lev[t[j]] + 1; ch = true; } }
+        if (!ch) break; }
+    for (int i = 0; i < nl; ++i) ord[i] = i;
+    std::stable_sort(ord, ord + nl, [&](int a, int b) { return lev[a] > lev[b]; });
+    auto under = [&](int li, int anc) { int x = li; for (int h = 0; h < 16 && x >= 0 && x < nl; ++h) { if (x == anc) return true; x = s.lanes[(size_t) x].out; } return false; };
     bool anySolo = false; for (auto& L : s.lanes) anySolo |= (L.solo && L.kind != LaneReturn);
+    bool soloed[128] = {};
+    if (anySolo) for (int li = 0; li < nl; ++li) { int x = li; for (int h = 0; h < 16 && x >= 0 && x < nl; ++h) { if (s.lanes[(size_t) x].solo) { soloed[li] = true; break; } x = s.lanes[(size_t) x].out; } }
     for (int off = 0; off < n; off += 64) {
         int m = std::min(64, n - off);
         long t0 = start + off;
-        float* aL = R.buf[2].data(); float* aR = R.buf[3].data(); float* bL = R.buf[4].data(); float* bR = R.buf[5].data();
-        std::fill(aL, aL + m, 0.0f); std::fill(aR, aR + m, 0.0f); std::fill(bL, bL + m, 0.0f); std::fill(bR, bR + m, 0.0f);
+        for (int li = 0; li < nl; ++li) if (s.isTarget(li)) std::fill(R.busIn.begin() + li * 128, R.busIn.begin() + li * 128 + 128, 0.0f);
         float mL[64] = {}, mR[64] = {};
-        for (int pass = 0; pass < 2; ++pass)                // lanes, then the returns
-            for (int li = 0; li < nl; ++li) {
+        for (int oi = 0; oi < nl; ++oi) {
+                const int li = ord[oi];
                 auto& L = s.lanes[(size_t) li]; auto& lr = R.lanes[(size_t) li];
-                if ((pass == 0) == (L.kind == LaneReturn)) continue;
                 float* xL = R.buf[0].data(); float* xR = R.buf[1].data();
                 std::fill(xL, xL + m, 0.0f); std::fill(xR, xR + m, 0.0f);
-                if (L.kind == LaneReturn) { bool isB = li == s.returnB(); std::copy(isB ? bL : aL, (isB ? bL : aL) + m, xL); std::copy(isB ? bR : aR, (isB ? bR : aR) + m, xR); }
+                if (L.kind == LaneReturn || L.kind == LaneBus) { std::copy(R.busIn.begin() + li * 128, R.busIn.begin() + li * 128 + m, xL); std::copy(R.busIn.begin() + li * 128 + 64, R.busIn.begin() + li * 128 + 64 + m, xR); }
                 else if (L.frozen) {         // 2.3: FROZEN - its own recording (clips, synth and effects in it)
                     if (clipsOn && L.freezeSrc >= 0 && L.freezeSrc < (int) s.sources.size() && s.sources[(size_t) L.freezeSrc]) {
                         auto& S = *s.sources[(size_t) L.freezeSrc]; long sl = S.size(); bool st = !S.r.empty();
@@ -444,17 +525,35 @@ void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long
                     else if (A.param.size() > 3 && A.param[0] == 'd') { int di = std::atoi(A.param.c_str() + 1); auto pp = A.param.find('p'); int pk = pp != std::string::npos ? std::atoi(A.param.c_str() + pp + 1) : -1;
                         if (di >= 0 && di < nd && pk >= 0 && pk < 12) devs[di].p[(size_t) pk] = v; }
                 }
-                if (!L.frozen) for (int k = 0; k < nd && k < (int) lr.dev.size(); ++k) lr.dev[(size_t) k].process(devs[k], xL, xR, m, s.bpm);
-                bool silent = L.mute || (anySolo && L.kind != LaneReturn && !L.solo) || (onlyLane >= 0 && li != onlyLane && L.kind != LaneReturn);
+                if (!L.frozen) for (int k = 0; k < nd && k < (int) lr.dev.size(); ++k) {
+                    auto& dv = lr.dev[(size_t) k];
+                    int sd = devs[k].side;            // SIDECHAIN: the key lane's sound (this block if it was mixed already, else the last - 1 ms)
+                    if (sd >= 0 && sd < nl && sd != li) { dv.keyL = R.key.data() + sd * 128; dv.keyR = R.key.data() + sd * 128 + 64; } else { dv.keyL = dv.keyR = nullptr; }
+                    dv.beatPos = (double) t0 / s.beatLen();
+                    dv.process(devs[k], xL, xR, m, s.bpm);
+                    dv.keyL = dv.keyR = nullptr;
+                }
+                std::copy(xL, xL + m, R.key.begin() + li * 128); std::copy(xR, xR + m, R.key.begin() + li * 128 + 64);
+                bool src = L.kind == LaneAudio || L.kind == LaneInstrument;
+                bool silent = L.mute || (anySolo && src && !soloed[li]) || (onlyLane >= 0 && src && !under(li, onlyLane));
                 if (silent) continue;
                 float g = std::pow(10.0f, vol / 20.0f);
                 float pc = juce::jlimit(-1.0f, 1.0f, pan), pl = std::cos((pc + 1) * 0.25f * juce::MathConstants<float>::pi) * 1.4142f, pr = std::sin((pc + 1) * 0.25f * juce::MathConstants<float>::pi) * 1.4142f;
                 if (R.meters != nullptr && li < 64) { float pk = 0; for (int i = 0; i < m; ++i) pk = std::max(pk, std::max(std::abs(xL[i]), std::abs(xR[i])) * g); auto& mt = (*R.meters)[(size_t) li]; if (pk > mt.l.load()) mt.l.store(pk); }
+                const bool toBus = s.isTarget(L.out) && L.out != li && lev[L.out] < lev[li];
+                float* dL = toBus ? R.busIn.data() + L.out * 128 : mL; float* dR = toBus ? R.busIn.data() + L.out * 128 + 64 : mR;
+                float* aL = rA >= 0 && rA != li && L.kind != LaneReturn && sa > 0 ? R.busIn.data() + rA * 128 : nullptr;
+                float* bL = rB >= 0 && rB != li && L.kind != LaneReturn && sb > 0 ? R.busIn.data() + rB * 128 : nullptr;
                 for (int i = 0; i < m; ++i) {
                     float l = xL[i] * g, r = xR[i] * g;
-                    mL[i] += l * pl; mR[i] += r * pr;
-                    if (sa > 0) { aL[i] += l * sa; aR[i] += r * sa; }
-                    if (sb > 0) { bL[i] += l * sb; bR[i] += r * sb; }
+                    dL[i] += l * pl; dR[i] += r * pr;
+                    if (aL) { aL[i] += l * sa; aL[i + 64] += r * sa; }
+                    if (bL) { bL[i] += l * sb; bL[i + 64] += r * sb; }
+                }
+                for (auto& sd : L.sends) {                 // the other sends: to any bus or return
+                    if (!s.isTarget(sd.to) || sd.to == li || lev[sd.to] >= lev[li] || sd.amt <= 0) continue;
+                    float* t = R.busIn.data() + sd.to * 128; float k = sd.amt * (sd.pre ? 1.0f : g);
+                    for (int i = 0; i < m; ++i) { t[i] += xL[i] * k; t[i + 64] += xR[i] * k; }
                 }
             }
         // the master chain
@@ -468,7 +567,7 @@ void Studio::mix(const StudioSong& s, Runtime& R, float* outL, float* outR, long
         }
         float g = std::pow(10.0f, mv / 20.0f);
         for (int i = 0; i < m; ++i) { mL[i] *= g; mR[i] *= g; }
-        for (int k = 0; k < nmd && k < (int) R.master.size(); ++k) R.master[(size_t) k].process(md[k], mL, mR, m, s.bpm);
+        for (int k = 0; k < nmd && k < (int) R.master.size(); ++k) { R.master[(size_t) k].beatPos = (double) t0 / s.beatLen(); R.master[(size_t) k].process(md[k], mL, mR, m, s.bpm); }
         // the metronome
         if (metro) {
             double bl = s.beatLen();
@@ -812,8 +911,10 @@ int Studio::explodeTakes(int ci) {
         StudioLane L = song.lanes[(size_t) lane]; L.name = (c.takes[(size_t) t].name.isNotEmpty() ? c.takes[(size_t) t].name : "take " + juce::String(t + 1)).substring(0, 20).toUpperCase();
         L.arm = false; L.solo = false; L.mute = true; L.autos.clear(); L.showAuto = -1; L.height = juce::jmax(46.0f, L.height * 0.7f); L.frozen = false;
         song.lanes.insert(song.lanes.begin() + at, L);
+        laneInserted(at);
         laneStrip.insert(laneStrip.begin() + juce::jmin(at, (int) laneStrip.size()), -1); laneScene.insert(laneScene.begin() + juce::jmin(at, (int) laneScene.size()), 1);
         for (auto& o : song.clips) if (o.lane >= at) ++o.lane;
+        if (rt.lanes.size() >= (size_t) at) rt.lanes.insert(rt.lanes.begin() + at, LaneRt());
         StudioClip n = c; n.lane = at; n.source = c.takes[(size_t) t].source; n.offset = c.offset + c.takes[(size_t) t].delta; n.takes.clear(); n.take = 0; n.name = c.takes[(size_t) t].name;
         song.clips.push_back(n);
         if (firstNew < 0) firstNew = at;
@@ -827,7 +928,7 @@ int Studio::explodeTakes(int ci) {
 // ------------------------------------------------------------------ 2.3 freeze
 bool Studio::freezeLane(int lane, juce::String& why) {
     StudioSong copy; { const juce::ScopedLock sl(lock); copy = song; }
-    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn) { why = "choose a track first"; return false; }
+    if (lane < 0 || lane >= (int) copy.lanes.size() || copy.lanes[(size_t) lane].kind == LaneReturn || copy.lanes[(size_t) lane].kind == LaneBus) { why = "choose a track first (a bus is not frozen - its tracks are)"; return false; }
     if (copy.lanes[(size_t) lane].frozen) return true;
     long first = LONG_MAX, last = 0; for (auto& c : copy.clips) if (c.lane == lane) { first = std::min(first, c.start); last = std::max(last, c.end()); }
     if (first == LONG_MAX) { why = "this track has nothing on it to freeze"; return false; }
@@ -1069,9 +1170,12 @@ bool Studio::transposeClip(int ci, double semis) {
 }
 
 // ------------------------------------------------------------------ save / open
-static juce::var devToVar(const StudioDevice& d) { auto* x = new juce::DynamicObject(); x->setProperty("type", d.type); x->setProperty("on", d.on);
+static juce::var devToVar(const StudioDevice& d) { auto* x = new juce::DynamicObject(); x->setProperty("type", d.type); x->setProperty("on", d.on); if (d.side >= 0) x->setProperty("side", d.side); if (d.type == DevStation) { x->setProperty("fx", d.fx); if (d.fx >= 0 && d.fx < stationFxCount()) x->setProperty("fxk", juce::String(stationCatalogue()[(size_t) d.fx].key)); }
     juce::Array<juce::var> p; for (float v : d.p) p.add(v); x->setProperty("p", p); return juce::var(x); }
-static StudioDevice devFromVar(const juce::var& v) { StudioDevice d = StudioDevice::make(juce::jlimit(0, DevCount - 1, (int) v["type"])); d.on = v.getProperty("on", true);
+static StudioDevice devFromVar(const juce::var& v) { StudioDevice d = StudioDevice::make(juce::jlimit(0, DevCount - 1, (int) v["type"])); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1);
+    if ((int) v["type"] == DevStation) { int w = juce::jlimit(0, stationFxCount() - 1, (int) v.getProperty("fx", 0)); auto k = v.getProperty("fxk", "").toString().toStdString();
+        for (int i = 0; i < stationFxCount(); ++i) if (!k.empty() && stationCatalogue()[(size_t) i].key == k) w = i;      // by name: the list may grow
+        d = StudioDevice::makeStation(w); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1); }
     if (auto* a = v["p"].getArray()) for (int i = 0; i < juce::jmin(12, a->size()); ++i) d.p[(size_t) i] = (float) (*a)[i]; return d; }
 static juce::var autosToVar(const std::vector<StudioAuto>& A) { juce::Array<juce::var> out;
     for (auto& a : A) { auto* x = new juce::DynamicObject(); x->setProperty("param", juce::String(a.param)); juce::Array<juce::var> pts; for (auto& p : a.pts) { pts.add(p.t); pts.add(p.v); } x->setProperty("pts", pts); out.add(juce::var(x)); }
@@ -1114,6 +1218,8 @@ bool Studio::save(const juce::File& folder) {
     for (size_t li = 0; li < s.lanes.size(); ++li) { auto& L = s.lanes[li]; auto* x = new juce::DynamicObject(); x->setProperty("name", L.name); x->setProperty("colour", L.colour); x->setProperty("kind", L.kind);
         x->setProperty("vol", L.vol); x->setProperty("pan", L.pan); x->setProperty("mute", L.mute); x->setProperty("solo", L.solo); x->setProperty("input", L.input);
         x->setProperty("sendA", L.sendA); x->setProperty("sendB", L.sendB); x->setProperty("height", L.height);
+        x->setProperty("out", L.out); if (L.folded) x->setProperty("folded", true);
+        if (!L.sends.empty()) { juce::Array<juce::var> sv; for (auto& sd : L.sends) { auto* q = new juce::DynamicObject(); q->setProperty("to", sd.to); q->setProperty("amt", sd.amt); q->setProperty("pre", sd.pre); sv.add(juce::var(q)); } x->setProperty("sends", sv); }
         if (L.frozen) { x->setProperty("frozen", true); x->setProperty("freezeSrc", L.freezeSrc); x->setProperty("freezeAt", (juce::int64) L.freezeAt); }
         x->setProperty("strip", li < laneStrip.size() ? laneStrip[li] : -1);
         juce::Array<juce::var> dv; for (auto& d : L.devices) dv.add(devToVar(d)); x->setProperty("devices", dv);
@@ -1159,6 +1265,8 @@ bool Studio::load(const juce::File& folder) {
     if (auto* a = v["lanes"].getArray()) for (auto& x : *a) { StudioLane L; L.name = x["name"].toString(); L.colour = x["colour"]; L.kind = x.getProperty("kind", 0); L.vol = x["vol"]; L.pan = x["pan"];
         L.mute = x["mute"]; L.solo = x["solo"]; L.input = x.getProperty("input", 0);
         L.frozen = x.getProperty("frozen", false); L.freezeSrc = x.getProperty("freezeSrc", -1); L.freezeAt = (juce::int64) x.getProperty("freezeAt", 0); L.sendA = x.getProperty("sendA", 0.0f); L.sendB = x.getProperty("sendB", 0.0f); L.height = x.getProperty("height", 74.0f);
+        L.out = x.getProperty("out", -1); L.folded = x.getProperty("folded", false);
+        if (auto* sv = x["sends"].getArray()) for (auto& q : *sv) L.sends.push_back({ (int) q["to"], (float) q.getProperty("amt", 0.5f), (bool) q.getProperty("pre", false) });
         if (auto* dv = x["devices"].getArray()) for (auto& d : *dv) L.devices.push_back(devFromVar(d));
         L.autos = autosFromVar(x["autos"]);
         if (auto* sy = x["synth"].getDynamicObject()) for (auto& p : sy->getProperties()) L.synth[p.name.toString().toStdString()] = (float) p.value;

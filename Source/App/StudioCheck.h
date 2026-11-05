@@ -483,6 +483,122 @@ inline int runStudioCheck(AudioHost& h) {
                     && S.song.punchOn && S.song.punchEnd == 50000 && S.song.ripple == 2 && !S.song.autoXfade;
         check(sv && same, "save and open: takes, the take playing, freeze, punch, ripple, crossfades", same);
     }
+    // ---------------------------------------------------------------- 9 routing: buses (groups), sends anywhere, sidechain
+    say("== 9. routing: buses (groups / folders), sends to any bus, sidechain");
+    {
+        auto rms = [](const juce::AudioBuffer<float>& b, long a, long e) { double s2 = 0; long n = 0; for (long i = a; i < juce::jmin(e, (long) b.getNumSamples()); ++i) { s2 += (double) b.getSample(0, (int) i) * b.getSample(0, (int) i); ++n; } return n ? std::sqrt(s2 / n) : 0.0; };
+        fresh();
+        juce::String why;
+        int c1 = S.importAudio(plan(writeTestFile(dir, "r1.wav", sine(300.0, 2.0, 48000, 0.3f, 1), 48000)), -1, 0, false, why);
+        int c2 = S.importAudio(plan(writeTestFile(dir, "r2.wav", sine(500.0, 2.0, 48000, 0.3f, 1), 48000)), -1, 0, false, why);
+        int l1 = S.song.clips[(size_t) c1].lane, l2 = S.song.clips[(size_t) c2].lane;
+        juce::AudioBuffer<float> before; render(before);
+        int bus = S.addBus("DRUMS", { l1, l2 }); l1 = S.song.clips[(size_t) c1].lane; l2 = S.song.clips[(size_t) c2].lane;
+        juce::AudioBuffer<float> through; render(through);
+        long a = (long) (0.2 * sr), e = (long) (1.8 * sr);
+        double q = snr(before.getReadPointer(0) + a, through.getReadPointer(0) + a, (int) (e - a));
+        check(bus >= 0 && S.song.lanes[(size_t) l1].out == bus && S.song.lanes[(size_t) l2].out == bus && q > 90, "a bus: two tracks go into it, the sound unchanged (dB of difference)", q);
+        S.song.lanes[(size_t) bus].vol = -6.0206f; juce::AudioBuffer<float> half; render(half);
+        check(std::abs(rms(half, a, e) / rms(before, a, e) - 0.5) < 0.01, "  its fader acts on both (-6 dB = half)", rms(half, a, e) / rms(before, a, e));
+        S.song.lanes[(size_t) bus].vol = 0; S.song.lanes[(size_t) bus].mute = true; juce::AudioBuffer<float> muted; render(muted);
+        check(rms(muted, a, e) < 1e-6, "  MUTE on the bus: both silent", rms(muted, a, e));
+        S.song.lanes[(size_t) bus].mute = false;
+        S.song.lanes[(size_t) bus].solo = true; juce::AudioBuffer<float> solo; render(solo); S.song.lanes[(size_t) bus].solo = false;
+        double qs = snr(before.getReadPointer(0) + a, solo.getReadPointer(0) + a, (int) (e - a));
+        check(qs > 90, "  SOLO on the bus: its tracks play", qs);
+        S.song.lanes[(size_t) bus].folded = true;
+        check(S.song.hidden(l1) && S.song.hidden(l2) && !S.song.hidden(bus), "  folded: its tracks tucked under it", 1);
+        S.song.lanes[(size_t) bus].folded = false;
+        // a bus inside a bus, never in a circle
+        int bus2 = S.addBus("ALL", { bus }); l1 = S.song.clips[(size_t) c1].lane; bus = S.song.lanes[(size_t) l1].out;
+        check(S.song.lanes[(size_t) bus].out == bus2 && !S.song.canRoute(bus2, bus) && S.song.canRoute(bus, -1), "  a bus in a bus; a bus can never feed itself (no circle)", bus2);
+        juce::AudioBuffer<float> nested; render(nested);
+        double qn = snr(before.getReadPointer(0) + a, nested.getReadPointer(0) + a, (int) (e - a));
+        check(qn > 90, "  through both: still the same sound", qn);
+        // a stem of the bus: its tracks
+        juce::AudioBuffer<float> stem; S.renderAll(stem, nullptr, bus);
+        double qst = snr(before.getReadPointer(0) + a, stem.getReadPointer(0) + a, (int) (e - a));
+        check(qst > 90, "  the bus exported on its own (stem): its tracks", qst);
+        // delete the outer bus: what went into it goes to the master, nothing lost
+        S.deleteLane(bus2); bus = S.song.lanes[(size_t) S.song.clips[(size_t) c1].lane].out;
+        juce::AudioBuffer<float> del; render(del);
+        double qd = snr(before.getReadPointer(0) + a, del.getReadPointer(0) + a, (int) (e - a));
+        check(bus >= 0 && S.song.lanes[(size_t) bus].out == -1 && qd > 90, "  a bus deleted: what went into it goes to the master", qd);
+        // a send before the fader: heard on the bus even with the track's fader down
+        fresh();
+        int c3 = S.importAudio(plan(writeTestFile(dir, "r3.wav", sine(300.0, 2.0, 48000, 0.3f, 1), 48000)), -1, 0, false, why);
+        int l3 = S.song.clips[(size_t) c3].lane;
+        juce::AudioBuffer<float> ref; render(ref);
+        int b3 = S.addBus("FX BUS", {}); l3 = S.song.clips[(size_t) c3].lane;
+        S.song.lanes[(size_t) l3].vol = -60; S.song.lanes[(size_t) l3].sends.push_back({ b3, 1.0f, true });
+        juce::AudioBuffer<float> pre; render(pre);
+        double rp = rms(pre, a, e) / rms(ref, a, e);
+        S.song.lanes[(size_t) l3].sends.back().pre = false; juce::AudioBuffer<float> post; render(post);
+        double rq = rms(post, a, e) / rms(ref, a, e);
+        check(std::abs(rp - 1.0) < 0.01 && rq < 0.01, "a send before the fader: the bus hears it with the fader down (after: it doesn't)", rp);
+        // sidechain: a pad ducks when the kick plays
+        fresh();
+        int cp = S.importAudio(plan(writeTestFile(dir, "pad.wav", sine(200.0, 2.0, 48000, 0.3f, 1), 48000)), -1, 0, false, why);
+        juce::AudioBuffer<float> kick(1, (int) (2 * 48000)); kick.clear(); for (int i = (int) (1.0 * 48000); i < (int) (1.4 * 48000); ++i) kick.setSample(0, i, 0.8f * (float) std::sin(2 * M_PI * 60 * i / 48000.0));
+        int ck = S.importAudio(plan(writeTestFile(dir, "kick.wav", kick, 48000)), -1, 0, false, why);
+        int lp = S.song.clips[(size_t) cp].lane, lk = S.song.clips[(size_t) ck].lane;
+        S.song.lanes[(size_t) lk].mute = true;                   // the kick is not heard: it only drives the compressor
+        auto comp = StudioDevice::make(DevComp); comp.p[0] = -30; comp.p[1] = 20; comp.p[2] = 1; comp.p[5] = 0; comp.side = lk;
+        S.song.lanes[(size_t) lp].devices.push_back(comp); S.refresh();
+        juce::AudioBuffer<float> sc; render(sc);
+        double quiet = rms(sc, (long) (0.3 * sr), (long) (0.9 * sr)), ducked = rms(sc, (long) (1.1 * sr), (long) (1.35 * sr));
+        check(quiet > 0.2 && ducked < quiet * 0.3, "SIDECHAIN: the pad ducks only while the kick plays (level while ducked / before)", ducked / quiet);
+        // saved and opened
+        int bsv = S.addBus("SAVE", { lp }); S.song.lanes[(size_t) bsv].folded = true;
+        lp = S.song.clips[(size_t) cp].lane; S.song.lanes[(size_t) lp].sends.push_back({ bsv, 0.25f, true });
+        auto folder = dir.getChildFile("song-route"); folder.createDirectory();
+        int side = S.song.lanes[(size_t) lp].devices.back().side;
+        bool sv = S.save(folder); fresh(); bool ld = S.load(folder);
+        bool same = ld && S.song.lanes[(size_t) lp].out == bsv && S.song.lanes[(size_t) bsv].folded && S.song.lanes[(size_t) lp].sends.size() == 1 && S.song.lanes[(size_t) lp].sends[0].pre
+                    && S.song.lanes[(size_t) lp].devices.back().side == side;
+        check(sv && same, "  save and open: buses, folds, sends, sidechains", same);
+    }
+    // ---------------------------------------------------------------- 10 the station's effects on studio lanes
+    say("== 10. every effect of the loop station, on a studio track");
+    {
+        fresh();
+        auto b = makeGroove({ 110, 2, 4, 48000, 1, 0, 0, false }, 21); b.applyGain(0.5f / b.getMagnitude(0, b.getNumSamples()));
+        juce::String why;
+        int ci = S.importAudio(plan(writeTestFile(dir, "stfx.wav", b, 48000)), -1, 0, false, why); int lane = S.song.clips[(size_t) ci].lane;
+        juce::AudioBuffer<float> dry; render(dry);
+        int nOk = 0, nAll = stationFxCount(); juce::StringArray bad; double worstMs = 0;
+        for (int f = 0; f < nAll; ++f) {
+            { const juce::ScopedLock sl(S.lock); S.song.lanes[(size_t) lane].devices.clear(); S.song.lanes[(size_t) lane].devices.push_back(StudioDevice::makeStation(f)); }
+            S.refresh();
+            auto t0 = juce::Time::getMillisecondCounterHiRes();
+            juce::AudioBuffer<float> out; render(out);
+            double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+            worstMs = juce::jmax(worstMs, ms / (out.getNumSamples() / sr));
+            bool finite = true; float pk = 0; for (int c = 0; c < 2; ++c) for (int i = 0; i < out.getNumSamples(); ++i) { float v = out.getSample(c, i); finite &= std::isfinite(v); pk = juce::jmax(pk, std::abs(v)); }
+            int n = juce::jmin(dry.getNumSamples(), out.getNumSamples()) - 4000;
+            double diff = snr(dry.getReadPointer(0) + 2000, out.getReadPointer(0) + 2000, n);
+            bool heard = diff < 40 || juce::String(stationFxInfo(f).name) == "EQ";   // it changed the sound (the EQ starts flat)
+            bool ok = finite && pk < 4.0f && pk > 0.05f && heard;
+            if (ok) ++nOk; else bad.add(juce::String(stationFxInfo(f).name) + (finite ? "" : " NaN") + " peak " + juce::String(pk, 2) + " diff " + juce::String(diff, 1));
+        }
+        for (auto& x : bad) say("    %s", x.toRawUTF8());
+        check(nOk == nAll && nAll >= 25, "all " + juce::String(nAll) + " station effects on a track: heard, clean, never blowing up", nOk);
+        check(worstMs < 600, "  the heaviest one: ms per second of sound, its start included (real time: under 1000)", worstMs);
+        // an insert at 0%: the sound as it was (the strip's own level taken out)
+        int ins = -1; for (int f = 0; f < nAll; ++f) if (stationFxGroup(f) == 0 && juce::String(stationFxInfo(f).name) == "DRIVE") ins = f;
+        if (ins >= 0) {
+            { const juce::ScopedLock sl(S.lock); auto d = StudioDevice::makeStation(ins); d.p[0] = 0; S.song.lanes[(size_t) lane].devices = { d }; }
+            S.refresh(); juce::AudioBuffer<float> out; render(out);
+            double q = snr(dry.getReadPointer(0) + 4000, out.getReadPointer(0) + 4000, dry.getNumSamples() - 8000);
+            check(q > 25, "  the station's DRIVE at 0%: the sound as it was (dB of difference)", q);
+        }
+        // saved and opened by name
+        { const juce::ScopedLock sl(S.lock); S.song.lanes[(size_t) lane].devices = { StudioDevice::makeStation(nAll - 1) }; S.song.lanes[(size_t) lane].devices[0].p[1] = 33; }
+        auto folder = dir.getChildFile("song-stfx"); folder.createDirectory();
+        bool sv = S.save(folder); fresh(); bool ld = S.load(folder);
+        auto& dv = S.song.lanes[(size_t) lane].devices;
+        check(sv && ld && dv.size() == 1 && dv[0].type == DevStation && dv[0].fx == nAll - 1 && std::abs(dv[0].p[1] - 33) < 0.01f, "  save and open: the station effect and its knobs", dv.empty() ? 0.0 : (double) dv[0].fx);
+    }
     say("studio check: %d of %d failed", fails, total);
     fresh();
     dir.deleteRecursively();
