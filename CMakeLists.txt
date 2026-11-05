@@ -39,6 +39,10 @@ target_sources(ARCO PRIVATE
     Source/Main.cpp
     Source/Engine/Engine.cpp
     Source/Engine/Modular.cpp
+    Source/Engine/Patcher.cpp
+    Source/Engine/PatcherControl.cpp
+    Source/Engine/PatcherSignal.cpp
+    Source/Engine/PatcherUI.cpp
     Source/Model/Model.cpp
     Source/App/AudioHost.cpp
     Source/App/PhoneLink.cpp

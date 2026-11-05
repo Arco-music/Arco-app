@@ -10,6 +10,7 @@
 #include "App/StudioCheck.h"
 #include "UI/Panels.h"
 #include "UI/InstrumentPanels.h"
+#include "App/PatcherCheck.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 namespace arco { size_t audioHostSizeHere(); size_t studioSizeHere(); size_t engineSizeHere(); }
@@ -25,7 +26,7 @@ public:
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
         if (cmd.contains("--sizes")) { std::printf("AudioHost: here %zu, there %zu   Studio: here %zu, there %zu   Engine: here %zu, there %zu\n", sizeof(arco::AudioHost), arco::audioHostSizeHere(),
                                                    sizeof(arco::Studio), arco::studioSizeHere(), sizeof(arco::Engine), arco::engineSizeHere()); quit(); return; }
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck") || cmd.contains("--clickcheck");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck") || cmd.contains("--clickcheck") || cmd.contains("--patchercheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -54,6 +55,7 @@ public:
                 std::fflush(stdout); quit(); };
             if (cmd.contains("--install")) { updater->onProgress = [](const juce::String& m) { std::printf("  %s\n", m.toRawUTF8()); std::fflush(stdout); }; updater->install(); } else updater->check(); return;
         }
+        if (cmd.contains("--patchercheck")) { int f = arco::runPatcherCheck(); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--studiocheck")) { int f = arco::runStudioCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--importcheck")) { int f = arco::runImportCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--probe")) { int f = arco::runProbe(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
@@ -297,7 +299,6 @@ public:
         if (cmd.contains("outputs")) { host->engine.grid[0][2].store(1); host->engine.grid[4][3].store(1); host->engine.grid[5][4].store(1); mc->canvas.openOutputs(); }
         if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true);
             for (auto* ch : mc->canvas.getChildren()) if (auto* mp = dynamic_cast<arco::ModularPanel*>(ch)) {
-                if (cmd.contains("mlab")) mp->showView(1);
                 if (cmd.contains("mguide")) mp->showGuide(true);
                 mp->demoState(cmd); } }
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
