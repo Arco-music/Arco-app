@@ -520,9 +520,9 @@ struct ModularPanel::Guide : public juce::Component {
             txtAt(g, U8("open one, or + add it beside yours - then change anything"), { x, y, w, 16 }, 7.5f, Theme::sub()); y += 22;
             auto names = Modular::patchNames();
             for (int i = 0; i < names.size() && y < getHeight() - 36; ++i) {
-                key({ x, y, w - 72, 26 }, names[i], [this, i] { panel.loadExample(i, false); });
-                key({ x + w - 66, y, 66, 26 }, "+ Add", [this, i] { panel.loadExample(i, true); });
-                y += 28;
+                key({ x, y, w - 72, 24 }, names[i], [this, i] { panel.loadExample(i, false); });
+                key({ x + w - 66, y, 66, 24 }, "+ Add", [this, i] { panel.loadExample(i, true); });
+                y += 26;
             }
         } else {
             auto& L = lessons()[(size_t) page];
@@ -625,6 +625,13 @@ void ModularPanel::showView(int v) {
     if (view == 1) { lab->grabKeyboardFocus(); }
     rebuild(); repaint();
 }
+void ModularPanel::demoState(const juce::String& cmd) {
+    if (cmd.contains("msel=")) { int i = cmd.fromFirstOccurrenceOf("msel=", false, false).getIntValue(); auto& mods = cv.host.rack.modular.patch.mods;
+        if (i >= 0 && i < (int) mods.size()) { lab->sel = { mods[(size_t) i].id }; lab->knobsFor = -2; timerCallback(); } }
+    if (cmd.contains("mtype=")) { lab->openTyper({ 760, 150 }); lab->typer->setText(cmd.fromFirstOccurrenceOf("mtype=", false, false).upToFirstOccurrenceOf(" ", false, false), false); }
+    if (cmd.contains("mlesson=")) { guide->page = cmd.fromFirstOccurrenceOf("mlesson=", false, false).getIntValue(); guide->repaint(); }
+    if (cmd.contains("mexamples")) { guide->page = -2; guide->repaint(); }
+}
 void ModularPanel::showGuide(bool on) { guide->setVisible(on); rebuild(); }
 void ModularPanel::addModule(int type) {
     auto& M = cv.host.rack.modular;
@@ -671,7 +678,7 @@ void ModularPanel::visibilityChanged() {
 bool ModularPanel::keyPressed(const juce::KeyPress& k) { if (view == 1) return lab->keyPressed(k); return false; }
 static juce::String shapeOf2(const ModPatch& p) { juce::String k; for (auto& m : p.mods) k << m.id << ':' << m.type << ','; k << '|' << (int) p.cables.size(); return k; }
 void ModularPanel::timerCallback() {
-    if (!isShowing()) return;
+    if (!isVisible()) return;
     {   // the patch changed under us (opened, loaded, chosen elsewhere): the rack follows
         auto sh = modShape(cv.host.rack.modular.patch);
         if (sh != lastShape) { lastShape = sh; rack->build(); lab->knobsFor = -2; }

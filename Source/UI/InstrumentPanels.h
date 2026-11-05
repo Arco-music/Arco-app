@@ -69,7 +69,7 @@ public:
     Canvas& cv;
     struct Rack; struct Lab; struct Library; struct Guide;
     int view = 0;                       // 0 the rack, 1 the patch lab
-    void showView(int v); void showGuide(bool on);
+    void showView(int v); void showGuide(bool on); void demoState(const juce::String& cmd);   // (screenshots)
     void addModule(int type);           // from the library: into the rack, or the lab's middle
     void loadExample(int which, bool insert);
     juce::String message;

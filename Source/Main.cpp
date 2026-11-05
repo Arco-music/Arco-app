@@ -298,7 +298,8 @@ public:
         if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true);
             for (auto* ch : mc->canvas.getChildren()) if (auto* mp = dynamic_cast<arco::ModularPanel*>(ch)) {
                 if (cmd.contains("mlab")) mp->showView(1);
-                if (cmd.contains("mguide")) mp->showGuide(true); } }
+                if (cmd.contains("mguide")) mp->showGuide(true);
+                mp->demoState(cmd); } }
         if (cmd.contains("spatial")) { auto& m = host->model; m.set("amb_on", 1); for (int s : { 4, 5, 7 }) m.set("amb" + std::to_string(s), 1); m.set("amb_mot5", 1); mc->canvas.openSpatial(true); }
         if (cmd.contains("lives=")) host->nLive = cmd.fromFirstOccurrenceOf("lives=", false, false).getIntValue();
         if (cmd.contains("tracks=")) mc->canvas.shotTracks = cmd.fromFirstOccurrenceOf("tracks=", false, false).getIntValue();
