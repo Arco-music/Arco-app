@@ -177,7 +177,16 @@ public:
 
 private:
     void handleAsyncUpdate() override;
-    void timerCallback() override { tickPhones(); }
+    void timerCallback() override { tickPhones(); soundWatch(); }
+    // 2.2: the sound's watchdog - if the sound card stops calling (iOS can stop it: the file window, a call, another
+    // app) while it should run, it is started again. (Before, the sound could stay off until ARCO was closed.)
+    std::atomic<juce::uint32> callbacks { 0 };
+    juce::uint32 seenCallbacks = 0; double callbacksStill = 0; int restarts = 0;
+    int hadInputs = 0; double inputsGoneAt = 0;               // the microphone / inputs it had (iOS can take them away)
+    void soundWatch();
+public:
+    void restartSound();                          // close and open the sound card again (also SETUP's button)
+private:
     juce::AudioFormatManager formats;
     struct PendingImport { std::shared_ptr<SharedBuffer> buf; int track; double sr; juce::String name; int stage = 0; double t = 0, started = 0; bool seenBusy = false; int stateBefore = 0; };
     std::deque<PendingImport> imports;

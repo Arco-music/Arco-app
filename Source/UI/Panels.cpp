@@ -241,6 +241,9 @@ SetupPanel::SetupPanel(Canvas& c) : cv(c) {
         if (m.contains("key")) askKey(m);
     };
    #endif
+    auto* rs = add<Pill>({ 24, 398, 200, 26 }, U("↻ Restart the sound"), [] { return Theme::btn(); }, 8.5f, 8.0f);
+    rs->onClick = [this] { cv.host.restartSound(); repaint(); };
+    rs->setTooltip("if the sound stopped (another app, a call): the sound card is opened again");
     // the sections, as a list on the left
     static const char* SN[NSEC] = { "Sound card", "Live inputs", "Headphones", "Speakers", "Recording & tuner", "iPhones", "Pedals & keys" };
     for (int s = 0; s < NSEC; ++s) {

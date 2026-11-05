@@ -4,6 +4,7 @@
 #include "AudioHost.h"
 #include "SelfTest.h"
 #include <cstdio>
+#include <set>
 
 namespace arco {
 
@@ -253,6 +254,27 @@ inline int runProbe(AudioHost& h) {
         G.stopAll(); G.recState.store(0);
         h.model.press("st_looper", "stopall"); blocks(0.2);
         h.model.set("bars", 0);
+    }
+    // ---- the ARPEGGIATOR: in the app's tempo, fast enough, HOLD keeps the chord going
+    {
+        auto blocks = [&](double sec) { for (int b = 0; b < (int) (sec * 48000 / N); ++b) { for (auto& v : ib) std::fill(v.begin(), v.end(), 0.0f);
+            h.audioDeviceIOCallbackWithContext(ins, NI, outs, NO, N, ctx); h.model.tick(); } };
+        h.model.press("st_looper", "stopall"); h.model.set("dm_run", 0); blocks(0.3);
+        h.newSong(); blocks(0.5);                                   // nothing recorded: the tempo is the app's
+        auto* syn = h.engine.synthNow.load();
+        h.model.set("bpm", 150); h.model.set("arp_on", 1); h.model.set("arp_rate", 3); h.model.set("arp_mode", 0); h.model.set("arp_hold", 1); h.model.set("arp_gate", 60);
+        blocks(0.3);
+        for (int nn : { 60, 64, 67 }) { h.synth.noteOn(nn, 0.8f); blocks(0.15); h.synth.noteOff(nn); blocks(0.15); }   // tapped one by one, as on a screen
+        int s0 = syn ? syn->arpSteps.load() : 0;
+        std::set<int> heard;
+        for (int k = 0; k < 30; ++k) { blocks(0.1); if (syn) heard.insert(syn->arpLast.load()); }
+        int steps = syn ? syn->arpSteps.load() - s0 : 0;
+        say("  arpeggiator: %d notes in 3 s at 150 BPM 1/16 (want 30), the synth hears %.1f BPM, notes:%s", steps, syn ? syn->clockBpm.load() : 0.0f,
+            [&] { juce::String t; for (int x : heard) t << " " << x; return t; }().toRawUTF8());
+        check(std::abs(steps - 30) <= 2, "ARPEGGIATOR: in the app's tempo (150 BPM, 1/16: 10 notes a second)", steps);
+        check(heard.count(60) && heard.count(64) && heard.count(67), "  HOLD: C E G go on after the keys are let go", (double) heard.size());
+        // the station playing at another tempo: it follows
+        h.synth.allOff(); h.model.set("arp_on", 0); h.model.set("arp_hold", 0); h.model.set("bpm", 120);
     }
     say("probe: %d failed", fails);
     return fails;

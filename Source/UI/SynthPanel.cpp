@@ -393,7 +393,7 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
     auto* ao = add<Pill>(2, { 44, 170, 120, 34 }, "ARP ON", [&m] { return m.get("arp_on") > 0.5 ? Theme::green() : Theme::btn(); }, 10.0f, 8.0f);
     ao->onClick = [this, &m] { cv.host.keys.allNotesOff(0); cv.host.synth.allOff(); m.set("arp_on", m.get("arp_on") > 0.5 ? 0 : 1); };
     auto* ah = add<Pill>(2, { 172, 170, 90, 34 }, "HOLD", [&m] { return m.get("arp_hold") > 0.5 ? Theme::amber() : Theme::btn(); }, 9.0f, 8.0f);
-    ah->onClick = [&m] { m.set("arp_hold", m.get("arp_hold") > 0.5 ? 0 : 1); };
+    ah->onClick = [&m] { bool on = m.get("arp_hold") < 0.5; m.set("arp_hold", on ? 1 : 0); if (on) m.set("arp_on", 1); };   // HOLD plays the arpeggiator
     // 2.0: what the arpeggiator follows - the metronome's beat (the station), STUDIO's when it plays, or the tempo alone
     auto* sy = add<Pill>(2, { 270, 170, 330, 34 }, "", [this] { double b = cv.host.engine.clock.beatNow.load(); float f = (float) (b - std::floor(b));
                                                                return f < 0.12f ? Theme::violet() : Theme::btn(); }, 8.5f, 8.0f);

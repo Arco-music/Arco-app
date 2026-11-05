@@ -80,6 +80,47 @@ void AudioHost::phoneCommand(PhoneConn& c, const juce::String& line) {
     else if (w == "card" && t.size() >= 3) { if (t[2] == "1") visibleCards.addIfNotAlreadyThere(t[1]); else visibleCards.removeString(t[1]); if (onCardsChanged) onCardsChanged(); saveSetup(); }
 }
 
+void AudioHost::restartSound() {
+   #if JUCE_IOS
+    ios::configureSession();
+   #endif
+    devices.closeAudioDevice();
+    devices.restartLastAudioDevice();
+   #if JUCE_IOS
+    ios::applyInput();
+   #endif
+    applyRouting();
+    seenCallbacks = callbacks.load(); callbacksStill = juce::Time::getMillisecondCounterHiRes();
+}
+
+void AudioHost::soundWatch() {
+    auto* d = devices.getCurrentAudioDevice();
+    double now = juce::Time::getMillisecondCounterHiRes();
+    auto c = callbacks.load(std::memory_order_relaxed);
+    if (d != nullptr && d->getTypeName() != "ARCO test") {
+        // the inputs: a sound card that had a microphone and lost it (the file window, a call) gets it back
+        int ins = d->getActiveInputChannels().countNumberOfSetBits();
+        auto want = devices.getAudioDeviceSetup();
+        bool wanted = want.useDefaultInputChannels || want.inputChannels.countNumberOfSetBits() > 0;   // what SETUP asks for
+        if (ins > 0 || !wanted) { hadInputs = ins; inputsGoneAt = 0; }
+        else if (!d->getInputChannelNames().isEmpty()) {
+            if (inputsGoneAt == 0) inputsGoneAt = now;
+            else if (now - inputsGoneAt > 1500 && restarts < 3) { ++restarts; inputsGoneAt = 0; restartSound(); status = U("the microphone had stopped - started again"); return; }
+        }
+    }
+    if (c != seenCallbacks || d == nullptr || d->getTypeName() == "ARCO test") { seenCallbacks = c; callbacksStill = now; return; }
+    if (now - callbacksStill < 1500) return;                       // still for 1.5 s while a sound card is open
+   #if JUCE_IOS
+    if (! juce::Process::isForegroundProcess()) { callbacksStill = now; return; }   // in the background iOS may stop it: not now
+   #endif
+    static double windowStart = 0;
+    if (now - windowStart > 60000) { windowStart = now; restarts = 0; }
+    if (restarts >= 3) { callbacksStill = now; status = U("the sound card does not answer - SETUP › Sound card"); return; }
+    ++restarts;
+    restartSound();
+    status = U("the sound had stopped - started again");
+}
+
 void AudioHost::tickPhones() {
     phones.tick();
     static const char* SN[] = { "statA", "statB", "transport", "scenes", "smask", "ebpm", "barno", "beatno", "loopbars", "ntn", "undoav", "spdk", "lscene", "sv_bts", "beat", "halo_key", "pitch", "tn_pitch", "syn_n" };
@@ -155,6 +196,7 @@ void AudioHost::handleAsyncUpdate() {
 
 void AudioHost::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n,
                                                  const juce::AudioIODeviceCallbackContext&) {
+    callbacks.fetch_add(1, std::memory_order_relaxed);
     if (micMode.load()) {                        // this device is a phone for a station: only send the microphone
         if (numIn > 0 && in[0] != nullptr) phoneLink.push(in[0], n, lastRate > 0 ? lastRate : 48000.0);
         for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], n);

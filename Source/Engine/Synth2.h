@@ -85,12 +85,14 @@ public:
         int arpOn = P.arpOn > 0.5f;
         if (!arpOn && arpNote >= 0) { releaseArp(); }
         float pk = 0; int nact = 0;
+        samplesNow += n;
         for (int i = 0; i < n; ++i) {
             // ---- the tempo clock (the loop's beat when it runs, otherwise our own at the tempo)
             float b = beat ? beat[i] : 0.0f, bpm = bpmIn && bpmIn[i] > 20.0f ? bpmIn[i] : 90.0f;
             if (b != lastBeat) { beatStill = 0; internalBeat = b; } else if (++beatStill > (int) (0.1 * sr)) internalBeat += bpm / 60.0f * isr;
             lastBeat = b;
             double clock = beatStill > (int) (0.1 * sr) ? internalBeat : b;
+            if (i == 0) clockBpm.store(bpm);
             // ---- LFOs (every sample: cheap)
             float lfo[3];
             for (int l = 0; l < 3; ++l) lfo[l] = lastLfo[l] = lfoTick(l, clock, isr);
@@ -274,7 +276,10 @@ public:
         if (i >= firstHn && i < firstHn + 128) {
             int nn = i - firstHn;
             if (v > 0) {
-                if (P.arpHold > 0.5f && downCount == 0) { for (int x : heldOrder) held[(size_t) x] = 0; heldOrder.clear(); }   // HOLD: a new chord replaces the old
+                // HOLD: a new chord replaces the old - but notes tapped one after another (a screen: C, then E, then G)
+                // join the chord; only after a pause (a second with no new note) does the next note start a new one
+                if (P.arpHold > 0.5f && downCount == 0 && samplesNow - lastDownAt > (long) sr) { for (int x : heldOrder) held[(size_t) x] = 0; heldOrder.clear(); }
+                lastDownAt = samplesNow;
                 ++downCount;
                 if (held[(size_t) nn] <= 0) heldOrder.push_back(nn);
                 held[(size_t) nn] = (float) v;
@@ -287,10 +292,13 @@ public:
         setp(i, v);
     }
     int countActive() const { int c = 0; for (auto& v : vo) c += v.st[0] != 0; return c; }
+    std::atomic<int> arpSteps { 0 }, arpLast { -1 };            // (tests: how many notes the arpeggiator played, the last one)
+    std::atomic<float> clockBpm { 0 };                           // (tests: the tempo the synth hears)
 private:
     std::array<float, NV> trigF {};
     int firstSg = 0, firstHn = 0;
     int downCount = 0;
+    long samplesNow = 0, lastDownAt = -100000000;
     bool lfoRetrig() const { return false; }
 
     float lfoTick(int l, double clock, float isr) {
@@ -431,7 +439,7 @@ private:
         auto& v = vo[(size_t) arpVoice];
         int base = ((nn - notes[0]) % 12 + 12) % 12; (void) base; float vv = held[(size_t) std::clamp(nn, 0, 127)]; if (vv <= 0) vv = held[(size_t) std::clamp(notes[0], 0, 127)];
         v.note = (float) nn; v.vel = std::max(1.0f, vv > 0 ? vv : 100.0f); v.trig++;
-        arpNote = nn;
+        arpNote = nn; arpSteps.fetch_add(1); arpLast.store(nn);
     }
     int chordVoices = 0;
 };
