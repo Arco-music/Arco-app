@@ -433,6 +433,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
         }
         if (L.showAuto >= 0) paintAuto(g, li, { (float) ca.getX(), y + h, (float) ca.getWidth(), autoH });
     }
+    g.saveState(); g.reduceClipRegion(ca);      // 2.3: the clips stay on the timeline - never over the track column (M, S, ● stay reachable while it scrolls)
     for (int ci = 0; ci < (int) S.clips.size(); ++ci) {
         auto& c = S.clips[(size_t) ci];
         if (c.lane < 0 || c.lane >= (int) S.lanes.size() || S.hidden(c.lane)) continue;
@@ -454,6 +455,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
         }
     float px = xAt(studio.pos.load() / S.sr);
     if (px >= ca.getX()) { g.setColour(studio.recording.load() ? Theme::red() : Theme::txt().withAlpha(0.8f)); g.fillRect(px - 0.5f, (float) ca.getY(), 1.5f, (float) ca.getHeight()); }
+    g.restoreState();
     float yEnd = laneTop((int) S.lanes.size());
     if (S.clips.empty()) {          // an empty song: three big ways to start
         auto box = juce::Rectangle<int>(0, 0, juce::jmin(560, ca.getWidth() - 40), 214).withCentre({ ca.getCentreX(), ca.getY() + juce::jmin(ca.getHeight() / 2, 200) });

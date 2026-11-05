@@ -217,6 +217,20 @@ public:
                                      if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
                     }
                 }
+                if (auto* pl = dynamic_cast<arco::Pill*>(v[i]); pl != nullptr && arco::Theme::softUI()) {
+                    // 2.3: the words of a key inside its key; a key's shade not cut square by a panel that does not draw it
+                    auto t = pl->dynText ? pl->dynText() : pl->text; if (!pl->mono) t = arco::Theme::keyCase(t);
+                    auto r = pl->getLocalBounds().toFloat();
+                    auto face = pl->shadedByParent() ? r : r.reduced(juce::jmin(5.0f, r.getHeight() * 0.12f));
+                    float need = juce::GlyphArrangement::getStringWidth(pl->mono ? arco::Theme::mono(pl->fsize) : arco::Theme::font(pl->fsize, pl->weight), t) + (pl->icon ? face.getHeight() * 0.5f : 0.0f);
+                    float room = face.getWidth() - face.getHeight() * 0.45f;           // the round ends
+                    if (t.isNotEmpty() && pl->bg && pl->bg().getAlpha() > 0 && need > room) {
+                        auto msg = tag + "  TEXTOUT  " + lcName(v[i]) + " needs " + juce::String((int) need) + " has " + juce::String((int) room);
+                        if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                    if (!pl->shadedByParent() && pl->raisedNow()) {
+                        auto msg = tag + "  SHADECUT  " + lcName(v[i]) + " in " + juce::String(typeid(*pl->getParentComponent()).name());
+                        if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                }
                 if (v[i]->findParentComponentOfClass<juce::Viewport>() == nullptr && !lcmc->getLocalBounds().contains(a.reduced(1))) {
                     auto msg = tag + "  OFFSCREEN  " + lcName(v[i]) + " " + a.toString();
                     if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }

@@ -17,6 +17,7 @@ static juce::String mb(int m) { return m >= 1000 ? juce::String(m / 1000.0, 1) +
 // ================================================================== KEYBOARD
 // 1.4, cleaner: the instrument at the top (one page each), the way to play below. Nothing else on screen.
 KeyboardPanel::KeyboardPanel(Canvas& c) : cv(c) {
+    getProperties().set("softShades", true);
     auto& h = cv.host; auto& r = h.rack;
     setWantsKeyboardFocus(true);
     auto pill = [&](juce::Rectangle<int> b, const juce::String& t, ColourFn col, std::function<void()> f, float fs = 8.0f) { auto* p = add<Pill>(b, t, std::move(col), fs, 7.0f); p->onClick = std::move(f); return p; };
@@ -364,6 +365,7 @@ void KeyboardPanel::paint(juce::Graphics& g) {
     lab(g, midi.isEmpty() ? juce::String("plug in a MIDI keyboard: it plays at once") : "MIDI: " + midi[0].name + (midi.size() > 1 ? " +" + juce::String(midi.size() - 1) : juce::String()),
         { 730, 540, 300, 28 }, 8.0f, Theme::sub());
     g.restoreState();
+    drawSoftShades(g, *this);            // 2.3: the keys' shade drawn here (a key drawing its own was cut square)
 }
 
 void KeyboardPanel::mouseDown(const juce::MouseEvent& e) {
