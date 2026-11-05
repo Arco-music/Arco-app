@@ -570,7 +570,7 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
         { Screen::Phrase, "PHRASE", juce::String::fromUTF8("Play four notes into it. It plays them back in tempo: faster, reversed, higher, building up."), 5 },
         { Screen::Keys, "KEYBOARD", juce::String::fromUTF8("Sampled instruments to download, your plug-ins, chords and harmony surfaces."), 6 },
         { Screen::Modular, "MODULAR", juce::String::fromUTF8("Patch a synthesizer from modules with cables."), 7 },
-        { Screen::Speakers, "SPEAKERS", juce::String::fromUTF8("Outputs, speakers around the audience, ambisonics."), 3 },
+        { Screen::Speakers, "SPEAKERS", juce::String::fromUTF8("Outputs, speakers round the audience, sound placed all around you."), 3 },
     };
     auto mk = [&](const juce::String& t, std::function<void()> f) { auto* p = new Pill(t, [] { return Theme::btn(); }, 9.0f, 12.0f); p->onClick = std::move(f);
         p->textColour = [] { return Theme::txt(); }; owned.add(p); addAndMakeVisible(p); return p; };

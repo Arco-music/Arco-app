@@ -189,7 +189,7 @@ A modular synthesizer: modules with knobs, connected by cables - in the spirit o
 - Pitch is 1 V per octave, gates are 10 V, sound is +/-5 V. OUT never lets the sound go above 0 dB.
 - Play it right in the window: KEYS or HARMONY, HOLD and the octave are under the rack. CABLES makes the cables see-through.
 - PLAYS INTO sends it into a LIVE strip like the SYNTH.)" },
-        { "Speakers & Space", R"(# OUTPUTS, SPEAKERS & SPACE
+        { "Speakers & Surround", R"(# OUTPUTS, SPEAKERS & SURROUND
 View → Outputs, Speakers & Space. Two pages.
 
 ## OUTPUTS - to a mixing desk
@@ -199,7 +199,7 @@ View → Outputs, Speakers & Space. Two pages.
 - More outputs: plug in an interface (USB on the iPad) and choose it in SETUP → SOUND CARD.
 - iPad: CHOOSE OUTPUT ▸ picks Bluetooth headphones, AirPlay, a cable or the speaker.
 
-## SPEAKERS & SPACE (ambisonics)
+## SPEAKERS & SURROUND
 Place every sound around the audience, still or moving.
 
 ## Your speakers
@@ -209,7 +209,7 @@ Place every sound around the audience, still or moving.
 ## The sounds
 - Choose a LIVE strip or a track, PLACE IT, and drag it in the circle: direction and distance. WIDTH spreads it.
 - Motion: STILL, CIRCLE, SWING, WANDER, FLY OVER - SPEED and RANGE, or IN TEMPO with the loops.
-- Up to 32 speakers (3rd-order ambisonics, AllRAD). With headphones you hear a stereo version. Exports are always stereo.)" },
+- Up to 32 speakers. With headphones you hear a stereo version. Exports are always stereo.)" },
         { "What's new in 2.0", R"(# What's new in ARCO 2.0
 - HOME: everything ARCO plays as big cards - drag them sideways, tap the one in the middle. WORKSTATION (the station), LIVE LOOPS, STUDIO, DRUM MACHINE, SYNTH, PHRASE, KEYBOARD, MODULAR, SPEAKERS.
 - One bar on top of every screen: HOME, the transport, where you are, the tempo (drag or double-click), the bars' beats, CLICK, COUNT-IN, IN / OUT, UNDO, SAVE, SETUP. It plays what the screen is about: STUDIO's song in STUDIO, the pattern in DRUM MACHINE, the phrase in PHRASE, the cells in LIVE LOOPS.
@@ -248,7 +248,7 @@ Place every sound around the audience, still or moving.
 - SYNTH 2: a fourth oscillator; ten classic synthesizers as starting sounds.
 - AUTO MIX, rebuilt: it understands bass, drums, rhythm, melody and pads, mixes by masking, puts everything in one room and times the delay to the melody.
 - New effects: PEDAL (a piano's sustain pedal) and FEEDBACK (a note that feeds itself, safely). Effect presets and new-song defaults.
-- SPEAKERS & SPACE: ambisonics for any speaker layout, with moving sounds.
+- SPEAKERS & SURROUND: any speaker layout, sounds placed all around, still or moving.
 - iPhone: choose the microphone and the output, and listen to the station on the phone. iPad: choose inputs and outputs (cable, USB, Bluetooth); the window turns with the iPad.)" },
         { "What's new in 1.2", R"(# What's new in ARCO 1.2
 - New colours: Fig, Storm (dark), Manuscript, Chambray (light) - View → Colours. A calmer light mode with clear contrast.

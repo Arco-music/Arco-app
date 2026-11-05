@@ -43,7 +43,7 @@ private:
     Canvas& cv;
     void timerCallback() override { if (isShowing()) repaint(); }
     juce::Rectangle<int> box { 40, 28, 1360, 826 };
-    juce::Point<float> centre { 390, 455 }; float radius = 325;
+    juce::Point<float> centre { 390, 440 }; float radius = 305;
     float roomM() const;                                    // metres to the edge of the circle
     juce::Point<float> at(float az, float dist) const;
     void fromPoint(juce::Point<float> p, float& az, float& dist) const;
