@@ -300,6 +300,7 @@ public:
         if (cmd.contains("ksearch=")) mc->canvas.keyboardSearch(cmd.fromFirstOccurrenceOf("ksearch=", false, false).upToFirstOccurrenceOf(" ", false, false).replace("+", " "));
         if (cmd.contains("outputs")) { host->engine.grid[0][2].store(1); host->engine.grid[4][3].store(1); host->engine.grid[5][4].store(1); mc->canvas.openOutputs(); }
         if (cmd.contains("modular")) { if (cmd.contains("patch=")) host->rack.modular.setPatch(arco::Modular::defaultPatch(cmd.fromFirstOccurrenceOf("patch=", false, false).getIntValue())); mc->canvas.openModular(true);
+            if (cmd.contains("mrun")) { std::vector<float> l(256), r(256); for (int k = 0; k < 48000 * 6 / 256; ++k) { std::fill(l.begin(), l.end(), 0.0f); std::fill(r.begin(), r.end(), 0.0f); host->rack.modular.process(l.data(), r.data(), 256, 120, k * 256 / 48000.0 * 2.0); } }
             for (auto* ch : mc->canvas.getChildren()) if (auto* mp = dynamic_cast<arco::ModularPanel*>(ch)) {
                 if (cmd.contains("mguide")) mp->showGuide(true);
                 mp->demoState(cmd); } }

@@ -22,6 +22,7 @@ static juce::Colour modColour(int type) {
         case CatTime: return Theme::c(Theme::rgb(0.86f, 0.55f, 0.30f));
         case CatPitch: return Theme::fx("cho");
         case CatIO: return Theme::txt();
+        case CatVisual: return Theme::blue().interpolatedWith(Theme::green(), 0.45f);
         default: return Theme::c(Theme::rgb(0.62f, 0.62f, 0.68f));
     }
 }
@@ -39,7 +40,7 @@ struct ModKnob : public juce::Component {
     float toT(float v) const { return d.log ? std::log(v / d.lo) / std::log(d.hi / d.lo) : (v - d.lo) / (d.hi - d.lo); }
     float fromT(float t) const { t = juce::jlimit(0.0f, 1.0f, t); float v = d.log ? d.lo * std::pow(d.hi / d.lo, t) : d.lo + t * (d.hi - d.lo); return stepped() ? std::round(v) : v; }
     bool stepped() const { juce::String n(d.name); return d.choices != nullptr || n == "OCT" || n == "OCTAVE" || n == "STEPS" || n == "HITS" || n == "ROTATE" || n == "VOICES" || n == "LENGTH" || n == "BITS" || n == "DOWN" || n == "TUNE" || n == "SEMI"
-                                                  || n == "TYPE" || n == "MODE" || n == "INVERT" || n == "OCTAVES" || n == "LOOP" || n == "BIPOLAR" || (n.length() == 1 && n[0] >= '1' && n[0] <= '8' && d.lo < 0); }
+                                                  || n == "TYPE" || n == "MODE" || n == "RULE" || n == "BALLS" || n == "COUNT" || n == "PARTIALS" || (n == "RANGE" && d.hi <= 3) || n == "INVERT" || n == "OCTAVES" || n == "LOOP" || n == "BIPOLAR" || (n.length() == 1 && n[0] >= '1' && n[0] <= '8' && d.lo < 0); }
     juce::String text(float v) const {
         if (d.choices != nullptr) return Theme::keyCase(d.choices[juce::jlimit(0, d.nChoices - 1, (int) std::round(v))]);
         juce::String n(d.name);
@@ -154,7 +155,8 @@ struct ModularPanel::Rack::ModView : public juce::Component {
             addAndMakeVisible(kn);
             int cw = (w - 12) / cols;
             int kh = knobRows > 2 ? 48 : 56;
-            kn->setBounds(6 + (k % cols) * cw + (cw - 48) / 2, 50 + (k / cols) * kh, 48, 56);
+            int top = modIsVisual(type) && type != MScope ? 136 : 50;     // a module to watch: its screen first, the knobs under it
+            kn->setBounds(6 + (k % cols) * cw + (cw - 48) / 2, top + (k / cols) * kh, 48, 56);
         }
     }
     juce::Point<float> port(bool out, int k) const {
@@ -200,6 +202,49 @@ struct ModularPanel::Rack::ModView : public juce::Component {
             g.setColour(lv > 0.95f ? Theme::red() : Theme::green()); g.fillRoundedRectangle(m.reduced(1.5f).withWidth((m.getWidth() - 3) * std::sqrt(lv)), 3); }
         if (type == MSeq) { int st = (int) rack.M.valueAt(id, 2); int cols = juce::jmax(1, (getWidth() - 12) / 50), cw = (getWidth() - 12) / cols; int kh = knobRows > 2 ? 48 : 56;
             softLed(g, { 6 + (st % cols) * cw + cw * 0.5f, 47.0f + (st / cols) * kh }, 2.6f, col, true); }
+        if (modIsVisual(type) && type != MScope) if (auto* sc = rack.M.scopeOf(id)) {
+            auto s = juce::Rectangle<float>(14, 52, getWidth() - 28.0f, 80);
+            if (Theme::softUI()) softWellLite(g, s, 12.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(s, 6); }
+            auto in = s.reduced(7); auto glow = col.brighter(0.2f);
+            int w0 = sc->w.load();
+            switch (type) {
+                case MXy: { auto& def = modDefs()[(size_t) type]; juce::ignoreUnused(def); float zoom = 1.0f; for (auto& mm : rack.M.patch.mods) if (mm.id == id) zoom = mm.p[0] / 100.0f;
+                    juce::Path p; for (int i = 0; i < 256; ++i) { int k = (w0 + i) & 255; float x = in.getCentreX() + juce::jlimit(-1.0f, 1.0f, sc->a[k] / 5.0f * zoom) * in.getWidth() * 0.48f, y = in.getCentreY() - juce::jlimit(-1.0f, 1.0f, sc->b[k] / 5.0f * zoom) * in.getHeight() * 0.48f;
+                        if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y); }
+                    g.setColour(glow.withAlpha(0.25f)); g.strokePath(p, juce::PathStrokeType(4.0f)); g.setColour(glow); g.strokePath(p, juce::PathStrokeType(1.3f)); break; }
+                case MSpectrum: { const int B = 28; for (int b = 0; b < B; ++b) { double f = std::pow(2.0, 0.5 + b * 6.5 / B); double re = 0, im = 0;
+                        for (int i = 0; i < 256; ++i) { int k = (w0 + i) & 255; double win = 0.5 - 0.5 * std::cos(6.2831853 * i / 255.0); re += sc->a[k] * win * std::cos(6.2831853 * f * i / 256.0); im += sc->a[k] * win * std::sin(6.2831853 * f * i / 256.0); }
+                        float db = juce::jlimit(0.0f, 1.0f, (float) (20 * std::log10(std::sqrt(re * re + im * im) / 64.0 + 1e-6) + 50) / 50.0f); float bw = in.getWidth() / B;
+                        juce::ColourGradient gr(glow, 0, in.getBottom(), Theme::amber(), 0, in.getY(), false); g.setGradientFill(gr); g.fillRoundedRectangle(in.getX() + b * bw + 1, in.getBottom() - db * in.getHeight(), bw - 2, juce::jmax(2.0f, db * in.getHeight()), 2.0f); } break; }
+                case MLife: { float cw = in.getWidth() / 16, ch = in.getHeight() / 8; int ph = (int) sc->b[0];
+                    g.setColour(Theme::amber().withAlpha(0.18f)); g.fillRoundedRectangle(in.getX() + ph * cw, in.getY(), cw, in.getHeight(), 3);
+                    for (int y = 0; y < 8; ++y) for (int x = 0; x < 16; ++x) if (sc->a[y * 16 + x] > 0.5f) { g.setColour(x == ph ? Theme::amber() : glow); g.fillRoundedRectangle(in.getX() + x * cw + 1, in.getY() + y * ch + 1, cw - 2, ch - 2, 2.5f); } break; }
+                case MBounce: { int nb = (int) sc->a[4]; g.setColour(Theme::line()); g.drawLine(in.getX(), in.getBottom(), in.getRight(), in.getBottom(), 1.5f);
+                    for (int k = 0; k < 4; ++k) { if (sc->a[k] < 0 || k >= nb) continue; float x = in.getX() + (k + 0.5f) * in.getWidth() / 4, y = in.getBottom() - 7 - juce::jlimit(0.0f, 1.6f, sc->a[k]) / 1.6f * (in.getHeight() - 10);
+                        float fl = sc->b[k]; g.setColour(cableColour(k).withAlpha(0.25f + 0.5f * fl)); g.fillEllipse(x - 9 - fl * 4, y - 9 - fl * 4, 18 + fl * 8, 18 + fl * 8); g.setColour(cableColour(k)); g.fillEllipse(x - 6, y - 6, 12, 12); } break; }
+                case MOrbit: { auto c = in.getCentre(); float R = juce::jmin(in.getWidth(), in.getHeight()) * 0.46f;
+                    for (int k = 0; k < 3; ++k) { float r = R * (0.38f + 0.31f * k); g.setColour(Theme::line()); g.drawEllipse(c.x - r, c.y - r, r * 2, r * 2, 1.0f);
+                        float a = sc->a[k]; float x = c.x + std::sin(a) * r, y = c.y - std::cos(a) * r, fl = sc->b[k];
+                        g.setColour(cableColour(k * 2).withAlpha(0.3f * (1 + fl))); g.fillEllipse(x - 8 - fl * 4, y - 8 - fl * 4, 16 + fl * 8, 16 + fl * 8); g.setColour(cableColour(k * 2)); g.fillEllipse(x - 4.5f, y - 4.5f, 9, 9); }
+                    g.setColour(Theme::amber()); g.fillEllipse(c.x - 4, c.y - 4, 8, 8); g.setColour(Theme::sub()); g.drawLine(c.x, c.y - R, c.x, c.y - R + 8, 1.4f); break; }
+                case MPendulum: { auto c = juce::Point<float>(in.getCentreX(), in.getCentreY()); float R = in.getHeight() * 0.48f; juce::Path p;
+                    for (int i = 0; i < 256; ++i) { int k = (w0 + i) & 255; float x = c.x + sc->a[k] * R, y = c.y - sc->b[k] * R; if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y); }
+                    g.setColour(glow.withAlpha(0.6f)); g.strokePath(p, juce::PathStrokeType(1.2f)); int k = (w0 + 255) & 255; g.setColour(Theme::amber()); g.fillEllipse(c.x + sc->a[k] * R - 4, c.y - sc->b[k] * R - 4, 8, 8);
+                    g.setColour(Theme::txt()); g.fillEllipse(c.x - 2.5f, c.y - 2.5f, 5, 5); break; }
+                case MTuring: { int len = juce::jlimit(2, 16, (int) sc->b[0]); float cw = in.getWidth() / 16;
+                    for (int k = 0; k < 16; ++k) { auto r = juce::Rectangle<float>(in.getX() + (15 - k) * cw + 1.5f, in.getCentreY() - cw * 0.5f, cw - 3, cw);
+                        bool on = sc->a[k] > 0.5f; g.setColour(k < len ? (on ? glow : Theme::line()) : Theme::line().withAlpha(0.3f)); g.fillRoundedRectangle(r, 3); }
+                    g.setColour(Theme::amber()); g.fillRoundedRectangle(in.getX() + (16 - len) * cw, in.getBottom() - 4, len * cw, 3, 1.5f); break; }
+                case MCellular: { float cw = in.getWidth() / 16, ch = in.getHeight() / 16;
+                    for (int y = 0; y < 16; ++y) for (int x = 0; x < 16; ++x) if (sc->a[y * 16 + x] > 0.5f) { g.setColour(glow.withAlpha(1.0f - y * 0.05f)); g.fillRect(in.getX() + x * cw + 0.5f, in.getY() + y * ch + 0.5f, cw - 1, ch - 1); } break; }
+                case MGrains: { for (int k = 0; k < 16; ++k) { if (sc->a[k] < 0) continue; float x = in.getRight() - sc->a[k] * in.getWidth(), y = in.getY() + ((k * 37) % 16) / 15.0f * in.getHeight(), e = sc->b[k];
+                        g.setColour(cableColour(k).withAlpha(0.25f + 0.6f * e)); g.fillEllipse(x - 3 - e * 6, y - 3 - e * 6, 6 + e * 12, 6 + e * 12); }
+                    g.setColour(Theme::sub()); g.drawLine(in.getRight(), in.getY(), in.getRight(), in.getBottom(), 1.0f); break; }
+                case MHarmonics: { float bw = in.getWidth() / 8; for (int k = 0; k < 8; ++k) { float h = juce::jlimit(0.0f, 1.0f, sc->a[k]) * in.getHeight();
+                        juce::ColourGradient gr(glow, 0, in.getBottom(), Theme::violet(), 0, in.getY(), false); g.setGradientFill(gr); g.fillRoundedRectangle(in.getX() + k * bw + 3, in.getBottom() - h, bw - 6, juce::jmax(2.0f, h), 3); } break; }
+                default: break;
+            }
+        }
         if (type == MScope) if (auto* sc = rack.M.scopeOf(id)) {
             auto s = juce::Rectangle<float>(14, 110, getWidth() - 28.0f, 90);
             if (Theme::softUI()) softWellLite(g, s, 10.0f); else { g.setColour(Theme::scr()); g.fillRoundedRectangle(s, 6); }
@@ -275,12 +320,12 @@ struct ModularPanel::Library : public juce::Component {
         if (!searching) {      // the shelves: two columns of keys
             for (int c = 0; c < CatCount; ++c) {
                 auto kr = juce::Rectangle<int>(10 + (c % 2) * ((getWidth() - 26) / 2 + 6), y + (c / 2) * 34, (getWidth() - 26) / 2, 28);
-                if (Theme::softUI()) softKeyLite(g, kr.toFloat(), 14.0f, c == cat, modColour(c == CatSound ? MVco : c == CatDrum ? MKick : c == CatFilter ? MVcf : c == CatShape ? MVca : c == CatFx ? MDelay : c == CatMove ? MLfo : c == CatTime ? MClock : c == CatPitch ? MQuant : c == CatIO ? MOut : MAtt), c == cat ? 0.5f : 0.0f);
+                if (Theme::softUI()) softKeyLite(g, kr.toFloat(), 14.0f, c == cat, modColour(c == CatSound ? MVco : c == CatDrum ? MKick : c == CatFilter ? MVcf : c == CatShape ? MVca : c == CatFx ? MDelay : c == CatMove ? MLfo : c == CatTime ? MClock : c == CatPitch ? MQuant : c == CatIO ? MOut : c == CatVisual ? MLife : MAtt), c == cat ? 0.5f : 0.0f);
                 else { g.setColour(c == cat ? Theme::sel() : Theme::btn()); g.fillRoundedRectangle(kr.toFloat(), 8); }
                 txtAt(g, modCatName(c), kr, 7.8f, Theme::txt(), c == cat ? 2 : 1, juce::Justification::centred, 1);
                 cats.push_back({ kr, c });
             }
-            y += 5 * 34 + 8;
+            y += ((CatCount + 1) / 2) * 34 + 8;
         }
         std::vector<int> list;
         if (searching) list = modMatches(search.getText());

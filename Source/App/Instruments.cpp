@@ -258,11 +258,11 @@ void InstrumentRack::scanPlugins(std::function<void(const juce::String&)> progre
     }
 }
 
-juce::String InstrumentRack::loadPlugin(const juce::PluginDescription& d) {
+juce::String InstrumentRack::loadPlugin(const juce::PluginDescription& d, bool openWindow) {
     pluginWindow.reset();
     juce::String err;
     auto desc = d;
-    formats.createPluginInstanceAsync(desc, sr, SUB, [this, desc](std::unique_ptr<juce::AudioPluginInstance> p, const juce::String& e) {
+    formats.createPluginInstanceAsync(desc, sr, SUB, [this, desc, openWindow](std::unique_ptr<juce::AudioPluginInstance> p, const juce::String& e) {
         if (p == nullptr) { pluginName = desc.name + " could not open: " + e; if (onChange) onChange(); return; }
         p->enableAllBuses();
         p->setRateAndBufferSizeDetails(sr, SUB);
@@ -275,6 +275,7 @@ juce::String InstrumentRack::loadPlugin(const juce::PluginDescription& d) {
         pluginName = desc.name;
         kind.store(KPlugin);
         if (onChange) onChange();
+        if (openWindow) juce::MessageManager::callAsync([this] { showPluginWindow(); });   // 2.4: a plug-in chosen opens its own window at once
     });
     return err;
 }
@@ -298,6 +299,7 @@ void InstrumentRack::showPluginWindow() {
         w->setUsingNativeTitleBar(true);
         w->setContentOwned(ed, true);
         w->setResizable(ed->isResizable(), false);
+        w->setAlwaysOnTop(true);                 // over ARCO's window, where you can see it
         w->centreWithSize(w->getWidth(), w->getHeight());
         pluginWindow.reset(w);
     }
@@ -327,7 +329,7 @@ void InstrumentRack::fromVar(const juce::var& v) {
     if (v["plugin"].isString()) {
         if (auto xml = juce::parseXML(v["plugin"].toString())) {
             juce::PluginDescription d;
-            if (d.loadFromXml(*xml)) { pendingPluginState = v["pstate"].toString(); loadPlugin(d); }
+            if (d.loadFromXml(*xml)) { pendingPluginState = v["pstate"].toString(); loadPlugin(d, false); }
         }
     }
     kind.store(juce::jlimit(0, 3, k));

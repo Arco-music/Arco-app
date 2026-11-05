@@ -63,7 +63,7 @@ public:
     juce::KnownPluginList known;
     std::unique_ptr<juce::AudioPluginInstance> plugin;
     juce::String pluginName;
-    juce::String loadPlugin(const juce::PluginDescription& d);   // empty = ok, otherwise why not
+    juce::String loadPlugin(const juce::PluginDescription& d, bool openWindow = true);   // empty = ok, otherwise why not; 2.4: its window opens
     void unloadPlugin();
     void scanPlugins(std::function<void(const juce::String&)> progress);
     juce::Array<juce::PluginDescription> instrumentPlugins() const;

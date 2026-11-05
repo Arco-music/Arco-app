@@ -221,7 +221,7 @@ std::vector<KeyboardPanel::Row> KeyboardPanel::sampleRows() const {
         else if (inst && r.samplerLoading.load() && r.samplerPath == f.getFullPathName()) { row.button = "LOADING " + juce::String((int) (r.samplerProgress.load() * 100)) + " %"; row.bcol = Theme::amber(); row.progress = r.samplerProgress.load(); }
         else if (inst) {
             row.active = samplerOn && r.samplerPath == f.getFullPathName() && !r.samplerLoading.load();
-            row.button = row.active ? U8("● PLAYING") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
+            row.button = row.active ? U8("Open its window ▸") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
             row.click = [&r, f, act = row.active] { if (act) return; if (r.samplerPath == f.getFullPathName() && r.sampler.instrument() != nullptr) r.setKind(InstrumentRack::KSampler); else r.loadSfz(f); };
         } else {
             row.button = U8("DOWNLOAD  ") + mb(en.sizeMB); row.bcol = Theme::blue();
@@ -249,7 +249,7 @@ std::vector<KeyboardPanel::Row> KeyboardPanel::sampleRows() const {
         else if (here && r.samplerLoading.load() && r.samplerPath == f.getFullPathName()) { row.button = "LOADING " + juce::String((int) (r.samplerProgress.load() * 100)) + " %"; row.bcol = Theme::amber(); row.progress = r.samplerProgress.load(); }
         else if (here) {
             row.active = samplerOn && r.samplerPath == f.getFullPathName() && !r.samplerLoading.load();
-            row.button = row.active ? U8("● PLAYING") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
+            row.button = row.active ? U8("Open its window ▸") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
             row.click = [&r, f, act = row.active] { if (act) return; if (r.samplerPath == f.getFullPathName() && r.sampler.instrument() != nullptr) r.setKind(InstrumentRack::KSampler); else r.loadSfz(f); };
         } else { row.button = "DOWNLOAD"; row.bcol = Theme::blue(); auto info = i; row.click = [&r, info] { r.startDownload(info); }; }
         rows.push_back(row);
@@ -275,7 +275,7 @@ std::vector<KeyboardPanel::Row> KeyboardPanel::pluginRows() const {
     for (auto& d : r.instrumentPlugins()) {
         Row row; row.title = d.name; row.sub = d.manufacturerName + U8("  ·  ") + d.pluginFormatName;
         row.active = r.plugin != nullptr && r.kind.load() == InstrumentRack::KPlugin && r.plugin->getPluginDescription().isDuplicateOf(d);
-        row.button = row.active ? U8("● PLAYING") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
+        row.button = row.active ? U8("Open its window ▸") : "PLAY"; row.bcol = row.active ? Theme::violet() : Theme::green();
         row.click = [&r, d, act = row.active] { if (!act) r.loadPlugin(d); else r.showPluginWindow(); };
         rows.push_back(row);
     }

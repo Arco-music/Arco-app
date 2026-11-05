@@ -33,7 +33,13 @@ int modCategory(int t) {
         case MClock: case MSeq: case MDivider: case MEuclid: case MBernoulli: case MCounter: return CatTime;
         case MKeys: case MArp: case MQuant: case MChord: case MTranspose: return CatPitch;
         case MAtt: case MRing: case MInvert: case MXfade: case MSwitch: case MCompare: case MMinMax: case MConst: case MLogic: return CatMath;
-        case MOut: case MIn: case MScope: return CatIO;
+        case MOut: case MIn: return CatIO;
+        case MScope: case MXy: case MSpectrum: case MLife: case MBounce: case MOrbit: case MPendulum: case MTuring: case MCellular: return CatVisual;
+        case MGrains: case MFreqShift: case MTape: case MLooper: case MPingPong: return CatFx;
+        case MQuadLfo: case MFunction: return CatMove;
+        case MBurst: return CatTime;
+        case MResonator: return CatFilter;
+        case MHarmonics: return CatSound;
         default: return CatMath;
     }
 }
@@ -54,12 +60,18 @@ void Modular::rebuild() {
             case MComb: want = (int) (sr / 18.0) + 4; break;
             case MReverb: want = (int) (sr * 0.36) + 64; break;
             case MChorus: want = (int) (sr * 0.06) + 4; break;
+            case MLife: want = 256; break;
+            case MCellular: want = 256; break;
+            case MGrains: want = (int) (sr * 2.5) + 16 * 6; break;
+            case MTape: want = (int) (sr * 0.1) + 4; break;
+            case MLooper: want = (int) (sr * 10.0) + 4; break;
+            case MPingPong: want = 2 * ((int) (sr * 2.1) + 4); break;
             default: break;
         }
         if (want > 0 && r.bw != want) { r.buf.assign((size_t) want, 0.0f); r.bw = want; }
         rt.push_back(std::move(r));
     }
-    { int k = 0; for (auto& r : rt) { r.scope = -1; if (r.type == MScope && k < 8) { scopes[k].id = r.id; r.scope = k++; } } }
+    { int k = 0; for (auto& r : rt) { r.scope = -1; if (modIsVisual(r.type) && k < 16) { scopes[k].id = r.id; r.scope = k++; } } }
     auto indexOf = [this](int id) { for (size_t i = 0; i < rt.size(); ++i) if (rt[i].id == id) return (int) i; return -1; };
     for (auto& c : patch.cables) {
         int f = indexOf(c.fromMod), t = indexOf(c.toMod);
@@ -74,6 +86,7 @@ void Modular::process(float* L, float* R, int n, double bpm, double beat) {
     if (! sl.isLocked()) return;
     if (rt.empty()) return;
     if (bpm <= 1) bpm = 120;
+    bpmNow = bpm;
     const bool own = beat < 0;
     double b0 = own ? ownBeat : beat;
     const double beatPerSample = bpm / 60.0 / sr;
@@ -668,7 +681,7 @@ void Modular::stepMore(Rt& m, int i, double bt, float isr, float& outL, float& o
     }
     case MScope: {
         m.out[0] = in(m, 0);
-        if (m.scope >= 0 && m.scope < 8) {
+        if (m.scope >= 0 && m.scope < 16) {
             auto& sc = scopes[m.scope];
             int every = juce::jmax(1, (int) (P(0) * 0.001 * sr / 256.0 * 4.0));
             if (++m.step >= every) { m.step = 0; int w = sc.w.load(); sc.a[w] = in(m, 0); sc.b[w] = in(m, 1); sc.w.store((w + 1) & 255); }
@@ -676,6 +689,267 @@ void Modular::stepMore(Rt& m, int i, double bt, float isr, float& outL, float& o
         break;
     }
     case MMix8: { float s2 = 0; for (int k = 0; k < 8; ++k) s2 += in(m, k) * P(k) / 100.0f; m.out[0] = s2; break; }
+    // ================================================================ 2.4: to watch (and that play by themselves)
+    case MXy: {
+        m.out[0] = in(m, 0);
+        if (m.scope >= 0 && ++m.step >= juce::jmax(1, (int) (1 + P(1) * P(1) / 25.0))) { m.step = 0; auto& sc = scopes[m.scope]; int w = sc.w.load(); sc.a[w] = in(m, 0); sc.b[w] = in(m, 1); sc.w.store((w + 1) & 255); }
+        break;
+    }
+    case MSpectrum: {
+        m.out[0] = in(m, 0);
+        if (m.scope >= 0 && ++m.step >= 2) { m.step = 0; auto& sc = scopes[m.scope]; int w = sc.w.load(); sc.a[w] = in(m, 0) * P(0) / 100.0f; sc.w.store((w + 1) & 255); }
+        break;
+    }
+    case MLife: {
+        if (m.buf.size() < 256) break;
+        float* g = m.buf.data();
+        auto seed = [&] { for (int k = 0; k < 128; ++k) g[k] = m.rnd.nextFloat() * 100.0f < P(1) ? 1.0f : 0.0f; };
+        if (m.pos[5] == 0 || trigUp(in(m, 1), m.lastGate) > 0) { seed(); m.pos[5] = 1; }
+        bool tick;
+        if (connected(m, 0)) tick = trigUp(in(m, 0), m.lastTrig) > 0;
+        else { double len = divBeats((int) std::round(P(0))); long k = (long) std::floor(bt / len); tick = k != (long) m.clk; m.clk = (double) k; }
+        if (tick) {
+            m.step = (m.step + 1) % 16;
+            if (m.step == 0) {          // the next generation
+                int alive = 0, changed = 0;
+                for (int y = 0; y < 8; ++y) for (int x = 0; x < 16; ++x) {
+                    int nb = 0; for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) if (dx || dy) nb += g[((y + dy + 8) % 8) * 16 + (x + dx + 16) % 16] > 0.5f;
+                    bool on = g[y * 16 + x] > 0.5f; bool nx = on ? (nb == 2 || nb == 3) : nb == 3;
+                    g[128 + y * 16 + x] = nx ? 1.0f : 0.0f; alive += nx; changed += nx != on; }
+                for (int k = 0; k < 128; ++k) g[k] = g[128 + k];
+                if (alive == 0 || changed == 0) seed();
+                m.pos[2] = (int) (sr * 0.01);
+            }
+            int low = -1, cnt = 0; for (int y = 0; y < 8; ++y) if (g[y * 16 + m.step] > 0.5f) { ++cnt; low = y; }
+            if (cnt > 0) {
+                m.pos[0] = (int) (sr * 0.06);
+                int mask = scaleMasks[juce::jlimit(0, 5, (int) std::round(P(2)))]; int notes[12], nn = 0; for (int k = 0; k < 12; ++k) if (mask & (1 << k)) notes[nn++] = k;
+                int deg = (7 - low) * juce::jmax(1, (int) std::round(P(3))) * nn / 8; m.held = (float) ((deg / nn) * 12 + notes[deg % nn]) / 12.0f;
+            }
+            m.slew = cnt / 8.0f * 10.0f;
+        }
+        m.out[0] = m.pos[0] > 0 ? 10.0f : 0.0f; if (m.pos[0] > 0) --m.pos[0];
+        m.out[1] = m.held; m.out[2] = m.slew;
+        m.out[3] = m.pos[2] > 0 ? 10.0f : 0.0f; if (m.pos[2] > 0) --m.pos[2];
+        if (m.scope >= 0 && (++m.pos[6] & 255) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 128; ++k) sc.a[k] = g[k]; sc.b[0] = (float) m.step; sc.w.store(1); }
+        break;
+    }
+    case MBounce: {
+        int nb = juce::jlimit(1, 4, (int) std::round(P(2)));
+        if (m.pos[8] == 0) { for (int k = 0; k < 4; ++k) { m.d[k] = 0.45 + 0.17 * k; m.z[k] = 0; } m.pos[8] = 1; }
+        bool kick = trigUp(in(m, 0), m.lastTrig) > 0;
+        double gr = 4.0 + P(0) / 100.0 * 36.0, dt = 1.0 / sr;
+        for (int k = 0; k < 4; ++k) {
+            if (kick && k < nb) m.z[k] = (float) (1.5 + 0.4 * k + m.rnd.nextFloat());
+            if (k >= nb) { m.out[k] = 0; continue; }
+            m.z[k] -= (float) (gr * dt); m.d[k] += m.z[k] * dt;
+            if (m.d[k] <= 0 && m.z[k] < 0) {
+                m.d[k] = 0; m.z[k] = -m.z[k] * P(1) / 100.0f; m.pos[k] = (int) (sr * 0.008);
+                if (m.z[k] < 0.25f) m.z[k] = (float) (1.6 + 0.5 * m.rnd.nextFloat() + 0.25 * k);     // it stops: thrown up again
+            }
+            m.out[k] = m.pos[k] > 0 ? 10.0f : 0.0f; if (m.pos[k] > 0) --m.pos[k];
+        }
+        m.out[4] = (float) juce::jlimit(0.0, 10.0, m.d[0] * 6.0);
+        if (m.scope >= 0 && (++m.step & 127) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 4; ++k) { sc.a[k] = k < nb ? (float) m.d[k] : -1.0f; sc.b[k] = m.pos[k] > 0 ? 1.0f : sc.b[k] * 0.85f; } sc.a[4] = (float) nb; sc.w.store(1); }
+        break;
+    }
+    case MOrbit: {
+        double rate = P(0) * std::pow(2.0, connected(m, 0) ? in(m, 0) : 0.0), ratio = P(1);
+        double w[3] = { 1.0, ratio, ratio * ratio };
+        for (int k = 0; k < 3; ++k) {
+            m.d[k] += juce::MathConstants<double>::twoPi * rate / w[k] / sr;
+            if (m.d[k] >= juce::MathConstants<double>::twoPi) { m.d[k] -= juce::MathConstants<double>::twoPi; m.pos[k] = (int) (sr * 0.008); }
+            m.out[2 + k] = m.pos[k] > 0 ? 10.0f : 0.0f; if (m.pos[k] > 0) --m.pos[k];
+        }
+        m.out[0] = (float) (std::sin(m.d[0]) * P(2)); m.out[1] = (float) (-std::cos(m.d[0]) * P(2));
+        if (m.scope >= 0 && (++m.step & 127) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 3; ++k) { sc.a[k] = (float) m.d[k]; sc.b[k] = m.pos[k] > 0 ? 1.0f : sc.b[k] * 0.85f; } sc.w.store(1); }
+        break;
+    }
+    case MPendulum: {
+        if (m.pos[8] == 0) { m.d[0] = 2.2; m.d[1] = 2.6; m.d[2] = 0; m.d[3] = 0; m.pos[8] = 1; }
+        if (trigUp(in(m, 0), m.lastTrig) > 0) { m.d[2] += 4.0; m.d[3] -= 3.0; }
+        if (++m.pos[7] >= 16) {
+            m.pos[7] = 0;
+            double l1 = 1.0, l2 = P(1) / 100.0, g = 9.81, dt = 16.0 / sr * P(0);
+            for (int it = 0; it < 4; ++it) {
+                double t1 = m.d[0], t2 = m.d[1], w1 = m.d[2], w2 = m.d[3], dd = t1 - t2, den = 3 - std::cos(2 * dd);
+                double a1 = (-g * 3 * std::sin(t1) - g * std::sin(t1 - 2 * t2) - 2 * std::sin(dd) * (w2 * w2 * l2 + w1 * w1 * l1 * std::cos(dd))) / (l1 * den);
+                double a2 = (2 * std::sin(dd) * (w1 * w1 * l1 * 2 + g * 2 * std::cos(t1) + w2 * w2 * l2 * std::cos(dd))) / (l2 * den);
+                double h = dt / 4; m.d[2] = juce::jlimit(-40.0, 40.0, (w1 + a1 * h) * 0.9999995); m.d[3] = juce::jlimit(-40.0, 40.0, (w2 + a2 * h) * 0.9999995);
+                m.d[0] += m.d[2] * h; m.d[1] += m.d[3] * h;
+            }
+            double l1b = 1.0, l2b = P(1) / 100.0;
+            m.z[0] = (float) ((std::sin(m.d[0]) * l1b + std::sin(m.d[1]) * l2b) / (l1b + l2b)); m.z[1] = (float) ((-std::cos(m.d[0]) * l1b - std::cos(m.d[1]) * l2b) / (l1b + l2b));
+            m.z[2] = (float) (std::sin(m.d[0]) / (1 + l2b) ); m.z[3] = (float) (-std::cos(m.d[0]) / (1 + l2b));
+            if (m.scope >= 0 && (++m.step & 15) == 0) { auto& sc = scopes[m.scope]; int w = sc.w.load(); sc.a[w] = m.z[0]; sc.b[w] = m.z[1]; sc.w.store((w + 1) & 255); sc.a[(w + 128) & 255] = sc.a[(w + 128) & 255]; }
+        }
+        m.out[0] = m.z[0] * P(2); m.out[1] = m.z[1] * P(2); m.out[2] = (float) juce::jlimit(0.0, 10.0, std::abs(m.d[3]) * 0.5);
+        break;
+    }
+    case MTuring: {
+        int len = juce::jlimit(2, 16, (int) std::round(P(1)));
+        bool tick;
+        if (connected(m, 0)) tick = trigUp(in(m, 0), m.lastTrig) > 0;
+        else { double l = divBeats((int) std::round(P(3))); long k = (long) std::floor(bt / l); tick = k != (long) m.clk; m.clk = (double) k; }
+        if (m.pos[8] == 0) { m.pos[0] = m.rnd.nextInt(65536); m.pos[8] = 1; }
+        if (tick) {
+            unsigned reg = (unsigned) m.pos[0]; unsigned bit = (reg >> (len - 1)) & 1u;
+            if (m.rnd.nextFloat() * 100.0f < P(0)) bit ^= 1u;
+            reg = ((reg << 1) | bit) & 0xFFFFu; m.pos[0] = (int) reg;
+            m.held = (float) (reg & 0xFFu) / 255.0f * juce::jmax(0.0f, P(2));
+            if (bit) m.pos[1] = (int) (sr * 0.05);
+            m.slew = bit ? 10.0f : 0.0f;
+        }
+        m.out[0] = m.held; m.out[1] = m.pos[1] > 0 ? 10.0f : 0.0f; if (m.pos[1] > 0) --m.pos[1]; m.out[2] = m.slew;
+        if (m.scope >= 0 && (++m.step & 255) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 16; ++k) sc.a[k] = (float) ((m.pos[0] >> k) & 1); sc.b[0] = (float) len; sc.w.store(1); }
+        break;
+    }
+    case MCellular: {
+        if (m.buf.size() < 256) break;
+        bool tick;
+        if (connected(m, 0)) tick = trigUp(in(m, 0), m.lastTrig) > 0;
+        else { double l = divBeats((int) std::round(P(1))); long k = (long) std::floor(bt / l); tick = k != (long) m.clk; m.clk = (double) k; }
+        if (m.pos[8] == 0 || m.pos[0] == 0) { m.pos[0] = 1 << 8; m.pos[8] = 1; }
+        if (tick) {
+            int rule = juce::jlimit(0, 255, (int) std::round(P(0))); unsigned c = (unsigned) m.pos[0], nx = 0;
+            for (int k = 0; k < 16; ++k) { int l = (c >> ((k + 1) & 15)) & 1, me = (c >> k) & 1, r = (c >> ((k + 15) & 15)) & 1; if ((rule >> (l * 4 + me * 2 + r)) & 1) nx |= 1u << k; }
+            m.pos[0] = (int) nx;
+            for (int y = 15; y > 0; --y) for (int x = 0; x < 16; ++x) m.buf[(size_t) (y * 16 + x)] = m.buf[(size_t) ((y - 1) * 16 + x)];
+            int cnt = 0; for (int x = 0; x < 16; ++x) { m.buf[(size_t) x] = (float) ((nx >> x) & 1); cnt += (nx >> x) & 1; }
+            const int cells[4] = { 2, 6, 10, 14 }; for (int k = 0; k < 4; ++k) if ((nx >> cells[k]) & 1) m.pos[1 + k] = (int) (sr * 0.03);
+            m.slew = cnt / 16.0f * 10.0f;
+        }
+        for (int k = 0; k < 4; ++k) { m.out[k] = m.pos[1 + k] > 0 ? 10.0f : 0.0f; if (m.pos[1 + k] > 0) --m.pos[1 + k]; }
+        m.out[4] = m.slew;
+        if (m.scope >= 0 && (++m.step & 255) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 256; ++k) sc.a[k] = m.buf[(size_t) k]; sc.w.store(1); }
+        break;
+    }
+    // ================================================================ 2.4: more sound
+    case MGrains: {
+        int ring = (int) m.buf.size() - 16 * 6; if (ring < 1024) break;
+        float* G = m.buf.data() + ring;          // per grain: start, age, len, rate, pan, on
+        bool freeze = connected(m, 1) && in(m, 1) > 1.0f;
+        if (!freeze) { m.buf[(size_t) m.pos[0]] = in(m, 0) / 5.0f; m.pos[0] = (m.pos[0] + 1) % ring; }
+        m.ph += P(1) / sr;
+        if (m.ph >= 1) { m.ph -= 1;
+            for (int k = 0; k < 16; ++k) if (G[k * 6 + 5] < 0.5f) {
+                float len = P(0) * fs / 1000.0f, rate = std::pow(2.0f, P(2) / 12.0f);
+                float back = len * juce::jmax(1.0f, rate) + m.rnd.nextFloat() * P(3) / 100.0f * fs * 1.2f + 64;
+                float st = (float) m.pos[0] - back; while (st < 0) st += (float) ring;
+                G[k * 6] = st; G[k * 6 + 1] = 0; G[k * 6 + 2] = len; G[k * 6 + 3] = rate; G[k * 6 + 4] = m.rnd.nextFloat() * 2 - 1; G[k * 6 + 5] = 1; break; }
+        }
+        float l = 0, r = 0;
+        for (int k = 0; k < 16; ++k) { float* g = G + k * 6; if (g[5] < 0.5f) continue;
+            float t = g[1] / g[2]; if (t >= 1) { g[5] = 0; continue; }
+            float env = 0.5f - 0.5f * std::cos(t * 6.2831853f);
+            float pos = g[0] + g[1] * g[3]; while (pos >= ring) pos -= (float) ring; int i0 = (int) pos; float fr = pos - (float) i0;
+            float v = (m.buf[(size_t) i0] * (1 - fr) + m.buf[(size_t) ((i0 + 1) % ring)] * fr) * env;
+            l += v * (1 - g[4]) * 0.5f; r += v * (1 + g[4]) * 0.5f; g[1] += 1; }
+        float norm = 1.0f / std::sqrt(juce::jmax(1.0f, P(1) * P(0) / 1000.0f));
+        m.out[0] = l * 5 * norm * 1.5f; m.out[1] = r * 5 * norm * 1.5f;
+        if (m.scope >= 0 && (++m.step & 255) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 16; ++k) { float* g = G + k * 6; sc.a[k] = g[5] > 0.5f ? std::fmod((float) m.pos[0] - g[0] + (float) ring, (float) ring) / (float) ring : -1.0f; sc.b[k] = g[5] > 0.5f ? 0.5f - 0.5f * std::cos(g[1] / g[2] * 6.2831853f) : 0.0f; } sc.w.store(1); }
+        break;
+    }
+    case MFreqShift: {
+        static const float A1[4] = { 0.6923878f, 0.9360654f, 0.9882295f, 0.9987488f }, A2[4] = { 0.4021921f, 0.8561711f, 0.9722910f, 0.9952885f };
+        float x = in(m, 0), re = x, im = x;
+        for (int k = 0; k < 4; ++k) { float a = A1[k] * A1[k]; float y = a * (re - m.z[k * 2 + 1]) + m.z[k * 2]; m.z[k * 2] = re; m.z[k * 2 + 1] = y; re = y;
+            float b = A2[k] * A2[k]; float y2 = b * (im - m.z[8 + k * 2 + 1]) + m.z[8 + k * 2]; m.z[8 + k * 2] = im; m.z[8 + k * 2 + 1] = y2; im = y2; }
+        float imD = (float) m.d[0]; m.d[0] = im;
+        double shift = P(0) + (connected(m, 1) ? in(m, 1) * P(1) / 100.0 * 50.0 : 0.0);
+        m.ph += shift / sr; m.ph -= std::floor(m.ph);
+        float cs = (float) std::cos(m.ph * juce::MathConstants<double>::twoPi), sn = (float) std::sin(m.ph * juce::MathConstants<double>::twoPi);
+        m.out[0] = re * cs - imD * sn; m.out[1] = re * cs + imD * sn;
+        break;
+    }
+    case MTape: {
+        int N = (int) m.buf.size(); if (N < 16) break;
+        m.buf[(size_t) m.pos[0]] = in(m, 0); m.pos[0] = (m.pos[0] + 1) % N;
+        m.ph += 0.45 / sr; m.ph -= std::floor(m.ph); m.ph2 += 6.5 / sr; m.ph2 -= std::floor(m.ph2);
+        double dly = (0.012 + P(0) / 100.0 * 0.004 * std::sin(m.ph * juce::MathConstants<double>::twoPi) + P(1) / 100.0 * 0.0004 * std::sin(m.ph2 * juce::MathConstants<double>::twoPi)) * sr;
+        double rp = m.pos[0] - dly; while (rp < 0) rp += N; int i0 = (int) rp; float fr = (float) (rp - i0);
+        float v = m.buf[(size_t) i0] * (1 - fr) + m.buf[(size_t) ((i0 + 1) % N)] * fr;
+        float drive = 1.0f + P(2) / 25.0f; v = std::tanh(v / 5.0f * drive) / std::tanh(drive) * 5.0f;
+        float k = 0.05f + P(3) / 100.0f * 0.9f; m.z[0] += k * (v - m.z[0]);
+        m.out[0] = m.z[0];
+        break;
+    }
+    case MLooper: {
+        int N = (int) m.buf.size(); if (N < 16) break;
+        bool rec = in(m, 1) > 1.0f;
+        if (trigUp(in(m, 2), m.lastTrig) > 0) { m.pos[0] = 0; m.pos[1] = 0; m.stage = 0; }
+        int& len = m.pos[0]; int& idx = m.pos[1];
+        if (rec && !m.lastGate && len == 0) { m.stage = 1; idx = 0; }
+        if (!rec && m.lastGate && m.stage == 1) { len = juce::jmax(64, idx); idx = 0; m.stage = 2; }
+        m.lastGate = rec;
+        float x = in(m, 0), out = 0;
+        if (m.stage == 1) { if (idx < N) m.buf[(size_t) idx++] = x; else { len = N; idx = 0; m.stage = 2; } }
+        else if (len > 0) { out = m.buf[(size_t) idx]; if (rec) m.buf[(size_t) idx] = out * P(1) / 100.0f + x; idx = (idx + 1) % len; }
+        m.out[0] = out * P(0) / 100.0f;
+        break;
+    }
+    case MPingPong: {
+        int half = (int) m.buf.size() / 2; if (half < 16) break;
+        double sec = divBeats((int) std::round(P(0))) * 60.0 / bpmNow; if (connected(m, 1)) sec *= std::pow(2.0, in(m, 1) / 5.0);
+        double d = juce::jlimit(1.0, (double) half - 2, sec * sr);
+        auto rd = [&](int base) { double rp = m.pos[0] - d; while (rp < 0) rp += half; int i0 = (int) rp; float fr = (float) (rp - i0); return m.buf[(size_t) (base + i0)] * (1 - fr) + m.buf[(size_t) (base + (i0 + 1) % half)] * fr; };
+        float lo = rd(0), ro = rd(half), fb = P(1) / 100.0f, x = in(m, 0);
+        m.buf[(size_t) m.pos[0]] = x + ro * fb; m.buf[(size_t) (half + m.pos[0])] = lo * fb;
+        m.pos[0] = (m.pos[0] + 1) % half;
+        float mix = P(2) / 100.0f; m.out[0] = x * (1 - mix) + lo * mix; m.out[1] = x * (1 - mix) + ro * mix;
+        break;
+    }
+    case MQuadLfo: {
+        double rate = P(0) * std::pow(2.0, connected(m, 0) ? in(m, 0) : 0.0);
+        for (int k = 0; k < 4; ++k) { m.d[k] += rate / std::pow((double) P(1), k) / sr; m.d[k] -= std::floor(m.d[k]);
+            double ph = m.d[k]; m.out[k] = (float) (P(2) < 0.5f ? std::sin(ph * juce::MathConstants<double>::twoPi) * 5.0 : (ph < 0.5 ? -5 + 20 * ph : 15 - 20 * ph)); }
+        break;
+    }
+    case MFunction: {
+        if (trigUp(in(m, 0), m.lastTrig) > 0) m.stage = 1;
+        if (m.stage == 0 && P(3) > 0.5f) m.stage = 1;
+        float curve = std::pow(2.0f, P(2) / 50.0f);
+        if (m.stage == 1) { m.ph += 1.0 / (juce::jmax(0.001f, P(0)) * sr); if (m.ph >= 1) { m.ph = 1; m.stage = 2; } }
+        else if (m.stage == 2) { m.ph -= 1.0 / (juce::jmax(0.001f, P(1)) * sr); if (m.ph <= 0) { m.ph = 0; m.stage = P(3) > 0.5f ? 1 : 0; m.pos[0] = (int) (sr * 0.008); } }
+        m.out[0] = (float) std::pow(m.ph, (double) curve) * 10.0f;
+        m.out[1] = m.pos[0] > 0 ? 10.0f : 0.0f; if (m.pos[0] > 0) --m.pos[0];
+        break;
+    }
+    case MBurst: {
+        if (trigUp(in(m, 0), m.lastTrig) > 0) { m.pos[0] = juce::jlimit(1, 16, (int) std::round(P(0))); m.ph = 0; }
+        float out = 0;
+        if (m.pos[0] > 0) { out = m.ph < 0.5 ? 10.0f : 0.0f; m.ph += P(1) / sr; if (m.ph >= 1) { m.ph -= 1; --m.pos[0]; } }
+        m.out[0] = out;
+        break;
+    }
+    case MResonator: {
+        double f0 = hzOf(std::round(P(0)) + in(m, 1)) * 0.5;
+        static const float harm[4] = { 1, 2, 3, 4 }, bell[4] = { 1, 2.756f, 5.404f, 8.933f };
+        float sh = P(1) / 100.0f, q = 5.0f + P(2) / 100.0f * 300.0f, x = in(m, 0) / 5.0f, sum = 0;
+        for (int k = 0; k < 4; ++k) {
+            double f = juce::jmin(sr * 0.45, f0 * (harm[k] * (1 - sh) + bell[k] * sh));
+            double g = std::tan(juce::MathConstants<double>::pi * f / sr), kk = 1.0 / q, a1 = 1 / (1 + g * (g + kk)), a2 = g * a1, a3 = g * a2;
+            float& ic1 = m.z[k * 2]; float& ic2 = m.z[k * 2 + 1];
+            double v3 = x - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3; ic1 = (float) (2 * v1 - ic1); ic2 = (float) (2 * v2 - ic2);
+            if (std::abs(ic1) < 1e-20f) ic1 = 0; if (std::abs(ic2) < 1e-20f) ic2 = 0;
+            float amp = std::pow(0.4f + P(3) / 100.0f * 0.6f, (float) k);
+            sum += (float) v1 * amp;
+        }
+        m.out[0] = clampf(sum * 5.0f * 1.5f, -12, 12);
+        break;
+    }
+    case MHarmonics: {
+        double f = hzOf(std::round(P(0)) + in(m, 0));
+        float tilt = (P(1) + (connected(m, 1) ? in(m, 1) * 10 : 0)) / 100.0f * 1.5f, oe = P(2) / 100.0f; int np = juce::jlimit(1, 8, (int) std::round(P(3)));
+        float amps[8], tot = 0;
+        for (int k = 0; k < 8; ++k) { int n = k + 1; float a = k < np ? std::pow((float) n, tilt) : 0.0f; if (n % 2 == 1 && n > 1) a *= 1 - juce::jmax(0.0f, oe); if (n % 2 == 0) a *= 1 - juce::jmax(0.0f, -oe);
+            if (f * n > sr * 0.45) a = 0; amps[k] = a; tot += a; }
+        float s2 = 0;
+        for (int k = 0; k < 8; ++k) { m.d[k] += f * (k + 1) / sr; m.d[k] -= std::floor(m.d[k]); if (amps[k] > 0) s2 += amps[k] * (float) std::sin(m.d[k] * juce::MathConstants<double>::twoPi); }
+        m.out[0] = tot > 0 ? s2 / tot * 5.0f : 0.0f;
+        if (m.scope >= 0 && (++m.step & 511) == 0) { auto& sc = scopes[m.scope]; for (int k = 0; k < 8; ++k) sc.a[k] = tot > 0 ? amps[k] / juce::jmax(0.0001f, *std::max_element(amps, amps + 8)) : 0; sc.w.store(1); }
+        break;
+    }
     default: break;
     }
     (void) outL; (void) outR;
@@ -717,7 +991,8 @@ ModPatch Modular::fromVar(const juce::var& v) {
 }
 
 juce::StringArray Modular::patchNames() { return { "Basic subtractive", "Generative sequence", "FM bell", "Noise drums", "Empty rack",
-    "Supersaw pad", "Acid line", "Euclid drums", "Harp of chance", "Robot voice (an effect on LIVE 1)", "Ducking echo (an effect)", "Strange melodies", "Bells in tempo", "Your first sound" }; }
+    "Supersaw pad", "Acid line", "Euclid drums", "Harp of chance", "Robot voice (an effect on LIVE 1)", "Ducking echo (an effect)", "Strange melodies", "Bells in tempo", "Your first sound",
+    "Game of Life melodies", "Bouncing balls", "Orbits (drums from planets)", "Pendulum drone", "Turing machine", "Grain cloud (an effect on LIVE 1)", "Cellular rhythm" }; }
 
 ModPatch Modular::defaultPatch(int which) {
     ModPatch p;
@@ -855,6 +1130,43 @@ ModPatch Modular::defaultPatch(int which) {
         int keys = add(MKeys); int vco = add(MVco); int env = add(MEnv); int vca = add(MVca); int out = add(MOut);
         cable(keys, 0, vco, 0); cable(keys, 1, env, 0); cable(vco, 2, vca, 0); cable(env, 0, vca, 1); cable(vca, 0, out, 0);
         break;
+    }
+    case 14: {  // the Game of Life plays a synth: the playhead's column is the note, the population opens the filter
+        int life = add(MLife); int vco = add(MVco, { { 0, -1 } }); int env = add(MEnv, { { 0, 0.005f }, { 1, 0.25f }, { 2, 20 }, { 3, 0.3f } });
+        int vcf = add(MVcf, { { 0, 600 }, { 1, 35 } }); int vca = add(MVca); int rv = add(MReverb, { { 2, 40 } }); int out = add(MOut);
+        cable(life, 1, vco, 0); cable(life, 0, env, 0); cable(life, 2, vcf, 1); cable(vco, 2, vcf, 0); cable(vcf, 0, vca, 0); cable(env, 0, vca, 1);
+        cable(vca, 0, rv, 0); cable(rv, 0, out, 0); cable(rv, 1, out, 1); break;
+    }
+    case 15: {  // balls bounce on three strings
+        int b = add(MBounce); int s1 = add(MString, { { 0, 0 } }); int s2 = add(MString, { { 0, 1 } }); int s3 = add(MString, { { 0, -1 } });
+        int mx = add(MStMix); int rv = add(MReverb, { { 0, 75 }, { 2, 45 } }); int out = add(MOut);
+        cable(b, 0, s1, 0); cable(b, 1, s2, 0); cable(b, 2, s3, 0); cable(s1, 0, mx, 0); cable(s2, 0, mx, 1); cable(s3, 0, mx, 2);
+        cable(mx, 0, rv, 0); cable(mx, 1, rv, 1); cable(rv, 0, out, 0); cable(rv, 1, out, 1); break;
+    }
+    case 16: {  // three planets play a kick, a snare and a hat; the first one's place on an XY screen
+        int o = add(MOrbit, { { 0, 0.5f }, { 1, 1.5f } }); int k = add(MKick); int sn = add(MSnare); int h = add(MHat); int mx = add(MStMix); int xy = add(MXy, { { 1, 60 } }); int out = add(MOut);
+        cable(o, 2, k, 0); cable(o, 3, sn, 0); cable(o, 4, h, 0); cable(k, 0, mx, 0); cable(sn, 0, mx, 1); cable(h, 0, mx, 2); cable(o, 0, xy, 0); cable(o, 1, xy, 1);
+        cable(mx, 0, out, 0); cable(mx, 1, out, 1); break;
+    }
+    case 17: {  // a double pendulum bends a drone
+        int pd = add(MPendulum, { { 0, 0.6f }, { 2, 2 } }); int att = add(MAtt, { { 0, 15 }, { 1, -1 }, { 2, 100 } }); int vco = add(MVco, { { 0, -1 } }); int vco2 = add(MVco, { { 0, -1 }, { 2, 8 } });
+        int vcf = add(MVcf, { { 0, 900 }, { 1, 45 }, { 2, 80 } }); int xy = add(MXy, { { 0, 200 }, { 1, 50 } }); int rv = add(MReverb, { { 0, 80 }, { 2, 40 } }); int out = add(MOut, { { 0, 55 } });
+        cable(pd, 0, att, 0); cable(pd, 1, att, 1); cable(att, 0, vco, 0); cable(att, 0, vco2, 0); cable(att, 1, vcf, 1); cable(vco, 2, vcf, 0); cable(vco2, 2, vcf, 0);
+        cable(pd, 0, xy, 0); cable(pd, 1, xy, 1); cable(vcf, 0, rv, 0); cable(rv, 0, out, 0); cable(rv, 1, out, 1); break;
+    }
+    case 18: {  // a Turing machine plays an organ of harmonics, in a scale
+        int tm = add(MTuring); int q = add(MQuant, { { 0, 3 } }); int hm = add(MHarmonics, { { 0, -1 } }); int env = add(MEnv, { { 0, 0.003f }, { 1, 0.2f }, { 2, 30 }, { 3, 0.25f } });
+        int vca = add(MVca); int dl = add(MDelay, { { 1, 40 }, { 2, 30 } }); int out = add(MOut);
+        cable(tm, 0, q, 0); cable(q, 0, hm, 0); cable(tm, 1, env, 0); cable(hm, 0, vca, 0); cable(env, 0, vca, 1); cable(vca, 0, dl, 0); cable(dl, 0, out, 0); cable(dl, 0, out, 1); break;
+    }
+    case 19: {  // LIVE input 1 into a cloud of grains
+        int in = add(MIn, { { 0, 1 } }); int gr = add(MGrains); int rv = add(MReverb, { { 0, 85 }, { 2, 50 } }); int sp = add(MSpectrum); int out = add(MOut);
+        cable(in, 0, gr, 0); cable(gr, 0, rv, 0); cable(gr, 1, rv, 1); cable(rv, 0, sp, 0); cable(rv, 0, out, 0); cable(rv, 1, out, 1); break;
+    }
+    case 20: {  // a cellular automaton plays drums; a burst of hats on the fourth cell
+        int ca = add(MCellular, { { 0, 30 } }); int k = add(MKick); int sn = add(MSnare); int h = add(MHat); int bu = add(MBurst, { { 0, 3 } }); int mx = add(MStMix); int out = add(MOut);
+        cable(ca, 0, k, 0); cable(ca, 1, sn, 0); cable(ca, 2, h, 0); cable(ca, 3, bu, 0); cable(bu, 0, h, 0); cable(k, 0, mx, 0); cable(sn, 0, mx, 1); cable(h, 0, mx, 2);
+        cable(mx, 0, out, 0); cable(mx, 1, out, 1); break;
     }
     default: add(MKeys); add(MOut); break;
     }

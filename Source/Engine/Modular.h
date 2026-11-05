@@ -21,10 +21,15 @@ enum ModType { MKeys = 0, MVco, MLfo, MEnv, MVcf, MVca, MMix, MNoise, MSah, MSeq
                MDivider, MEuclid, MBernoulli, MArp, MCounter,
                MChord, MTranspose,
                MRing, MInvert, MXfade, MSwitch, MCompare, MMinMax, MConst, MLogic,
-               MIn, MScope, MMix8, MTypes };
+               MIn, MScope, MMix8,
+               // 2.4: things to watch (and that play by themselves), and more sound
+               MXy, MSpectrum, MLife, MBounce, MOrbit, MPendulum, MTuring, MCellular,
+               MGrains, MFreqShift, MTape, MLooper, MPingPong, MQuadLfo, MFunction, MBurst, MResonator, MHarmonics,
+               MTypes };
+inline bool modIsVisual(int t) { return t == MScope || (t >= MXy && t <= MCellular) || t == MGrains || t == MHarmonics; }
 // the library's shelves
-enum ModCat { CatSound = 0, CatDrum, CatFilter, CatShape, CatFx, CatMove, CatTime, CatPitch, CatMath, CatIO, CatCount };
-inline const char* modCatName(int c) { static const char* N[CatCount] = { "Sound", "Drums", "Filters", "Shape", "Effects", "Movement", "Rhythm & time", "Notes", "Math & logic", "In & out" }; return N[juce::jlimit(0, CatCount - 1, c)]; }
+enum ModCat { CatSound = 0, CatDrum, CatFilter, CatShape, CatFx, CatMove, CatTime, CatPitch, CatMath, CatIO, CatVisual, CatCount };
+inline const char* modCatName(int c) { static const char* N[CatCount] = { "Sound", "Drums", "Filters", "Shape", "Effects", "Movement", "Rhythm & time", "Notes", "Math & logic", "In & out", "To watch" }; return N[juce::jlimit(0, CatCount - 1, c)]; }
 int modCategory(int type);
 
 struct ModPortDef { const char* name; };
@@ -39,6 +44,7 @@ inline const std::vector<ModDef>& modDefs() {
     static const char* ARPM[4] = { "UP", "DOWN", "UP-DOWN", "RANDOM" };
     static const char* CHORDS[8] = { "MAJOR", "MINOR", "7", "MAJ 7", "MIN 7", "SUS 2", "SUS 4", "DIM" };
     static const char* INSRC[6] = { "THROUGH", "LIVE 1", "LIVE 2", "LIVE 3", "LIVE 4", "STATION" };
+    static const char* QSHAPE[2] = { "SINE", "TRIANGLE" };
     static const std::vector<ModDef> d = {
         { "KEYS", "the keyboard: pitch, gate, velocity", {}, { "PITCH", "GATE", "VEL" }, { { "OCTAVE", -3, 3, 0 }, { "GLIDE", 0, 100, 0 } }, 120 },
         { "VCO", "oscillator", { "PITCH", "FM", "PWM", "SYNC" }, { "SINE", "TRI", "SAW", "SQR" },
@@ -111,6 +117,36 @@ inline const std::vector<ModDef>& modDefs() {
         { "SCOPE", "see a signal (it passes through)", { "A", "B" }, { "A" }, { { "TIME", 1, 100, 20 } }, 170 },
         { "MIXER 8", "eight into one", { "1", "2", "3", "4", "5", "6", "7", "8" }, { "MIX" },
           { { "1", 0, 100, 70 }, { "2", 0, 100, 70 }, { "3", 0, 100, 70 }, { "4", 0, 100, 70 }, { "5", 0, 100, 70 }, { "6", 0, 100, 70 }, { "7", 0, 100, 70 }, { "8", 0, 100, 70 } }, 170 },
+        // ---- 2.4: to watch
+        { "XY SCOPE", "two signals drawn against each other: circles, knots, flowers (Lissajous)", { "X", "Y" }, { "X" }, { { "ZOOM", 10, 400, 100, true }, { "TRAIL", 1, 100, 8 } }, 200 },
+        { "SPECTRUM", "see the frequencies of a sound (it passes through)", { "IN" }, { "IN" }, { { "GAIN", 0, 400, 100 } }, 220 },
+        { "LIFE", "the Game of Life: cells are born and die; the playhead turns them into notes", { "CLOCK", "RESEED" }, { "GATE", "PITCH", "DENSITY", "NEW GEN" },
+          { { "RATE", 0, 5, 4, false, DIVS, 6 }, { "SEED", 5, 70, 30 }, { "SCALE", 0, 5, 3, false, SCALES, 6 }, { "RANGE", 1, 3, 2 } }, 230 },
+        { "BOUNCE", "balls falling and bouncing: every bounce is a trigger", { "KICK" }, { "1", "2", "3", "4", "HEIGHT" },
+          { { "GRAVITY", 1, 100, 40 }, { "BOUNCE", 50, 99, 82 }, { "BALLS", 1, 4, 3 } }, 220 },
+        { "ORBITS", "three planets going round; a trigger as each one passes the top", { "SPEED" }, { "X", "Y", "1", "2", "3" },
+          { { "SPEED", 0.02f, 8, 0.5f, true }, { "RATIO", 1, 4, 1.5f }, { "SIZE", 0, 10, 5 } }, 220 },
+        { "PENDULUM", "a double pendulum: smooth, then wild - chaos you can see", { "PUSH" }, { "X", "Y", "SPEED" },
+          { { "SPEED", 0.1f, 10, 1, true }, { "ARM", 30, 200, 100 }, { "LEVEL", 0, 10, 5 } }, 210 },
+        { "TURING", "a looping random melody: locked, slowly changing, or free (a Turing Machine)", { "CLOCK" }, { "PITCH", "GATE", "BIT" },
+          { { "CHANGE", 0, 100, 10 }, { "LENGTH", 2, 16, 8 }, { "RANGE", 0, 5, 2 }, { "RATE", 0, 5, 4, false, DIVS, 6 } }, 220 },
+        { "CELLULAR", "a line of cells changing by a rule (30 is chaos, 90 a fractal): rhythms", { "CLOCK" }, { "1", "2", "3", "4", "DENSITY" },
+          { { "RULE", 0, 255, 30 }, { "RATE", 0, 5, 4, false, DIVS, 6 } }, 220 },
+        // ---- 2.4: more sound
+        { "GRAINS", "a cloud of tiny pieces of a sound (granular): freeze, stretch, shimmer", { "IN", "FREEZE" }, { "L", "R" },
+          { { "SIZE", 10, 400, 80, true }, { "DENSITY", 1, 60, 12, true }, { "PITCH", -24, 24, 0 }, { "SPRAY", 0, 100, 40 } }, 220 },
+        { "FREQ SHIFT", "moves every frequency by the same Hz: metallic, bell-like", { "IN", "SHIFT" }, { "UP", "DOWN" }, { { "SHIFT", -500, 500, 40 }, { "CV AMT", 0, 100, 50 } }, 120 },
+        { "TAPE", "an old tape: it wobbles, flutters and warms", { "IN" }, { "OUT" }, { { "WOW", 0, 100, 30 }, { "FLUTTER", 0, 100, 20 }, { "WARMTH", 0, 100, 40 }, { "TONE", 0, 100, 60 } }, 130 },
+        { "LOOPER", "records while REC is high, then plays it round", { "IN", "REC", "CLEAR" }, { "OUT" }, { { "LEVEL", 0, 100, 80 }, { "DUB", 0, 100, 70 } }, 120 },
+        { "PING-PONG", "an echo that jumps left and right", { "IN", "TIME" }, { "L", "R" }, { { "TIME", 0, 5, 3, false, DIVS, 6 }, { "FEEDBACK", 0, 95, 50 }, { "MIX", 0, 100, 40 } }, 130 },
+        { "QUAD LFO", "four slow waves at related speeds", { "RATE" }, { "1", "2", "3", "4" }, { { "RATE", 0.02f, 20, 0.5f, true }, { "SPREAD", 1, 4, 1.5f }, { "SHAPE", 0, 1, 0, false, QSHAPE, 2 } }, 140 },
+        { "FUNCTION", "a rise and a fall on a trigger - or round and round (a slope)", { "TRIG" }, { "OUT", "END" },
+          { { "RISE", 0.001f, 10, 0.1f, true }, { "FALL", 0.001f, 10, 0.5f, true }, { "CURVE", -100, 100, 0 }, { "LOOP", 0, 1, 0 } }, 140 },
+        { "BURST", "a trigger becomes a fast roll of triggers (ratchets)", { "TRIG" }, { "GATE" }, { { "COUNT", 1, 16, 4 }, { "RATE", 1, 50, 16, true } }, 100 },
+        { "RESONATOR", "four tuned resonances: bells, bars, bowls from any sound or trigger", { "IN", "PITCH" }, { "OUT" },
+          { { "OCT", -3, 3, 0 }, { "SHAPE", 0, 100, 40 }, { "DECAY", 0, 100, 70 }, { "BRIGHT", 0, 100, 50 } }, 140 },
+        { "HARMONICS", "an organ of eight partials you can see: tilt them, odd or even", { "PITCH", "TILT" }, { "OUT" },
+          { { "OCT", -4, 4, 0 }, { "TILT", -100, 100, -40 }, { "ODD/EVEN", -100, 100, 0 }, { "PARTIALS", 1, 8, 8 } }, 210 },
     };
     return d;
 }
@@ -163,7 +199,7 @@ public:
     const float* live[4] {}; const float* mixL = nullptr; const float* mixR = nullptr;
     // the SCOPE's last moments (for its screen): per scope, 2 x 256 values
     struct ScopeView { int id = 0; float a[256] {}, b[256] {}; std::atomic<int> w { 0 }; };
-    ScopeView scopes[8];
+    ScopeView scopes[16];
     const ScopeView* scopeOf(int id) const { for (auto& s : scopes) if (s.id == id) return &s; return nullptr; }
     // ---- save / open
     static juce::var toVar(const ModPatch& p);
@@ -190,7 +226,7 @@ private:
     int blockN = 0; int blockI = 0;
     int arpNotes[16] {}; int arpCount = 0;           // the keys held, low to high (for ARP)
     juce::SpinLock noteLock; juce::Array<int> held; int curNote = 60; float curVel = 0.8f; bool gateOn = false; int trigCount = 0, lastTrigCount = 0;
-    float keysPitch = 0; double ownBeat = 0;
+    float keysPitch = 0; double ownBeat = 0; double bpmNow = 120;
     float in(const Rt& m, int k) const { return m.inMod[k] >= 0 ? rt[(size_t) m.inMod[k]].out[m.inPort[k]] : 0.0f; }
     bool connected(const Rt& m, int k) const { return m.inMod[k] >= 0; }
 };
