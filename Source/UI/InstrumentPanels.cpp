@@ -42,18 +42,18 @@ KeyboardPanel::KeyboardPanel(Canvas& c) : cv(c) {
     auto* sname = pill({ 24, 150, 520, 44 }, "", [] { return Theme::card2(); }, [this] {
         juce::PopupMenu pm; auto n = SynthPanel::presetNames();
         for (int i = 0; i < n.size(); ++i) pm.addItem(i + 1, n[i], true, i == cv.synthPresetIndex());
-        pm.showMenuAsync(juce::PopupMenu::Options(), [this](int x) { if (x > 0) { cv.synthPreset(x - 1); cv.host.rack.setKind(InstrumentRack::KSynth); } }); }, 12.0f);
+        pm.showMenuAsync(juce::PopupMenu::Options(), [this](int x) { if (x > 0) { cv.synthPreset(x - 1); cv.host.rack.setKind(InstrumentRack::KSynth); cv.host.audition(); } }); }, 12.0f);
     sname->dynText = [this] { return U8("SOUND:  ") + SynthPanel::presetNames()[cv.synthPresetIndex()] + U8("   ▾"); };
     sname->textColour = [] { return Theme::txt(); };
     pages[0] = { sname,
-        pill({ 552, 150, 44, 44 }, U8("◀"), [] { return Theme::btn(); }, [this] { int n = SynthPanel::presetNames().size(); cv.synthPreset((cv.synthPresetIndex() + n - 1) % n); }, 11.0f),
-        pill({ 600, 150, 44, 44 }, U8("▶"), [] { return Theme::btn(); }, [this] { int n = SynthPanel::presetNames().size(); cv.synthPreset((cv.synthPresetIndex() + 1) % n); }, 11.0f),
+        pill({ 552, 150, 44, 44 }, U8("◀"), [] { return Theme::btn(); }, [this] { int n = SynthPanel::presetNames().size(); cv.synthPreset((cv.synthPresetIndex() + n - 1) % n); cv.host.audition(); }, 11.0f),
+        pill({ 600, 150, 44, 44 }, U8("▶"), [] { return Theme::btn(); }, [this] { int n = SynthPanel::presetNames().size(); cv.synthPreset((cv.synthPresetIndex() + 1) % n); cv.host.audition(); }, 11.0f),
         pill({ 660, 150, 200, 44 }, U8("OPEN THE SYNTH ▸"), [] { return Theme::violet(); }, [this] { cv.openSynth(true); }, 10.0f) };
     // ---- page MODULAR
     auto* mp = pill({ 24, 150, 520, 44 }, "", [] { return Theme::card2(); }, [this, &r] {
         juce::PopupMenu pm; auto names = Modular::patchNames();
         for (int i = 0; i < names.size(); ++i) pm.addItem(i + 1, names[i]);
-        pm.showMenuAsync(juce::PopupMenu::Options(), [this, &r](int x) { if (x <= 0) return; modPatch = x - 1; r.modular.setPatch(Modular::defaultPatch(modPatch)); r.setKind(InstrumentRack::KModular); }); }, 12.0f);
+        pm.showMenuAsync(juce::PopupMenu::Options(), [this, &r](int x) { if (x <= 0) return; modPatch = x - 1; r.modular.setPatch(Modular::defaultPatch(modPatch)); r.setKind(InstrumentRack::KModular); cv.host.audition(); }); }, 12.0f);
     mp->dynText = [this] { return U8("START FROM:  ") + Modular::patchNames()[modPatch] + U8("   ▾"); };
     mp->textColour = [] { return Theme::txt(); };
     pages[1] = { mp, pill({ 660, 150, 200, 44 }, U8("OPEN MODULAR ▸"), [] { return Theme::violet(); }, [this] { cv.openModular(true); }, 10.0f) };

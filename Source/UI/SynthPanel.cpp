@@ -309,16 +309,16 @@ SynthPanel::SynthPanel(Canvas& c) : cv(c) {
         p->onClick = [&h, t] { h.recordSynthOn(t + 1); };
     }
     auto* prev = add<Pill>(-1, { 860, 52, 24, 24 }, U8("◀"), [] { return Theme::btn(); }, 8.0f, 6.0f);
-    prev->onClick = [this] { int n = presetNames().size(); loadPreset((presetIndex + n - 1) % n); };
+    prev->onClick = [this] { int n = presetNames().size(); loadPreset((presetIndex + n - 1) % n); cv.host.audition(); };   // 2.3: heard at once
     auto* name = add<Pill>(-1, { 888, 52, 200, 24 }, "", [] { return Theme::card2(); }, 9.0f, 6.0f);
     name->dynText = [this] { return presetNames()[presetIndex]; };
     name->textColour = [] { return Theme::txt(); };
     name->onClick = [this, name] {
         juce::PopupMenu pm; auto n = presetNames();
         for (int i = 0; i < n.size(); ++i) pm.addItem(i + 1, n[i], true, i == presetIndex);
-        pm.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(name), [this](int r) { if (r > 0) loadPreset(r - 1); }); };
+        pm.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(name), [this](int r) { if (r > 0) { loadPreset(r - 1); cv.host.audition(); } }); };
     auto* next = add<Pill>(-1, { 1092, 52, 24, 24 }, U8("▶"), [] { return Theme::btn(); }, 8.0f, 6.0f);
-    next->onClick = [this] { int n = presetNames().size(); loadPreset((presetIndex + 1) % n); };
+    next->onClick = [this] { int n = presetNames().size(); loadPreset((presetIndex + 1) % n); cv.host.audition(); };
     auto* sv = add<Pill>(-1, { 1122, 52, 56, 24 }, "SAVE", [] { return Theme::blue(); }, 8.0f, 6.0f);
     sv->onClick = [this] { savePreset(); };
     auto* off = add<Pill>(-1, { 1186, 52, 150, 24 }, "ALL NOTES OFF", [] { return Theme::btn(); }, 8.0f, 6.0f);

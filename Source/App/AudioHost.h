@@ -95,6 +95,20 @@ public:
         playOff(note); }
     void playOn(int note, float vel) { if (rack.takesNotes()) { synthNeedsStrip(); rack.noteOn(note, vel); } else synth.noteOn(note, vel); }
     void playOff(int note) { rack.noteOff(note); synth.noteOff(note); }
+    // 2.3: a sound chosen is heard at once - a chord, then the notes up and down, a low note (about 3 s; a new one stops it)
+    int auditionGen = 0;
+    void audition() {
+        const int gen = ++auditionGen;
+        struct Ev { int ms, note; bool on; float vel; };
+        std::vector<Ev> ev;
+        for (int n : { 60, 64, 67, 72 }) { ev.push_back({ 0, n, true, 0.75f }); ev.push_back({ 900, n, false, 0 }); }
+        const int arp[8] = { 60, 64, 67, 72, 76, 72, 67, 64 };
+        for (int i = 0; i < 8; ++i) { ev.push_back({ 1000 + i * 150, arp[i], true, 0.7f }); ev.push_back({ 1000 + i * 150 + 130, arp[i], false, 0 }); }
+        ev.push_back({ 2250, 36, true, 0.85f }); ev.push_back({ 3150, 36, false, 0 });
+        for (auto e : ev) juce::Timer::callAfterDelay(e.ms, [this, e, gen] {
+            if (gen != auditionGen) { if (!e.on) playOff(e.note); return; }
+            if (e.on) playOn(e.note, e.vel); else playOff(e.note); });
+    }
     // 1.4: HOLD - notes stay on until touched again (easy chords on a screen; with the arpeggiator every touched note joins it)
     bool latch = false;
     std::set<int> latched;
