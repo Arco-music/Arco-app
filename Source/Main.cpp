@@ -11,6 +11,7 @@
 #include "UI/Panels.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
+namespace arco { size_t audioHostSizeHere(); size_t studioSizeHere(); size_t engineSizeHere(); }
 #include "UI/StudioView.h"
 
 class ARCOApplication : public juce::JUCEApplication {
@@ -21,6 +22,8 @@ public:
 
     void initialise(const juce::String& cmd) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
+        if (cmd.contains("--sizes")) { std::printf("AudioHost: here %zu, there %zu   Studio: here %zu, there %zu   Engine: here %zu, there %zu\n", sizeof(arco::AudioHost), arco::audioHostSizeHere(),
+                                                   sizeof(arco::Studio), arco::studioSizeHere(), sizeof(arco::Engine), arco::engineSizeHere()); quit(); return; }
         bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck") || cmd.contains("--clickcheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);

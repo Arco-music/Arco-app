@@ -8,6 +8,10 @@
 
 namespace arco {
 
+size_t audioHostSizeHere() { return sizeof(AudioHost); }   // (tests: every file must agree on the size)
+size_t studioSizeHere() { return sizeof(Studio); }
+size_t engineSizeHere() { return sizeof(Engine); }
+
 AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     keys.addListener(this);
     synth.setParamSource([this](const char* n) { return model.get(n); });
