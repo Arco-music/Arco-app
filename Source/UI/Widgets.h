@@ -391,7 +391,7 @@ public:
         if (Theme::softUI()) {          // 2.4: as the page - a groove in the skin with the light running under it; a dome that goes in when touched
             press.to(dragging ? 1.0f : 0.0f);
             const float pv = press.v, pd = juce::jlimit(0.0f, 1.0f, pv);
-            const float S = d, k = S / 94.0f;                       // the page's knob: a ring of 88 (+ its 6 wide groove) round a dome of 60
+            const float S = d * 0.9f, k = S / 94.0f;                // the page's knob: a ring of 88 (+ its 6 wide groove) round a dome of 60 (a little room for its light)
             const float sw = juce::jmax(2.6f, 6.0f * k), R = S * 0.5f - sw * 0.5f - 0.5f;
             juce::PathStrokeType st(sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
             juce::Path tr; tr.addCentredArc(c.x, c.y, R, R, 0, a0, a1, true);
@@ -402,6 +402,8 @@ public:
             if (tb - ta > 0.001f) {             // the light under the skin: a wide blur (10 / 5) and the line (3.5 / 1.2)
                 juce::Path va; va.addCentredArc(c.x, c.y, R, R, 0, ta, tb, true);
                 const float ga = 0.55f + 0.3f * pd;
+                juce::Graphics::ScopedSaveState glowClip(g);        // 2.4: the light fades inside a circle - never cut square by the knob's box
+                { juce::Path cl; float cr = juce::jmin((float) getWidth(), (float) getHeight()) * 0.5f; cl.addEllipse(c.x - cr, c.y - cr, cr * 2, cr * 2); g.reduceClipRegion(cl); }
                 for (int i = 6; i >= 1; --i) { float wv = (10.0f + i * 2.4f) * k; g.setColour(cc.withAlpha(ga * 0.13f * (7 - i) / 6.0f));
                     g.strokePath(va, juce::PathStrokeType(juce::jmax(2.0f, wv), juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
                 g.setColour(cc.withAlpha(0.55f)); g.strokePath(va, juce::PathStrokeType(juce::jmax(1.8f, 4.6f * k), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
@@ -514,7 +516,7 @@ public:
                      set(v); repaint(); return; }
         double v = juce::jlimit(lo, hi, startV + (startY - e.position.y) / (getHeight() * (e.mods.isShiftDown() ? 4.0 : 1.0)) * (hi - lo));
         set(v); repaint(); }
-    float capD() const { return juce::jlimit(16.0f, 26.0f, getHeight() - 6.0f); }
+    float capD() const { return Theme::softUI() ? juce::jlimit(12.0f, 26.0f, getHeight() - 10.0f) : juce::jlimit(16.0f, 26.0f, getHeight() - 6.0f); }   // 2.4: room for the cap's shade
     float capX() const { float d = capD(); return d * 0.5f + (getWidth() - d) * (float) ((juce::jlimit(lo, hi, get()) - lo) / (hi - lo)); }
     double valueAtX(float x) const { float d = capD(); return juce::jlimit(lo, hi, lo + (hi - lo) * (double) ((x - d * 0.5f) / juce::jmax(1.0f, getWidth() - d))); }
     void paintHoriz(juce::Graphics& gr) {
@@ -530,7 +532,7 @@ public:
         if (cx > x0 + 1) { gr.setColour(c.withAlpha(0.22f)); gr.fillRoundedRectangle(x0 - 2.0f, cy - 2.5f, cx - x0 + 2.0f, 5.0f, 2.5f);
                            gr.setColour(c); gr.fillRoundedRectangle(x0 - 1.0f, cy - 1.25f, cx - x0, 2.5f, 1.25f); }
         auto cap = juce::Rectangle<float>(cx - d * 0.5f, cy - d * 0.5f, d, d);
-        if (Theme::softUI()) softRaised(gr, cap, d * 0.5f, 3.0f, Theme::btn());
+        if (Theme::softUI()) softRaised(gr, cap, d * 0.5f, 2.0f, Theme::btn());
         else { gr.setColour(Theme::txt()); gr.fillEllipse(cap); }
         gr.setColour(Theme::sub()); gr.fillRoundedRectangle(cx - 1.0f, cy - d * 0.22f, 2.0f, d * 0.44f, 1.0f);
     }

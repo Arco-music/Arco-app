@@ -784,12 +784,16 @@ void PatcherView::resized() {
     int W = getWidth(), H = getHeight();
     barR = { 16, 10, W - 32, 46 };
     int x = barR.getX() + 150;
-    auto place = [&](const char* id, int w) { for (auto* c : owned) if (c->getComponentID() == juce::String("patcher:") + id) { if (!c->isVisible() && juce::String(id) == "back") return; c->setBounds(x, barR.getY() + 4, w, 38); x += w + 8; } };
+    int y0 = barR.getY() + 4;
+    auto place = [&](const char* id, int w) { for (auto* c : owned) if (c->getComponentID() == juce::String("patcher:") + id) { if (!c->isVisible() && juce::String(id) == "back") return; c->setBounds(x, y0, w, 38); x += w + 8; } };
     place("edit", 92); x -= 8; place("play", 92); x += 12; place("undo", 78); place("save", 78); place("open", 86);
-    x += 100;
+    bool backOn = false; for (auto* c : owned) if (c->getComponentID() == "patcher:back") backOn = c->isVisible();
+    int rightW = 100 + 4 * 66 + 20 + 116 + 158 + (backOn ? 178 : 0);
+    bool twoRows = x + rightW > W - 16;                     // 2.4: a narrow window puts where it plays on a second row
+    if (twoRows) { barR.setHeight(92); x = barR.getX() + 100; y0 = barR.getY() + 50; } else x += 100;
     for (int i = 0; i < 4; ++i) { place((juce::String("into") + juce::String(i)).toRawUTF8(), 74); x -= 8; } x += 20;
     place("sound", 108); place("studio", 150); place("back", 170);
-    int top = 66, conH = 118;
+    int top = barR.getBottom() + 10, conH = 118;
     side->setBounds(16, top, 268, H - top - 16);
     right->setBounds(W - 16 - 300, top, 300, H - top - 16);
     vp.setBounds(side->getRight() + 12, top, right->getX() - 12 - side->getRight() - 12, H - top - conH - 28);
@@ -801,7 +805,8 @@ void PatcherView::paint(juce::Graphics& g) {
     juce::String crumbs = name; { PatchDoc* d = &root(); for (int p : path) { auto* b = d->box(p); if (!b || !b->sub) break; crumbs << U8("  ›  ") << b->text; d = b->sub.get(); } }
     drawCaption(g, "plays into", { 0, 0, 0, 0 });
     int ix = 0; for (auto* c : owned) if (c->getComponentID() == "patcher:into0") ix = c->getX();
-    drawCaption(g, "plays into", { ix - 90, barR.getY() + 4, 84, 38 }, juce::Justification::centredRight);
+    int iy = barR.getY() + 4; for (auto* c : owned) if (c->getComponentID() == "patcher:into0") iy = c->getY();
+    drawCaption(g, "plays into", { ix - 90, iy, 84, 38 }, juce::Justification::centredRight);
     // the path of subpatches over the canvas
     auto cr = juce::Rectangle<int>(vp.getX() + 12, vp.getY() - 0, vp.getWidth() - 24, 0); juce::ignoreUnused(cr);
     if (Theme::softUI()) softWellLite(g, vp.getBounds().toFloat().expanded(3), 18);

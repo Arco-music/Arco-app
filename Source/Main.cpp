@@ -182,7 +182,7 @@ public:
             if (phoneOnly) { arco::MainComponent::phoneSized = true; sizes = { { 750, 390 }, { 844, 390 }, { 667, 375 }, { 812, 375 } }; }
             for (auto wh : sizes) {
                 for (int t : { 1, 4, 8 }) lcfg.push_back({ Screen::Workstation, wh.first, wh.second, t, pal, {} });
-                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys })
+                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys, Screen::Patcher })
                     lcfg.push_back({ sc, wh.first, wh.second, 4, pal, {} });
             }
         }
@@ -234,6 +234,20 @@ public:
                         if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
                     if (!pl->shadedByParent() && pl->raisedNow()) {
                         auto msg = tag + "  SHADECUT  " + lcName(v[i]) + " in " + juce::String(typeid(*pl->getParentComponent()).name());
+                        if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
+                }
+                if (dynamic_cast<arco::Pill*>(v[i]) == nullptr && dynamic_cast<arco::Segments*>(v[i]) == nullptr && arco::Theme::softUI() && v[i]->getWidth() <= 260 && v[i]->getHeight() <= 260) {
+                    // 2.4: a light (a knob's glow) that reaches its box and is cut square there
+                    auto im = v[i]->createComponentSnapshot(v[i]->getLocalBounds(), false, 1.0f);
+                    int W2 = im.getWidth(), H2 = im.getHeight(), hits = 0, total = 0;
+                    auto colourful = [&](int x, int y) { auto c = im.getPixelAt(x, y); if (c.getAlpha() < 50) return false; return c.getSaturation() > 0.28f; };
+                    for (int x = 0; x < W2; x += 2) { total += 2; hits += colourful(x, 0) + colourful(x, H2 - 1); }
+                    for (int y = 0; y < H2; y += 2) { total += 2; hits += colourful(0, y) + colourful(W2 - 1, y); }
+                    if (total > 0 && hits * 100 / total >= 6) {
+                        if (auto dd = juce::SystemStats::getEnvironmentVariable("LCDUMP", {}); dd.isNotEmpty()) {
+                            juce::File f(dd + "/" + lcName(v[i]).retainCharacters("abcdefghijklmnopqrstuvwxyz0123456789") + ".png");
+                            if (! f.existsAsFile()) { juce::FileOutputStream os(f); juce::PNGImageFormat().writeImageToStream(v[i]->createComponentSnapshot(v[i]->getLocalBounds(), false, 4.0f), os); } }
+                        auto msg = tag + "  GLOWCUT  " + lcName(v[i]) + " " + juce::String(typeid(*v[i]).name()) + " " + juce::String(hits * 100 / total) + "%";
                         if (!seen.contains(msg)) { seen.add(msg); printf("%s\n", msg.toRawUTF8()); ++lcProblems; } }
                 }
                 if (v[i]->findParentComponentOfClass<juce::Viewport>() == nullptr && !lcmc->getLocalBounds().contains(a.reduced(1))) {
