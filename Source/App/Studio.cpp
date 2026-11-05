@@ -1288,9 +1288,14 @@ bool Studio::transposeClip(int ci, double semis) {
 // ------------------------------------------------------------------ save / open
 static juce::var devToVar(const StudioDevice& d) { auto* x = new juce::DynamicObject(); x->setProperty("type", d.type); x->setProperty("on", d.on); if (d.side >= 0) x->setProperty("side", d.side); if (d.type == DevPlugin) { x->setProperty("plug", d.plugDesc); x->setProperty("pname", d.plugName); x->setProperty("uid", d.uid); x->setProperty("pstate", d.slot ? d.slot->state() : d.plugState); }
     if (d.type == DevPatch) { x->setProperty("patch", d.patchJson); x->setProperty("pname", d.plugName); }
+    if (d.type == DevPatcher) { juce::String j = d.patchJson;
+        if (d.prt) { auto doc = px::PatchDoc::fromVar(juce::JSON::parse(j)); for (auto& b : doc.boxes) if (auto o = d.prt->objOf(b.id)) { auto k = o->keep(); if (!k.isVoid()) b.state = k; } j = juce::JSON::toString(doc.toVar(), true); }
+        x->setProperty("patcher", j); x->setProperty("pname", d.plugName); }
     if (d.type == DevStation) { x->setProperty("fx", d.fx); if (d.fx >= 0 && d.fx < stationFxCount()) x->setProperty("fxk", juce::String(stationCatalogue()[(size_t) d.fx].key)); }
     juce::Array<juce::var> p; for (float v : d.p) p.add(v); x->setProperty("p", p); return juce::var(x); }
 static StudioDevice devFromVar(const juce::var& v) {
+    if ((int) v["type"] == DevPatcher) { StudioDevice d; d.type = DevPatcher; d.on = v.getProperty("on", true); d.patchJson = v["patcher"].toString(); d.plugName = v.getProperty("pname", "Patcher").toString();
+        d.prt = std::make_shared<px::Runtime>(); d.prt->setDoc(px::PatchDoc::fromVar(juce::JSON::parse(d.patchJson)), true); return d; }
     if ((int) v["type"] == DevPatch) { StudioDevice d; d.type = DevPatch; d.on = v.getProperty("on", true); d.patchJson = v["patch"].toString(); d.plugName = v.getProperty("pname", "Patch").toString(); return d; }
     if ((int) v["type"] == DevPlugin) { StudioDevice d; d.type = DevPlugin; d.on = v.getProperty("on", true); d.plugDesc = v["plug"].toString(); d.plugName = v["pname"].toString();
         d.uid = v["uid"].toString(); d.plugState = v["pstate"].toString(); if (d.uid.isEmpty()) d.uid = juce::Uuid().toString(); return d; } StudioDevice d = StudioDevice::make(juce::jlimit(0, DevCount - 1, (int) v["type"])); d.on = v.getProperty("on", true); d.side = v.getProperty("side", -1);

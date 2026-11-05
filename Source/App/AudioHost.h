@@ -13,6 +13,7 @@
 #include "Studio.h"
 #include "Instruments.h"
 #include "DrumKits.h"
+#include "../Engine/Patcher.h"
 
 namespace arco {
 
@@ -81,7 +82,22 @@ public:
     std::atomic<bool> studioKeys { false };    // STUDIO is open with an instrument lane: the keys play it (and record into it)
     InstrumentRack rack;                       // 1.3: the KEYBOARD's instrument (MODULAR, a sampled instrument, a plug-in) - or the SYNTH
     std::atomic<bool> drumKeys { false };      // 2.0: the DRUM MACHINE is open: MIDI notes play its pads (General MIDI drum notes)
+    // 2.4: PATCHER - your own program, saved with the song (its screen edits patchDoc and compiles it)
+    std::unique_ptr<px::Runtime> patcher;
+    px::PatchDoc patchDoc;
+    std::deque<px::Line> patchLog; int patchLogGen = 0;
+    std::atomic<bool> patcherKeys { false };          // the PATCHER is open: the keys play only into it ([notein])
+    std::function<void(const px::Action&)> onPatcherAction;   // the screen handles: tempo, play, buffers to read
+    int patcherInto = 0;
+    void setPatcherInto(int v) { patcherInto = juce::jlimit(0, 3, v); engine.patcherInto.store(patcherInto); }
+    void patcherCompile(bool fresh) { if (patcher) patcher->setDoc(patchDoc, fresh); }
+    void patcherKeep();                               // the objects' state (a slider, a table) into patchDoc, to save it
+    void patcherAction(const px::Action& a);
+    struct PatcherPump : juce::Timer { AudioHost& h; explicit PatcherPump(AudioHost& x) : h(x) {} void timerCallback() override { if (h.patcher) h.patcher->poll(); } };
+    PatcherPump patcherPump { *this };
     void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override {
+        if (patcher) patcher->midiIn(juce::MidiMessage::noteOn(1, note, vel));
+        if (patcherKeys.load()) return;
         if (drumKeys.load()) { int p = DrumKits::padForNote(note); if (p < 0) p = ((note % 12) + 12) % 12; engine.drumMachine.play(p, vel); return; }
         if (studioKeys.load()) { studio.midiNote(note, vel, true); return; }
         if (latch) {                                    // HOLD: a touch turns a note on, the next touch turns it off
@@ -89,6 +105,8 @@ public:
             return; }
         playOn(note, vel); }
     void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override {
+        if (patcher) patcher->midiIn(juce::MidiMessage::noteOff(1, note));
+        if (patcherKeys.load()) return;
         if (drumKeys.load()) return;
         if (studioKeys.load()) { studio.midiNote(note, 0, false); return; }
         if (latch) return;

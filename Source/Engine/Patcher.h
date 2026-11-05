@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <functional>
 #include <string>
+#include <cstring>
 
 namespace arco { namespace px {
 
@@ -178,7 +179,7 @@ template <typename T, int N> struct Fifo {
     bool push(const T& x) { int a = w.load(std::memory_order_relaxed), nx = (a + 1) % N; if (nx == r.load(std::memory_order_acquire)) return false; q[a] = x; w.store(nx, std::memory_order_release); return true; }
     bool pop(T& x) { int a = r.load(std::memory_order_relaxed); if (a == w.load(std::memory_order_acquire)) return false; x = q[a]; r.store((a + 1) % N, std::memory_order_release); return true; }
 };
-struct UiIn { int box = 0, inlet = 0; Msg m; };
+struct UiIn { int box = 0, inlet = 0; char key[28] = {}; Msg m; };
 struct Line { char text[240]; char kind; int box; };       // a line for the console: 'p' print, 'e' error, 'i' info
 struct Action { char what[16]; double a = 0, b = 0, c = 0; int box = 0; char text[200]; };   // asks the app (tempo, play, a note out ...)
 
@@ -243,6 +244,7 @@ struct Program {
     int gen = 0;
     std::map<int, std::vector<int>> boxNodes;              // top-level box -> its nodes
     std::vector<int> recvNodes, midiNodes, beatNodes;
+    std::unordered_map<std::string, int> keyNodes;
     std::vector<Obj*> objSet;                              // (sorted: what lives in this program)
     bool fresh = false;
 };
@@ -256,7 +258,10 @@ struct Runtime {
     void post(int box, int inlet, const Msg& m) { UiIn u; u.box = box; u.inlet = inlet; u.m = m; uiIn.push(u); }
     void midiIn(const juce::MidiMessage& m);
     ObjPtr objOf(int box) const { auto it = objs.find(box); return it == objs.end() ? nullptr : it->second; }
-    juce::String boxError(int box) const { auto it = errs.find(box); return it == errs.end() ? juce::String() : it->second; }
+    juce::String boxError(int box) const { return boxErrorKey(std::to_string(box)); }
+    juce::String boxErrorKey(const std::string& k) const { auto it = errs.find(k); return it == errs.end() ? juce::String() : it->second; }
+    ObjPtr objAt(const std::string& key) const { auto it = pool.find(key); return it == pool.end() ? nullptr : it->second.second; }   // (inside subpatches: "4/7")
+    void postKey(const std::string& key, int inlet, const Msg& m) { UiIn u; u.inlet = inlet; u.m = m; std::strncpy(u.key, key.c_str(), sizeof u.key - 1); uiIn.push(u); }
     std::function<void(const Line&)> onLine;               // the console (message thread, from poll())
     std::function<void(const Action&)> onAction;           // the app: tempo, play / stop, notes out
     void poll();                                           // call often on the message thread
@@ -281,7 +286,7 @@ struct Runtime {
     std::vector<Limbo> limbo;
     std::unique_ptr<Program> current;
     std::map<std::string, std::pair<std::string, ObjPtr>> pool;   // key -> (text, object): kept while a patch is edited
-    std::map<int, ObjPtr> objs; std::map<int, juce::String> errs;
+    std::map<int, ObjPtr> objs; std::map<std::string, juce::String> errs;
     Fifo<UiIn, 128> uiIn;
     Fifo<std::array<unsigned char, 3>, 512> midiQ;
     Fifo<Line, 512> lines;

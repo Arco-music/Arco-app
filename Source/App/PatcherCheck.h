@@ -5,6 +5,7 @@
 // a Max patch imported.
 #include "../Engine/Patcher.h"
 #include "../Engine/PatcherLib.h"
+#include "../Engine/PatcherExamples.h"
 #include <cstdio>
 
 namespace arco {
@@ -172,6 +173,20 @@ inline int runPatcherCheck() {
     { auto h = searchDefs("microphone"); check(!h.empty() && (h[0]->name == "adc~" || h[0]->name == "ezadc~"), juce::String("search \"microphone\" -> ") + (h.empty() ? "nothing" : h[0]->name.c_str())); }
     { auto h = searchDefs("make a beat in time"); bool has = false; for (size_t i = 0; i < h.size() && i < 5; ++i) has |= h[i]->name == "beat" || h[i]->name == "metro"; check(has, "search \"make a beat in time\" finds [beat] / [metro]"); }
     { auto s = suggest("metor"); check(!s.empty() && s[0] == "metro", "\"metor\" -> did you mean metro?"); }
+    {   // every ready-made patch opens without a problem, and the ones that sound make sound
+        juce::String bad; int n = 0;
+        for (auto& ex : examples()) { Rig r; r.d = ex.doc; r.load(); ++n;
+            for (auto& b : ex.doc.boxes) if (r.rt.boxError(b.id).isNotEmpty()) bad << ex.name << ": " << b.text << " (" << r.rt.boxError(b.id) << ")  ";
+            // turn it on: toggles 1, buttons bang, then listen
+            for (auto& b : ex.doc.boxes) { auto c = clsOf(b.text); if (c == "toggle") r.click(b.id, Msg::i(1)); if (c == "button") r.click(b.id); }
+            r.run(800, [](int i) { return 0.3f * (float) std::sin(i * 0.03); });
+            for (auto& b : ex.doc.boxes) { auto c = clsOf(b.text); if (c == "button") r.click(b.id); if (c == "msg") {} }
+            r.run(600, [](int i) { return 0.3f * (float) std::sin(i * 0.03); });
+            bool fin = true; float pk = 0; for (float v : r.outL) { fin &= std::isfinite(v); pk = juce::jmax(pk, std::abs(v)); }
+            if (!fin || pk > 4) bad << ex.name << " (level " << pk << ")  ";
+        }
+        check(bad.isEmpty(), "the " + juce::String(n) + " ready-made patches open cleanly and stay in range " + bad.substring(0, 300));
+    }
     say("patcher check: %d of %d failed", fails, total);
     return fails;
 }

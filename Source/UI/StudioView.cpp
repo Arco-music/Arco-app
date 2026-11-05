@@ -779,7 +779,7 @@ void StudioView::rebuildDetail() {
     for (int di = 0; di < (int) devs.size(); ++di) {
         auto& I = devInfoOf(devs[(size_t) di]);
         int np = (int) I.p.size(), cols = (np + 1) / 2;
-        int w = devs[(size_t) di].type == DevPlugin ? 200 : 18 + cols * 54;
+        int w = devs[(size_t) di].type == DevPlugin || devs[(size_t) di].type == DevPatcher ? 200 : 18 + cols * 54;
         auto box = juce::Rectangle<int>(dx, y0 + 30, w, (int) detailH - 40);
         devBoxes.push_back({ box, di, master });
         pill({ box.getRight() - 64, box.getY() + 4, 28, 18 }, "ON", [this, devRef, di] { const juce::ScopedLock sl(studio.lock); if (auto* dv = devRef(di)) dv->on = !dv->on; }, [devRef, di] { auto* dv = devRef(di); return dv && dv->on ? Theme::green() : Theme::btn(); });
@@ -789,6 +789,8 @@ void StudioView::rebuildDetail() {
         if (devs[(size_t) di].type == DevPlugin)        // 2.3: a plug-in: its own window
             pill({ box.getX() + 14, box.getY() + 46, box.getWidth() - 28, 34 }, "OPEN", [devRef, di] { if (auto* dv = devRef(di)) if (dv->slot) dv->slot->show(); })->dynText = [devRef, di] {
                 auto* dv = devRef(di); return dv && dv->slot ? U8("Open its window ▸") : U8("Opening …"); };
+        if (devs[(size_t) di].type == DevPatcher)       // 2.4: a PATCHER program: open it in its screen
+            pill({ box.getX() + 14, box.getY() + 46, box.getWidth() - 28, 34 }, U8("Edit in Patcher ▸"), [this, li, di] { if (cv.onEditPatcher) cv.onEditPatcher(li, di); });
         if (devs[(size_t) di].type == DevComp || devs[(size_t) di].type == DevGate)      // 2.3: SIDECHAIN
             pill({ box.getX() + 10, box.getBottom() - 28, juce::jmin(150, box.getWidth() - 20), 22 }, "KEY", [this, li, di] { keyMenu(li, di); })->dynText = [this, devRef, di] {
                 auto* dv = devRef(di); auto& LL = studio.song.lanes;
@@ -846,7 +848,7 @@ void StudioView::paintDetail(juce::Graphics& g) {
         if (Theme::softUI()) softRaised(g, b.r.toFloat(), 16.0f, 6.0f, Theme::card()); else { g.setColour(Theme::card2()); g.fillRoundedRectangle(b.r.toFloat(), 8); }
         auto& DI = devInfoOf(devs[(size_t) b.dev]);
         const auto& dvb = devs[(size_t) b.dev];
-        txt(g, dvb.type == DevPlugin ? dvb.plugName : juce::String(DI.name), { b.r.getX() + 12, b.r.getY() + 4, b.r.getWidth() - 84, 18 }, 8.5f, devs[(size_t) b.dev].on ? Theme::txt() : Theme::sub(), 2);
+        txt(g, dvb.type == DevPlugin || dvb.type == DevPatcher ? dvb.plugName : juce::String(DI.name), { b.r.getX() + 12, b.r.getY() + 4, b.r.getWidth() - 84, 18 }, 8.5f, devs[(size_t) b.dev].on ? Theme::txt() : Theme::sub(), 2);
         txt(g, DI.desc, { b.r.getX() + 12, b.r.getY() + 19, b.r.getWidth() - 24, 10 }, 6.0f, Theme::sub(), 1);
     }
     for (auto& l : persistentLabels) {

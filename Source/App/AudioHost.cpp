@@ -20,6 +20,12 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     writerThread.startThread();
     engine.prepare(48000.0);
     rack.prepare(48000.0); engine.ext.store(&rack);
+    patcher = std::make_unique<px::Runtime>(); patcher->prepare(48000.0);      // 2.4: PATCHER
+    patcher->onLine = [this](const px::Line& l) { patchLog.push_back(l); while (patchLog.size() > 400) patchLog.pop_front(); ++patchLogGen; };
+    patcher->onAction = [this](const px::Action& a) { patcherAction(a); };
+    patcherCompile(true);
+    engine.patcher.store(patcher.get());
+    patcherPump.startTimerHz(200);
     // 2.0: the DRUM MACHINE's kits are made in the background (the samples decoded, the classic machines modelled)
     juce::Thread::launch([this] { auto* b = DrumKits::bank(); engine.drumMachine.bank.store(b); });
     model.sendAll();
@@ -159,6 +165,7 @@ void AudioHost::tickPhones() {
 
 AudioHost::~AudioHost() {
     engine.ext.store(nullptr);
+    engine.patcher.store(nullptr); patcherPump.stopTimer();
     if (live) saveSetup();
     devices.removeMidiInputDeviceCallback({}, this);
     stopTimer();
@@ -183,6 +190,7 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
         lastRate = r;
         engine.prepare(r);
         rack.prepare(r);
+        if (patcher) patcher->prepare(r);
         engineRestarted = true;
     }
     triggerAsyncUpdate();                    // every (re)start: the inputs / outputs may be different now
@@ -291,6 +299,7 @@ bool AudioHost::isPedalCC(int cc, int ch) const {
 
 void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) {
     int type = 0, num = 0, ch = m.getChannel();
+    if (patcher && !m.isNoteOnOrOff()) patcher->midiIn(m);      // the PATCHER hears every knob and wheel (the notes come through the keys)
     // ---- MIDI learn and the learned controls come first
     {
         int lt = 0, ln = 0, lv = 0;
@@ -349,6 +358,18 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
             return;                                   // a pedal, not a note
         }
     if (type == 1) { int n = num; float v = m.getFloatVelocity(); juce::MessageManager::callAsync([this, ch, n, v] { keys.noteOn(ch, n, v); }); }
+}
+
+void AudioHost::patcherKeep() {
+    if (!patcher) return;
+    for (auto& b : patchDoc.boxes) if (auto o = patcher->objOf(b.id)) { auto k = o->keep(); if (!k.isVoid()) b.state = k; }
+}
+void AudioHost::patcherAction(const px::Action& a) {
+    juce::String w(a.what);
+    if (w == "note") { int n = (int) a.a, v = (int) a.b; if (v > 0) playOn(n, v / 127.0f); else playOff(n); return; }
+    if (w == "cc") { int c = (int) a.a, v = (int) a.b; if (c == 64) setSustain(v >= 64); else if (c == 1) model.set("l_pitch", v / 127.0 * 60.0); return; }
+    if (w == "bend") { synth.pitchBend((float) a.a * 2.0f); return; }
+    if (onPatcherAction) onPatcherAction(a);
 }
 
 void AudioHost::recordSynthOn(int track) {
@@ -477,6 +498,7 @@ void AudioHost::newSong() {
     model.press("st_looper", "rstall");
     model.resetSong();
     rack.fromVar({});
+    patchDoc = px::PatchDoc(); patcherCompile(true);
     fxpresets::applyDefaults(model);          // the effects as you like them for new songs
     loadDrums(juce::File());                  // 2.0: empty patterns, empty LIVE LOOPS
     if (onOpenExtra) onOpenExtra(juce::File());
@@ -499,7 +521,8 @@ bool AudioHost::saveSong(const juce::File& folder) {
     if (onSaveExtra) onSaveExtra(folder);                          // ... and LIVE LOOPS
     auto name = folder.getFileName();
     auto root = model.songState();
-    root.getDynamicObject()->setProperty("instrument", rack.toVar());   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
+    root.getDynamicObject()->setProperty("instrument", rack.toVar());
+    patcherKeep(); root.getDynamicObject()->setProperty("patcher", patchDoc.toVar());   // 2.4: the PATCHER's program   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
     auto* sess = new juce::DynamicObject();
     for (auto* k : { "sv_bl", "sv_bts", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3",
                      "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "sv_ntr" })
@@ -550,6 +573,7 @@ bool AudioHost::openSong(const juce::File& sel) {
     }
     model.loadSongState(v);
     rack.fromVar(v["instrument"]);
+    patchDoc = v["patcher"].isObject() ? px::PatchDoc::fromVar(v["patcher"]) : px::PatchDoc(); patcherCompile(true);
     loadDrums(folder);
     if (onOpenExtra) onOpenExtra(folder);
     auto s = v["session"];

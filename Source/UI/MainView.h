@@ -89,6 +89,7 @@ public:
     bool stationShown = true;
     bool synthOpen() const; bool keyboardOpen() const; bool modularOpen() const; bool spatialOpen() const;
     std::function<void()> onOpenStudio;
+    std::function<void(int lane, int device)> onEditPatcher;        // 2.4: a STUDIO device's PATCHER program, opened in its screen
 private:
     struct HK { juce::Component* c; int grp; juce::Rectangle<int> rel; };
     std::vector<HK> hk; std::vector<juce::Component*> winBtns;

@@ -8,6 +8,7 @@
 #include "../Engine/StripMix.h"
 #include "PluginSlot.h"
 #include "../Engine/Modular.h"
+#include "../Engine/Patcher.h"
 
 namespace arco {
 
@@ -50,7 +51,8 @@ struct StudioDevice {
     // 2.3: DevPlugin - an AU / VST3: what it is (to open it again), its settings when saved, the running one
     juce::String plugDesc, plugState, plugName, uid;
     PluginSlotPtr slot;
-    juce::String patchJson;                 // 2.3: DevPatch - a MODULAR patch used as an effect (its IN: THROUGH)
+    juce::String patchJson;                 // 2.3: DevPatch - a MODULAR patch used as an effect (its IN: THROUGH); 2.4: DevPatcher - a PATCHER program
+    std::shared_ptr<px::Runtime> prt;       // 2.4: DevPatcher - its running program (shared by the song's copies, like a plug-in)
     static StudioDevice make(int type) { StudioDevice d; d.type = type; auto& I = devInfo()[(size_t) type]; for (size_t i = 0; i < I.p.size(); ++i) d.p[i] = I.p[i].def; return d; }
     static StudioDevice makeStation(int which);
 };
@@ -59,6 +61,7 @@ struct StudioDevice {
 constexpr int DevStation = 100;
 constexpr int DevPlugin = 101;
 constexpr int DevPatch = 102;
+constexpr int DevPatcher = 103;      // 2.4: a PATCHER program as an effect: [adc~ 1 2] is the track, [dac~ 1 2] goes on
 struct StationRunBase {
     virtual ~StationRunBase() = default;
     int fx = -1;
@@ -73,6 +76,8 @@ int stationFxGroup(int which);              // 0 inserts, 1 send effects, 2 the 
 inline const DevInfo& devInfoOf(const StudioDevice& d) {
     static const DevInfo plug { "PLUG-IN", "its own window: OPEN", {} };
     static const DevInfo patch { "PATCH", "a modular patch as an effect", {} };
+    static const DevInfo patcher { "PATCHER", "your own program: adc~ in, dac~ out", {} };
+    if (d.type == DevPatcher) return patcher;
     if (d.type == DevPlugin) return plug;
     if (d.type == DevPatch) return patch;
     return d.type == DevStation ? stationFxInfo(d.fx) : devInfo()[(size_t) std::max(0, std::min((int) DevCount - 1, d.type))]; }
@@ -85,7 +90,8 @@ public:
     // 2.3: for this device (a station effect gets its own copy of the station's DSP)
     void prepareFor(const StudioDevice& d, double sampleRate) { prepare(sampleRate); st = d.type == DevStation ? makeStationRun(d.fx, sampleRate) : nullptr; key = keyOf(d);
         mod.reset(); if (d.type == DevPatch) { mod = std::make_unique<Modular>(); mod->setPatch(Modular::fromVar(juce::JSON::parse(d.patchJson))); mod->prepare(sampleRate);
-            tL.assign(8192, 0.0f); tR.assign(8192, 0.0f); } }
+            tL.assign(8192, 0.0f); tR.assign(8192, 0.0f); }
+        if (d.type == DevPatcher) { tL.assign(8192, 0.0f); tR.assign(8192, 0.0f); if (d.prt) d.prt->prepare(sampleRate); } }
     std::unique_ptr<Modular> mod; std::vector<float> tL, tR;
     static int keyOf(const StudioDevice& d) { return d.type == DevPatch ? 200000000 + (int) ((juce::uint32) d.patchJson.hashCode() % 100000000u) : d.type * 1000 + (d.type == DevStation ? d.fx : 0); }
     int key = -1;
@@ -120,6 +126,10 @@ public:
             case DevPatch: if (mod && n <= (int) tL.size()) {
                 std::copy(L, L + n, tL.data()); std::copy(R, R + n, tR.data()); std::fill(L, L + n, 0.0f); std::fill(R, R + n, 0.0f);
                 mod->thruL = tL.data(); mod->thruR = tR.data(); mod->process(L, R, n, bpm, beatPos); mod->thruL = mod->thruR = nullptr; } break;
+            case DevPatcher: if (d.prt && n <= (int) tL.size()) {
+                std::copy(L, L + n, tL.data()); std::copy(R, R + n, tR.data());
+                d.prt->bpm = bpm; d.prt->beat = beatPos; d.prt->running = true;
+                const float* in[2] = { tL.data(), tR.data() }; float* out[2] = { L, R }; d.prt->process(in, 2, out, 2, n); } break;
             default: break;
         }
         for (int i = 0; i < n; ++i) if (!std::isfinite(L[i]) || !std::isfinite(R[i])) { reset(); std::fill(L, L + n, 0.0f); std::fill(R, R + n, 0.0f); return; }

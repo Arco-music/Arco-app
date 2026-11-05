@@ -360,7 +360,7 @@ void flatten(const PatchDoc& d, const std::string& prefix, int top, Flat& f, int
 }
 }
 
-std::unique_ptr<Program> buildProgram(Runtime& rt, const PatchDoc& doc, std::map<std::string, std::pair<std::string, ObjPtr>>& newPool, std::map<int, juce::String>& errs) {
+std::unique_ptr<Program> buildProgram(Runtime& rt, const PatchDoc& doc, std::map<std::string, std::pair<std::string, ObjPtr>>& newPool, std::map<std::string, juce::String>& errs) {
     registerAll();
     auto p = std::make_unique<Program>();
     Flat f; flatten(doc, "", -1, f, 0);
@@ -377,26 +377,27 @@ std::unique_ptr<Program> buildProgram(Runtime& rt, const PatchDoc& doc, std::map
             if (b.kind == "msg") { auto* d = findDef("message"); std::vector<Atom> a; a.push_back(Atom::Sy(b.text.toStdString())); o = d->make(a); }
             else {
                 auto toks = tokenize(text);
-                if (toks.empty()) { errs[fb.top] = "an empty box"; continue; }
+                if (toks.empty()) { errs[fb.key] = "an empty box"; continue; }
                 auto* d = findDef(toks[0]);
-                if (d == nullptr) { auto sg = suggest(toks[0], 2); errs[fb.top] = "no object called \"" + juce::String(toks[0]) + "\"" + (sg.empty() ? juce::String() : " - did you mean " + juce::String(sg[0]) + "?"); continue; }
+                if (d == nullptr) { auto sg = suggest(toks[0], 2); errs[fb.key] = "no object called \"" + juce::String(toks[0]) + "\"" + (sg.empty() ? juce::String() : " - did you mean " + juce::String(sg[0]) + "?"); continue; }
                 std::vector<Atom> args;
                 for (size_t i = 1; i < toks.size(); ++i) { if (toks[i] == "," || toks[i] == ";") { args.push_back(Atom::Sy(toks[i])); continue; }
                     bool fl; if (isNumber(toks[i], fl)) args.push_back(fl ? Atom::F(std::atof(toks[i].c_str())) : Atom::I((double) std::atoll(toks[i].c_str()))); else args.push_back(Atom::Sy(toks[i])); }
                 o = d->make(args);
-                if (o == nullptr) { errs[fb.top] = "could not make it"; continue; }
+                if (o == nullptr) { errs[fb.key] = "could not make it"; continue; }
             }
             o->boxId = fb.top;
             o->prepare(rt.sr);
             if (!b.state.isVoid()) o->restore(b.state);
         }
-        if (o->err.isNotEmpty()) errs[fb.top] = o->err;
+        if (o->err.isNotEmpty()) errs[fb.key] = o->err;
         newPool[fb.key] = { text + "|" + b.kind.toStdString(), o };
         Node n; n.obj = o; n.key = fb.key; n.box = fb.top; n.x = b.x; n.outs.resize((size_t) juce::jmax(0, o->nOut));
         int idx = (int) p->nodes.size();
         o->slot[(rt.gen + 1) & 1] = idx;
         nodeOf[fb.key] = idx; p->nodes.push_back(n);
         p->boxNodes[fb.top].push_back(idx);
+        p->keyNodes[fb.key] = idx;
         if (fb.key.find('/') == std::string::npos) rt.objs[fb.top] = o;
     }
     // cords: through subpatch inlets / outlets to the real objects
@@ -427,7 +428,7 @@ std::unique_ptr<Program> buildProgram(Runtime& rt, const PatchDoc& doc, std::map
             int tn = ti->second; auto& to = *p->nodes[(size_t) tn].obj;
             if (r.second < 0 || r.second >= to.nIn) continue;
             if (so.isSigOut(src.second)) {
-                if (!to.isSigIn(r.second)) { errs[p->nodes[(size_t) tn].box] = "a sound cord (~) goes into an inlet that takes numbers"; continue; }
+                if (!to.isSigIn(r.second)) { errs[p->nodes[(size_t) tn].key] = "a sound cord (~) goes into an inlet that takes numbers"; continue; }
                 if (sigEdges[(size_t) tn].size() < (size_t) to.nIn) sigEdges[(size_t) tn].resize((size_t) to.nIn);
                 sigEdges[(size_t) tn][(size_t) r.second].push_back({ sn, src.second });
                 if (r.second < 16) to.connectedIn[r.second].store(true);
@@ -490,7 +491,7 @@ void Runtime::prepare(double sampleRate) {
     for (auto& [k, v] : pool) v.second->prepare(sr);
 }
 void Runtime::setDoc(const PatchDoc& doc, bool fresh) {
-    std::map<std::string, std::pair<std::string, ObjPtr>> newPool; std::map<int, juce::String> e;
+    std::map<std::string, std::pair<std::string, ObjPtr>> newPool; std::map<std::string, juce::String> e;
     objs.clear();
     auto p = buildProgram(*this, doc, newPool, e);
     p->gen = ++gen; p->fresh = fresh;
@@ -513,6 +514,8 @@ void Runtime::setDoc(const PatchDoc& doc, bool fresh) {
     else limbo.push_back({ np->gen, nullptr, std::move(dropped), juce::Time::getMillisecondCounterHiRes() });
 }
 void Runtime::midiIn(const juce::MidiMessage& m) {
+    static juce::SpinLock inLock;             // (the MIDI thread and the message thread both put notes in)
+    const juce::SpinLock::ScopedLockType sl(inLock);
     auto* d = m.getRawData(); int n = m.getRawDataSize();
     if (n < 1 || n > 3 || d[0] < 0x80 || d[0] >= 0xF0) return;
     std::array<unsigned char, 3> b { d[0], (unsigned char) (n > 1 ? d[1] : 0), (unsigned char) (n > 2 ? d[2] : 0) };
@@ -565,7 +568,9 @@ void Runtime::runBlock(Program& p, int n) {
     }
     // 1 - what you did on the screen
     UiIn u; int guard = 0;
-    while (guard++ < 128 && uiIn.pop(u)) { auto it = p.boxNodes.find(u.box); if (it != p.boxNodes.end() && !it->second.empty()) deliver(p, it->second.front(), u.inlet, u.m); }
+    while (guard++ < 128 && uiIn.pop(u)) {
+        if (u.key[0]) { auto it = p.keyNodes.find(std::string(u.key)); if (it != p.keyNodes.end()) deliver(p, it->second, u.inlet, u.m); continue; }
+        auto it = p.boxNodes.find(u.box); if (it != p.boxNodes.end() && !it->second.empty()) deliver(p, it->second.front(), u.inlet, u.m); }
     // 2 - MIDI
     std::array<unsigned char, 3> mb;
     while (midiQ.pop(mb)) for (int i : p.midiNodes) { ctx.depth = 0; p.nodes[(size_t) i].obj->midi(ctx, mb.data(), 3); }

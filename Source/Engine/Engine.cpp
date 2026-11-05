@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "Patcher.h"
 #include <chrono>
 #include <cstring>
 #include <algorithm>
@@ -73,12 +74,23 @@ void Engine::prepare(double sampleRate) {
             for (int i = 0; i < SUB; ++i) { o[0][i] += l[i]; o[1][i] += r[i]; o[2][i] += (l[i] + r[i]) * 0.5f; }
         });
     }
+    {   // 2.4: PATCHER - its own program hears the inputs (and the last block's mix), plays into its strip or the mix
+        const float* pin[6] = { B("live_in1"), B("live_in2"), B("live_in3"), B("live_in4"), B("mainL"), B("mainR") };
+        float* po[2] = { B("patL"), B("patR") }; const float* be = B("gbeat_prev"); const float* bp = B("gbpm_prev"); const float* gr = B("grun");
+        graph.push_back([this, pin, po, be, bp, gr]() {
+            auto* p = patcher.load();
+            if (p == nullptr) { std::fill(po[0], po[0] + SUB, 0.0f); std::fill(po[1], po[1] + SUB, 0.0f); return; }
+            p->bpm = bp[0] > 1 ? bp[0] : 120.0; p->beat = be[0]; p->running = gr[0] > 0.5f;
+            p->process(pin, 6, po, 2, SUB);
+            float g = patcherGain.load(); if (g != 1.0f) for (int i = 0; i < SUB; ++i) { po[0][i] *= g; po[1][i] *= g; }
+        });
+    }
     graph.push_back([this]() {                     // live 1 = input or TUNE; live 2-4 = input or SYNTH
         float* li = B("live_in1"); float* tu = B("tune_out"); float* l1 = B("live1");
         float target = tuneAmt > 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.02 * sr);
         for (int i = 0; i < SUB; ++i) { tuneMix += (tuneMix < target ? 1 : -1) * std::min(k, std::abs(target - tuneMix));
             l1[i] = li[i] * (1 - tuneMix) + tu[i] * tuneMix; }
-        float* sy = B("syn_mono");
+        float* sy = B("syn_mono"); float* pL = B("patL"); float* pR = B("patR");
         for (int j = 0; j < 3; ++j) {
             float* raw = B("live_in" + std::to_string(j + 2)); float* lv = B("live" + std::to_string(j + 2));
             float tg = synthInto.load() == j + 1 ? 1.0f : 0.0f; float kk = 1.0f / (float) (0.03 * sr);
@@ -88,6 +100,8 @@ void Engine::prepare(double sampleRate) {
                 dmG[j] += (dmG[j] < td ? 1 : -1) * std::min(kk, std::abs(td - dmG[j]));
                 float keep = 1.0f - std::max(synG[j], dmG[j]);
                 lv[i] = raw[i] * keep + sy[i] * synG[j] + dmPrev[(size_t) i] * dmG[j]; }
+            float tp = patcherInto.load() == j + 1 ? 1.0f : 0.0f;
+            for (int i = 0; i < SUB; ++i) { patG[j] += (patG[j] < tp ? 1 : -1) * std::min(kk, std::abs(tp - patG[j])); lv[i] += (pL[i] + pR[i]) * 0.5f * patG[j]; }
         }
     });
     auto LOUT = cat({ T, TP, { "click", "statA", "statB", "beat", "barno", "beatno", "loopbars", "scenes", "transport", "smask", "ebpm",
@@ -145,6 +159,10 @@ void Engine::prepare(double sampleRate) {
         std::array<const float*, 18> li { B("live1"), B("live2"), B("live3"), B("live4"), L, R, B("synL"), B("synR"), pl, pr,
                                           B("ch4"), B("ch5"), B("ch6"), B("ch7"), B("ch8"), B("ch9"), B("ch10"), B("ch11") };
         graph.push_back([this, li, gb, gt, dl, dr]() mutable { loopGrid.process(li.data(), gb, gt, phrase.p.bpb, dl, dr, SUB); });
+        float* pL = B("patL"); float* pR = B("patR");
+        graph.push_back([this, dl, dr, pL, pR]() {      // the PATCHER on its own: straight into the mix
+            float tg = patcherInto.load() == 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.03 * sr);
+            for (int i = 0; i < SUB; ++i) { patDirect += (patDirect < tg ? 1 : -1) * std::min(k, std::abs(tg - patDirect)); dl[i] += pL[i] * patDirect; dr[i] += pR[i] * patDirect; } });
     }
     addNode<Shadow>(this, mods, busToMod, graph, b, "st_shd", { "to_shd", "pitch", "halo_key" }, { "shdL", "shdR" });
     addNode<Orbit>(this, mods, busToMod, graph, b, "st_orb", { "to_orb" }, { "orbL", "orbR", "orb_pos", "orb_dm", "orb_mono" });

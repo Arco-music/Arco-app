@@ -43,6 +43,7 @@ target_sources(ARCO PRIVATE
     Source/Engine/PatcherControl.cpp
     Source/Engine/PatcherSignal.cpp
     Source/Engine/PatcherUI.cpp
+    Source/Engine/PatcherExamples.cpp
     Source/Model/Model.cpp
     Source/App/AudioHost.cpp
     Source/App/PhoneLink.cpp
@@ -67,6 +68,7 @@ target_sources(ARCO PRIVATE
     Source/UI/SpatialPanel.cpp
     Source/UI/InstrumentPanels.cpp
     Source/UI/ModularPanel.cpp
+    Source/UI/PatcherView.cpp
     Source/UI/Shell.cpp
     Source/UI/DrumView.cpp
     Source/UI/PhraseView.cpp

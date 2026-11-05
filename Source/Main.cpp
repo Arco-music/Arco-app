@@ -11,6 +11,7 @@
 #include "UI/Panels.h"
 #include "UI/InstrumentPanels.h"
 #include "App/PatcherCheck.h"
+#include "UI/PatcherView.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
 namespace arco { size_t audioHostSizeHere(); size_t studioSizeHere(); size_t engineSizeHere(); }
@@ -274,9 +275,10 @@ public:
             if (cmd.contains("synth")) sc = Screen::Synth;
             auto nm = cmd.fromFirstOccurrenceOf("screen=", false, false).upToFirstOccurrenceOf(" ", false, false);
             const std::pair<const char*, Screen> S[] = { { "home", Screen::Home }, { "workstation", Screen::Workstation }, { "loops", Screen::Loops }, { "studio", Screen::Studio },
-                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers } };
+                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers }, { "patcher", Screen::Patcher } };
             for (auto& p : S) if (nm == p.first) sc = p.second;
             mc->shell.show(sc);
+            if (sc == Screen::Patcher) mc->shell.patcher->demo(cmd);
             if (cmd.contains("demo2")) demo2(mc, sc);
             if (cmd.contains("fxbrowse=")) if (auto* sv = mc->shell.studioView()) sv->showEffects(cmd.fromFirstOccurrenceOf("fxbrowse=", false, false).getIntValue());
             if (cmd.contains("meter")) { mc->shell.setMeter(7, 8); mc->shell.chooseMeter(&mc->shell, { 960, 10, 160, 60 }); }
