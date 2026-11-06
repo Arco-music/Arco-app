@@ -11,7 +11,9 @@
 #include "UI/Panels.h"
 #include "UI/InstrumentPanels.h"
 #include "App/PatcherCheck.h"
+#include "App/FluxoCheck.h"
 #include "UI/PatcherView.h"
+#include "UI/FluxoView.h"
 #include "UI/SpatialPanel.h"
 #include "App/Updater.h"
 #include "UI/Sheets.h"
@@ -28,7 +30,7 @@ public:
         juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(arco::Theme::face(0));
         if (cmd.contains("--sizes")) { std::printf("AudioHost: here %zu, there %zu   Studio: here %zu, there %zu   Engine: here %zu, there %zu\n", sizeof(arco::AudioHost), arco::audioHostSizeHere(),
                                                    sizeof(arco::Studio), arco::studioSizeHere(), sizeof(arco::Engine), arco::engineSizeHere()); quit(); return; }
-        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck") || cmd.contains("--clickcheck") || cmd.contains("--patchercheck");
+        bool test = cmd.contains("--screenshot") || cmd.contains("--selftest") || cmd.contains("--update-check") || cmd.contains("--analyse") || cmd.contains("--probe") || cmd.contains("--layoutcheck") || cmd.contains("--importcheck") || cmd.contains("--studiocheck") || cmd.contains("--clickcheck") || cmd.contains("--patchercheck") || cmd.contains("--fluxocheck");
         if (cmd.contains("--analyse")) {               // for testing: what ARCO hears in a file
             auto args = juce::StringArray::fromTokens(cmd, true);
             juce::File f(args[args.indexOf("--analyse") + 1].unquoted());
@@ -57,6 +59,7 @@ public:
                 std::fflush(stdout); quit(); };
             if (cmd.contains("--install")) { updater->onProgress = [](const juce::String& m) { std::printf("  %s\n", m.toRawUTF8()); std::fflush(stdout); }; updater->install(); } else updater->check(); return;
         }
+        if (cmd.contains("--fluxocheck")) { int f = arco::runFluxoCheck(); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--patchercheck")) { int f = arco::runPatcherCheck(); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--studiocheck")) { int f = arco::runStudioCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
         if (cmd.contains("--importcheck")) { int f = arco::runImportCheck(*host); setApplicationReturnValue(f == 0 ? 0 : 1); quit(); return; }
@@ -182,7 +185,7 @@ public:
             if (phoneOnly) { arco::MainComponent::phoneSized = true; sizes = { { 750, 390 }, { 844, 390 }, { 667, 375 }, { 812, 375 } }; }
             for (auto wh : sizes) {
                 for (int t : { 1, 4, 8 }) lcfg.push_back({ Screen::Workstation, wh.first, wh.second, t, pal, {} });
-                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys, Screen::Patcher })
+                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys, Screen::Patcher, Screen::Fluxo })
                     lcfg.push_back({ sc, wh.first, wh.second, 4, pal, {} });
             }
         }
@@ -199,6 +202,7 @@ public:
         lcmc->canvas.shotTracks = cf.tracks;
         lcmc->shell.show(cf.sc);
         if (cf.sc == arco::Screen::Synth) lcmc->canvas.openSynth(true);
+        if (cf.sc == arco::Screen::Fluxo) lcmc->shell.fluxo->demo("fex=7 fsel=1");
         juce::Timer::callAfterDelay(250, [this, cf] {
             std::vector<juce::Component*> v; lcCollect(lcmc, v);
             if (lci <= 3 || lci % 20 == 0) { printf("  [%d controls] %s %dx%d\n", (int) v.size(), arco::screenTitle(cf.sc), cf.w, cf.h); }
@@ -290,10 +294,11 @@ public:
             if (cmd.contains("synth")) sc = Screen::Synth;
             auto nm = cmd.fromFirstOccurrenceOf("screen=", false, false).upToFirstOccurrenceOf(" ", false, false);
             const std::pair<const char*, Screen> S[] = { { "home", Screen::Home }, { "workstation", Screen::Workstation }, { "loops", Screen::Loops }, { "studio", Screen::Studio },
-                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers }, { "patcher", Screen::Patcher } };
+                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers }, { "patcher", Screen::Patcher }, { "fluxo", Screen::Fluxo } };
             for (auto& p : S) if (nm == p.first) sc = p.second;
             mc->shell.show(sc);
             if (sc == Screen::Patcher) mc->shell.patcher->demo(cmd);
+            if (sc == Screen::Fluxo) mc->shell.fluxo->demo(cmd);
             if (cmd.contains("demo2")) demo2(mc, sc);
             if (cmd.contains("fxbrowse=")) if (auto* sv = mc->shell.studioView()) sv->showEffects(cmd.fromFirstOccurrenceOf("fxbrowse=", false, false).getIntValue());
             if (cmd.contains("meter")) { mc->shell.setMeter(7, 8); mc->shell.chooseMeter(&mc->shell, { 960, 10, 160, 60 }); }

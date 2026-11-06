@@ -25,6 +25,11 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     patcher->onAction = [this](const px::Action& a) { patcherAction(a); };
     patcherCompile(true);
     engine.patcher.store(patcher.get());
+    fluxo = std::make_unique<px::Runtime>(); fluxo->prepare(48000.0);         // 2.5: FLUXO
+    fluxo->onLine = [this](const px::Line& l) { fluxLog.push_back(l); while (fluxLog.size() > 400) fluxLog.pop_front(); ++fluxLogGen; };
+    fluxo->onAction = [this](const px::Action& a) { patcherAction(a); };
+    fluxoCompile(true);
+    engine.fluxo.store(fluxo.get());
     patcherPump.startTimerHz(200);
     // 2.0: the DRUM MACHINE's kits are made in the background (the samples decoded, the classic machines modelled)
     juce::Thread::launch([this] { auto* b = DrumKits::bank(); engine.drumMachine.bank.store(b); });
@@ -165,7 +170,7 @@ void AudioHost::tickPhones() {
 
 AudioHost::~AudioHost() {
     engine.ext.store(nullptr);
-    engine.patcher.store(nullptr); patcherPump.stopTimer();
+    engine.patcher.store(nullptr); engine.fluxo.store(nullptr); patcherPump.stopTimer();
     if (live) saveSetup();
     devices.removeMidiInputDeviceCallback({}, this);
     stopTimer();
@@ -191,6 +196,7 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* d) {
         engine.prepare(r);
         rack.prepare(r);
         if (patcher) patcher->prepare(r);
+        if (fluxo) fluxo->prepare(r);
         engineRestarted = true;
     }
     triggerAsyncUpdate();                    // every (re)start: the inputs / outputs may be different now
@@ -299,7 +305,8 @@ bool AudioHost::isPedalCC(int cc, int ch) const {
 
 void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) {
     int type = 0, num = 0, ch = m.getChannel();
-    if (patcher && !m.isNoteOnOrOff()) patcher->midiIn(m);      // the PATCHER hears every knob and wheel (the notes come through the keys)
+    if (patcher && !m.isNoteOnOrOff()) patcher->midiIn(m);
+    if (fluxo && !m.isNoteOnOrOff()) fluxo->midiIn(m);      // the PATCHER hears every knob and wheel (the notes come through the keys)
     // ---- MIDI learn and the learned controls come first
     {
         int lt = 0, ln = 0, lv = 0;
@@ -363,6 +370,14 @@ void AudioHost::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMess
 void AudioHost::patcherKeep() {
     if (!patcher) return;
     for (auto& b : patchDoc.boxes) if (auto o = patcher->objOf(b.id)) { auto k = o->keep(); if (!k.isVoid()) b.state = k; }
+}
+void AudioHost::fluxoKeep() {
+    if (!fluxo) return;
+    std::function<void(fx::FluxDoc&, const std::string&)> keep = [&](fx::FluxDoc& d, const std::string& pre) {
+        for (auto& b : d.blocks) { auto it = fluxComp.uiKey.find(pre + std::to_string(b.id));
+            if (it != fluxComp.uiKey.end()) if (auto o = fluxo->objAt(it->second)) { auto k = o->keep(); if (!k.isVoid()) b.state = k; }
+            if (b.own && b.own->inner) keep(*b.own->inner, pre + std::to_string(b.id) + "/"); } };
+    keep(fluxDoc, "");
 }
 void AudioHost::patcherAction(const px::Action& a) {
     juce::String w(a.what);
@@ -499,6 +514,7 @@ void AudioHost::newSong() {
     model.resetSong();
     rack.fromVar({});
     patchDoc = px::PatchDoc(); patcherCompile(true);
+    fluxDoc = fx::FluxDoc(); fluxoCompile(true);
     fxpresets::applyDefaults(model);          // the effects as you like them for new songs
     loadDrums(juce::File());                  // 2.0: empty patterns, empty LIVE LOOPS
     if (onOpenExtra) onOpenExtra(juce::File());
@@ -522,7 +538,8 @@ bool AudioHost::saveSong(const juce::File& folder) {
     auto name = folder.getFileName();
     auto root = model.songState();
     root.getDynamicObject()->setProperty("instrument", rack.toVar());
-    patcherKeep(); root.getDynamicObject()->setProperty("patcher", patchDoc.toVar());   // 2.4: the PATCHER's program   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
+    patcherKeep(); root.getDynamicObject()->setProperty("patcher", patchDoc.toVar());
+    fluxoKeep(); root.getDynamicObject()->setProperty("fluxo", fluxDoc.toVar());       // 2.5: FLUXO   // 2.4: the PATCHER's program   // the KEYBOARD's instrument (MODULAR patch, sampled instrument, plug-in)
     auto* sess = new juce::DynamicObject();
     for (auto* k : { "sv_bl", "sv_bts", "sv_len0", "sv_len1", "sv_len2", "sv_len3", "sv_mask0", "sv_mask1", "sv_mask2", "sv_mask3",
                      "sv_spd0", "sv_spd1", "sv_spd2", "sv_spd3", "sv_ntr" })
@@ -574,6 +591,7 @@ bool AudioHost::openSong(const juce::File& sel) {
     model.loadSongState(v);
     rack.fromVar(v["instrument"]);
     patchDoc = v["patcher"].isObject() ? px::PatchDoc::fromVar(v["patcher"]) : px::PatchDoc(); patcherCompile(true);
+    fluxDoc = v["fluxo"].isObject() ? fx::FluxDoc::fromVar(v["fluxo"]) : fx::FluxDoc(); fluxoCompile(true);
     loadDrums(folder);
     if (onOpenExtra) onOpenExtra(folder);
     auto s = v["session"];

@@ -669,9 +669,11 @@ struct Beat : Obj {
     double div = 1; long long last = -1; bool on = true;
     explicit Beat(const Args& a) : Obj() { setIO(2, 2); wantsBeat = true; setDiv(a.empty() ? Atom::Sy("4n") : a[0]); }
     void setDiv(const Atom& x) { if (x.num()) { div = juce::jmax(0.01, x.d()); return; } auto s = symStr(x.s); double n = std::atof(s.c_str()); if (n <= 0) n = 4;
-        div = 4.0 / n; if (s.find('t') != std::string::npos) div *= 2.0 / 3.0; if (s.find('d') != std::string::npos) div *= 1.5; if (s == "bar" || s == "1bar") div = 4; }
+        div = 4.0 / n; if (s.find('t') != std::string::npos) div *= 2.0 / 3.0; if (s.find('d') != std::string::npos) div *= 1.5; if (s.find("bar") != std::string::npos) div = 4.0 * juce::jmax(1.0, std::atof(s.c_str())); }
+    double own = 0, lastMs = -1;   // 2.5: ARCO stopped - it keeps going on its own, at the tempo
     void msg(Ctx&, int in, const Msg& m) override { if (in == 1) { if (m.n) setDiv(m.a[0]); return; } if (m.isNum()) on = m.f() != 0; else if (m.sel == S::stop) on = false; else if (m.sel == S::start) on = true; }
-    void beatPoll(Ctx& c) override { poll(c, c.beat); }
+    void beatPoll(Ctx& c) override { double dt = lastMs < 0 ? 0 : c.nowMs - lastMs; lastMs = c.nowMs;
+        if (c.running) { own = c.beat; poll(c, c.beat); } else { own += dt / (60000.0 / juce::jmax(1.0, c.bpm)); poll(c, own); } }
     void poll(Ctx& c, double beatNow) { long long k = (long long) std::floor(beatNow / div + 1e-9); if (k != last) { bool first = last < 0; last = k; if (!first && on) { c.outI(this, 1, (double) k); c.bang(this, 0); uiFlash++; } } }
 };
 // [transport]: the app's clock - running, tempo, bar, beat; play / stop / tempo 120 change it

@@ -84,13 +84,21 @@ void Engine::prepare(double sampleRate) {
             p->process(pin, 6, po, 2, SUB);
             float g = patcherGain.load(); if (g != 1.0f) for (int i = 0; i < SUB; ++i) { po[0][i] *= g; po[1][i] *= g; }
         });
+        float* fo[2] = { B("fluL"), B("fluR") };
+        graph.push_back([this, pin, fo, be, bp, gr]() {     // 2.5: FLUXO
+            auto* p = fluxo.load();
+            if (p == nullptr) { std::fill(fo[0], fo[0] + SUB, 0.0f); std::fill(fo[1], fo[1] + SUB, 0.0f); return; }
+            p->bpm = bp[0] > 1 ? bp[0] : 120.0; p->beat = be[0]; p->running = gr[0] > 0.5f;
+            p->process(pin, 6, fo, 2, SUB);
+            float g = fluxoGain.load(); if (g != 1.0f) for (int i = 0; i < SUB; ++i) { fo[0][i] *= g; fo[1][i] *= g; }
+        });
     }
     graph.push_back([this]() {                     // live 1 = input or TUNE; live 2-4 = input or SYNTH
         float* li = B("live_in1"); float* tu = B("tune_out"); float* l1 = B("live1");
         float target = tuneAmt > 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.02 * sr);
         for (int i = 0; i < SUB; ++i) { tuneMix += (tuneMix < target ? 1 : -1) * std::min(k, std::abs(target - tuneMix));
             l1[i] = li[i] * (1 - tuneMix) + tu[i] * tuneMix; }
-        float* sy = B("syn_mono"); float* pL = B("patL"); float* pR = B("patR");
+        float* sy = B("syn_mono"); float* pL = B("patL"); float* pR = B("patR"); float* fL = B("fluL"); float* fR = B("fluR");
         for (int j = 0; j < 3; ++j) {
             float* raw = B("live_in" + std::to_string(j + 2)); float* lv = B("live" + std::to_string(j + 2));
             float tg = synthInto.load() == j + 1 ? 1.0f : 0.0f; float kk = 1.0f / (float) (0.03 * sr);
@@ -102,6 +110,8 @@ void Engine::prepare(double sampleRate) {
                 lv[i] = raw[i] * keep + sy[i] * synG[j] + dmPrev[(size_t) i] * dmG[j]; }
             float tp = patcherInto.load() == j + 1 ? 1.0f : 0.0f;
             for (int i = 0; i < SUB; ++i) { patG[j] += (patG[j] < tp ? 1 : -1) * std::min(kk, std::abs(tp - patG[j])); lv[i] += (pL[i] + pR[i]) * 0.5f * patG[j]; }
+            float tf = fluxoInto.load() == j + 1 ? 1.0f : 0.0f;
+            for (int i = 0; i < SUB; ++i) { fluG[j] += (fluG[j] < tf ? 1 : -1) * std::min(kk, std::abs(tf - fluG[j])); lv[i] += (fL[i] + fR[i]) * 0.5f * fluG[j]; }
         }
     });
     auto LOUT = cat({ T, TP, { "click", "statA", "statB", "beat", "barno", "beatno", "loopbars", "scenes", "transport", "smask", "ebpm",
@@ -163,6 +173,10 @@ void Engine::prepare(double sampleRate) {
         graph.push_back([this, dl, dr, pL, pR]() {      // the PATCHER on its own: straight into the mix
             float tg = patcherInto.load() == 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.03 * sr);
             for (int i = 0; i < SUB; ++i) { patDirect += (patDirect < tg ? 1 : -1) * std::min(k, std::abs(tg - patDirect)); dl[i] += pL[i] * patDirect; dr[i] += pR[i] * patDirect; } });
+        float* fL = B("fluL"); float* fR = B("fluR");
+        graph.push_back([this, dl, dr, fL, fR]() {      // FLUXO on its own
+            float tg = fluxoInto.load() == 0 ? 1.0f : 0.0f, k = 1.0f / (float) (0.03 * sr);
+            for (int i = 0; i < SUB; ++i) { fluDirect += (fluDirect < tg ? 1 : -1) * std::min(k, std::abs(tg - fluDirect)); dl[i] += fL[i] * fluDirect; dr[i] += fR[i] * fluDirect; } });
     }
     addNode<Shadow>(this, mods, busToMod, graph, b, "st_shd", { "to_shd", "pitch", "halo_key" }, { "shdL", "shdR" });
     addNode<Orbit>(this, mods, busToMod, graph, b, "st_orb", { "to_orb" }, { "orbL", "orbR", "orb_pos", "orb_dm", "orb_mono" });

@@ -44,6 +44,9 @@ target_sources(ARCO PRIVATE
     Source/Engine/PatcherSignal.cpp
     Source/Engine/PatcherUI.cpp
     Source/Engine/PatcherExamples.cpp
+    Source/Engine/PatcherMore.cpp
+    Source/Engine/Fluxo.cpp
+    Source/Engine/FluxoBlocks.cpp
     Source/Model/Model.cpp
     Source/App/AudioHost.cpp
     Source/App/PhoneLink.cpp
@@ -69,6 +72,7 @@ target_sources(ARCO PRIVATE
     Source/UI/InstrumentPanels.cpp
     Source/UI/ModularPanel.cpp
     Source/UI/PatcherView.cpp
+    Source/UI/FluxoView.cpp
     Source/UI/Shell.cpp
     Source/UI/DrumView.cpp
     Source/UI/PhraseView.cpp

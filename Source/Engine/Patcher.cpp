@@ -230,10 +230,10 @@ juce::var PatchDoc::toMaxpat() const {
 // ================================================================== the catalogue
 std::vector<ObjDef>& catalogue() { static std::vector<ObjDef> c; return c; }
 static std::unordered_map<std::string, int>& defIndex() { static std::unordered_map<std::string, int> m; return m; }
-void registerControl(); void registerSignal(); void registerUI();
+void registerControl(); void registerSignal(); void registerUI(); void registerMore();
 void registerAll() {
     static bool done = false; if (done) return; done = true;
-    registerControl(); registerSignal(); registerUI();
+    registerControl(); registerSignal(); registerUI(); registerMore();
     auto& c = catalogue(); auto& ix = defIndex();
     for (int i = 0; i < (int) c.size(); ++i) ix[c[(size_t) i].name] = i;
 }
@@ -644,7 +644,7 @@ double Ctx::noteMs(const Atom& a, double dflt) const {
         if (mod == 't') ms *= 2.0 / 3.0; else if (mod == 'd') ms *= 1.5;
         return ms;
     }
-    if (s == "bar" || s == "1bar") return beatMs * beatsPerBar * 4.0 / juce::jmax(1, beatUnit);
+    if (s.size() >= 3 && s.substr(s.size() - 3) == "bar") { double n = s.size() > 3 ? std::atof(s.c_str()) : 1.0; return beatMs * beatsPerBar * 4.0 / juce::jmax(1, beatUnit) * juce::jmax(0.01, n); }
     if (s.size() > 2 && s.substr(s.size() - 2) == "ms") return std::atof(s.c_str());
     if (s.size() > 1 && s.back() == 's') return std::atof(s.c_str()) * 1000.0;
     if (s.size() > 2 && s.substr(s.size() - 2) == "hz") { double hz = std::atof(s.c_str()); return hz > 0 ? 1000.0 / hz : dflt; }

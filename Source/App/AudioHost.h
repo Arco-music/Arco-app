@@ -14,6 +14,7 @@
 #include "Instruments.h"
 #include "DrumKits.h"
 #include "../Engine/Patcher.h"
+#include "../Engine/Fluxo.h"
 
 namespace arco {
 
@@ -93,11 +94,21 @@ public:
     void patcherCompile(bool fresh) { if (patcher) patcher->setDoc(patchDoc, fresh); }
     void patcherKeep();                               // the objects' state (a slider, a table) into patchDoc, to save it
     void patcherAction(const px::Action& a);
-    struct PatcherPump : juce::Timer { AudioHost& h; explicit PatcherPump(AudioHost& x) : h(x) {} void timerCallback() override { if (h.patcher) h.patcher->poll(); } };
+    // 2.5: FLUXO - blocks you read like sentences, compiled into a patch of its own runtime (saved with the song)
+    std::unique_ptr<px::Runtime> fluxo;
+    fx::FluxDoc fluxDoc; fx::Compiled fluxComp;
+    std::deque<px::Line> fluxLog; int fluxLogGen = 0;
+    std::atomic<bool> fluxoKeys { false };            // FLUXO is open: the keys play only into it
+    int fluxoInto = 0;
+    void setFluxoInto(int v) { fluxoInto = juce::jlimit(0, 3, v); engine.fluxoInto.store(fluxoInto); }
+    void fluxoCompile(bool fresh) { if (fluxo) { fluxComp = fx::compile(fluxDoc); fluxo->setDoc(fluxComp.doc, fresh); } }
+    void fluxoKeep();                                 // what the blocks' things keep (a slider, the steps) into fluxDoc
+    struct PatcherPump : juce::Timer { AudioHost& h; explicit PatcherPump(AudioHost& x) : h(x) {} void timerCallback() override { if (h.patcher) h.patcher->poll(); if (h.fluxo) h.fluxo->poll(); } };
     PatcherPump patcherPump { *this };
     void handleNoteOn(juce::MidiKeyboardState*, int, int note, float vel) override {
         if (patcher) patcher->midiIn(juce::MidiMessage::noteOn(1, note, vel));
-        if (patcherKeys.load()) return;
+        if (fluxo) fluxo->midiIn(juce::MidiMessage::noteOn(1, note, vel));
+        if (patcherKeys.load() || fluxoKeys.load()) return;
         if (drumKeys.load()) { int p = DrumKits::padForNote(note); if (p < 0) p = ((note % 12) + 12) % 12; engine.drumMachine.play(p, vel); return; }
         if (studioKeys.load()) { studio.midiNote(note, vel, true); return; }
         if (latch) {                                    // HOLD: a touch turns a note on, the next touch turns it off
@@ -106,7 +117,8 @@ public:
         playOn(note, vel); }
     void handleNoteOff(juce::MidiKeyboardState*, int, int note, float) override {
         if (patcher) patcher->midiIn(juce::MidiMessage::noteOff(1, note));
-        if (patcherKeys.load()) return;
+        if (fluxo) fluxo->midiIn(juce::MidiMessage::noteOff(1, note));
+        if (patcherKeys.load() || fluxoKeys.load()) return;
         if (drumKeys.load()) return;
         if (studioKeys.load()) { studio.midiNote(note, 0, false); return; }
         if (latch) return;

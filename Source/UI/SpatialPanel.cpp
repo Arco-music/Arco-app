@@ -504,4 +504,8 @@ void RoutingView::oneEach() {
  #include "../Engine/PatcherExamples.cpp"
  #include "ModularPanel.cpp"
  #include "PatcherView.cpp"
+ #include "../Engine/PatcherMore.cpp"
+ #include "../Engine/Fluxo.cpp"
+ #include "../Engine/FluxoBlocks.cpp"
+ #include "FluxoView.cpp"
 #endif

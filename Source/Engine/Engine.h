@@ -147,6 +147,9 @@ public:
     std::atomic<px::Runtime*> patcher { nullptr };                 // 2.4: PATCHER - your own program, every block
     std::atomic<int> patcherInto { 0 };                            // 0 its own (straight into the mix), 1-3 = LIVE 2-4
     std::atomic<float> patcherGain { 1.0f };
+    std::atomic<px::Runtime*> fluxo { nullptr };                   // 2.5: FLUXO - the same, built from blocks
+    std::atomic<int> fluxoInto { 0 };
+    std::atomic<float> fluxoGain { 1.0f };
     std::atomic<int> drumsInto { 0 };                              // 2.2: the DRUM MACHINE through a LIVE strip too (so a track records it)
     float dmDirect = 1.0f;                                         // its direct sound (fades out while it plays through a strip)
     std::atomic<float> grid[14][NSPK];                             // direct outs: source x speaker
@@ -204,7 +207,7 @@ private:
     std::vector<float> accIn[MAXIO], accPhone[4], qOut[MAXIO];
     void processFifo(const float* const* in, int numIn, float* const* out, int numOut, int numSamples);
     float tuneMix = 0, synG[3] = { 0, 0, 0 }, dmG[3] = { 0, 0, 0 };
-    float patG[3] = { 0, 0, 0 }, patDirect = 1.0f;
+    float patG[3] = { 0, 0, 0 }, patDirect = 1.0f, fluG[3] = { 0, 0, 0 }, fluDirect = 1.0f;
     std::vector<float> dmPrev;                                     // the drum machine's last block, mono (a LIVE strip takes it)
     std::vector<float> beatPrev;
     double tuneAmt = 0;

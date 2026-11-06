@@ -1,5 +1,6 @@
 #include "Shell.h"
 #include "PatcherView.h"
+#include "FluxoView.h"
 #include "ShellViews.h"
 #include "StudioView.h"
 #include "SynthPanel.h"
@@ -18,7 +19,7 @@ const char* screenTitle(Screen s) {
         case Screen::Home: return "ARCO"; case Screen::Workstation: return "WORKSTATION"; case Screen::Loops: return "LIVE LOOPS";
         case Screen::Studio: return "STUDIO"; case Screen::Drums: return "DRUM MACHINE"; case Screen::Synth: return "SYNTH";
         case Screen::Keys: return "KEYBOARD"; case Screen::Phrase: return "PHRASE"; case Screen::Modular: return "MODULAR";
-        case Screen::Speakers: return "SPEAKERS"; case Screen::Patcher: return "PATCHER"; default: return "";
+        case Screen::Speakers: return "SPEAKERS"; case Screen::Patcher: return "PATCHER"; case Screen::Fluxo: return "FLUXO"; default: return "";
     }
 }
 
@@ -107,6 +108,7 @@ AppShell::AppShell(AudioHost& h) : host(h), canvas(h) {
     phrase = std::make_unique<PhraseView>(*this); addChildComponent(phrase.get());
     loops = std::make_unique<LoopsView>(*this); addChildComponent(loops.get());
     patcher = std::make_unique<PatcherView>(*this); addChildComponent(patcher.get());
+    fluxo = std::make_unique<FluxoView>(*this); addChildComponent(fluxo.get());
     canvas.layoutHeader();
     host.onSaveExtra = [this](const juce::File& f) { loops->save(f); };
     host.onOpenExtra = [this](const juce::File& f) { loops->load(f); };
@@ -134,7 +136,7 @@ void AppShell::setLayout(bool tall, int w, int h) {
     if (auto* held = stationVp.getViewedComponent(); held != nullptr && (! scroll || held != cur)) {
         bool vis = held->isVisible(); stationVp.setViewedComponent(nullptr, false); addChildComponent(held, 0); held->setVisible(vis); }
     canvas.setBounds(c);
-    for (juce::Component* v : { (juce::Component*) drums.get(), (juce::Component*) phrase.get(), (juce::Component*) loops.get(), (juce::Component*) patcher.get() }) if (v) v->setBounds(c);
+    for (juce::Component* v : { (juce::Component*) drums.get(), (juce::Component*) phrase.get(), (juce::Component*) loops.get(), (juce::Component*) patcher.get(), (juce::Component*) fluxo.get() }) if (v) v->setBounds(c);
     if (scroll) {
         if (stationVp.getParentComponent() != this) { addChildComponent(stationVp, 0); stationVp.setScrollBarsShown(false, false);
                                                       stationVp.setScrollOnDragMode(juce::Viewport::ScrollOnDragMode::all); }
@@ -158,6 +160,7 @@ void AppShell::show(Screen s) {
     phrase->setVisible(s == Screen::Phrase);
     loops->setVisible(s == Screen::Loops);
     patcher->setVisible(s == Screen::Patcher);
+    fluxo->setVisible(s == Screen::Fluxo);
     bool station = s == Screen::Workstation || s == Screen::Synth || s == Screen::Keys || s == Screen::Modular || s == Screen::Speakers;
     canvas.setVisible(station);
     canvas.showStation(s == Screen::Workstation);
@@ -181,6 +184,7 @@ void AppShell::show(Screen s) {
     if (s == Screen::Home) homeScreen.grabKeyboardFocus();
     if (s == Screen::Drums) drums->grabKeyboardFocus();
     if (s == Screen::Patcher) patcher->grabKeyboardFocus();
+    if (s == Screen::Fluxo) fluxo->grabKeyboardFocus();
     top.repaint(); repaint();
 }
 
@@ -585,7 +589,7 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
         { Screen::Phrase, "PHRASE", juce::String::fromUTF8("Play four notes into it. It plays them back in tempo: faster, reversed, higher, building up."), 5 },
         { Screen::Keys, "KEYBOARD", juce::String::fromUTF8("Sampled instruments to download, your plug-ins, chords and harmony surfaces."), 6 },
         { Screen::Modular, "MODULAR", juce::String::fromUTF8("Patch a synthesizer from modules with cables."), 7 },
-        { Screen::Patcher, "PATCHER", juce::String::fromUTF8("Make your own instruments, effects and programs from boxes and cords - like Max, with a guide."), 4 },
+        { Screen::Fluxo, "FLUXO", juce::String::fromUTF8("Make anything from blocks you read like sentences: instruments, effects, rhythms, music that plays itself."), 4 },
         { Screen::Speakers, "SPEAKERS", juce::String::fromUTF8("Outputs, speakers round the audience, sound placed all around you."), 3 },
     };
     auto mk = [&](const juce::String& t, std::function<void()> f) { auto* p = new Pill(t, [] { return Theme::btn(); }, 9.0f, 12.0f); p->onClick = std::move(f);
@@ -739,6 +743,17 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
             int pairs[3][2] = { { 0, 6 }, { 1, 4 }, { 3, 5 } };
             for (int k = 0; k < 3; ++k) { auto a = jack(pairs[k][0]), b = jack(pairs[k][1]); juce::Path p; p.startNewSubPath(a);
                 p.cubicTo(a.x, a.y + 70, b.x, b.y + 70, b.x, b.y); g.setColour(acc(k * 2 + 1)); g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
+            break; }
+        case Screen::Fluxo: {           // blocks in a chain, a cable of each kind
+            auto blk = [&](float fx, float fy, float w, float h) { return juce::Rectangle<float>(in.getX() + fx * in.getWidth(), in.getY() + fy * in.getHeight(), w * in.getWidth(), h * in.getHeight()); };
+            juce::Rectangle<float> B[4] = { blk(0.04f, 0.0f, 0.5f, 0.2f), blk(0.04f, 0.38f, 0.5f, 0.24f), blk(0.62f, 0.3f, 0.34f, 0.2f), blk(0.04f, 0.8f, 0.5f, 0.2f) };
+            auto cab = [&](juce::Point<float> a, juce::Point<float> b, juce::Colour cc, float w2) { juce::Path p; p.startNewSubPath(a); p.cubicTo(a.x, a.y + 30, b.x, b.y - 30, b.x, b.y); g.setColour(cc); g.strokePath(p, juce::PathStrokeType(w2, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); };
+            cab({ B[0].getCentreX(), B[0].getBottom() }, { B[1].getCentreX(), B[1].getY() }, acc(2), 6.0f);
+            cab({ B[1].getCentreX(), B[1].getBottom() }, { B[3].getCentreX(), B[3].getY() }, acc(2), 6.0f);
+            { juce::Path p; auto a = juce::Point<float>(B[2].getX(), B[2].getCentreY()), b = juce::Point<float>(B[1].getX() + B[1].getWidth() * 0.62f, B[1].getY() + B[1].getHeight() * 0.62f); p.startNewSubPath(a); p.quadraticTo(a.x - 30, b.y, b.x + 30, b.y); g.setColour(acc(3)); g.strokePath(p, juce::PathStrokeType(2.5f)); }
+            for (int k = 0; k < 4; ++k) { g.setColour(Theme::card()); g.fillRoundedRectangle(B[k], 12.0f); g.setColour(k == 1 ? c : line); g.drawRoundedRectangle(B[k], 12.0f, 1.6f);
+                auto lr = B[k].reduced(B[k].getWidth() * 0.1f, B[k].getHeight() * 0.32f); g.setColour(Theme::sub().withAlpha(0.5f)); g.fillRoundedRectangle(lr.withWidth(lr.getWidth() * 0.45f), 3.0f);
+                g.setColour(k == 2 ? acc(3) : c); g.fillRoundedRectangle(lr.withTrimmedLeft(lr.getWidth() * 0.55f), lr.getHeight() * 0.5f); }
             break; }
         case Screen::Patcher: {         // boxes and cords
             auto bx = [&](float fx, float fy, float w) { return juce::Rectangle<float>(in.getX() + fx * in.getWidth(), in.getY() + fy * in.getHeight(), w * in.getWidth(), 0.16f * in.getHeight()); };
