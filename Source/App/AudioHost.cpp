@@ -24,12 +24,12 @@ AudioHost::AudioHost(bool openDevice) : live(openDevice) {
     patcher->onLine = [this](const px::Line& l) { patchLog.push_back(l); while (patchLog.size() > 400) patchLog.pop_front(); ++patchLogGen; };
     patcher->onAction = [this](const px::Action& a) { patcherAction(a); };
     patcherCompile(true);
-    engine.patcher.store(patcher.get());
+    if (kMaxParts) engine.patcher.store(patcher.get());
     fluxo = std::make_unique<px::Runtime>(); fluxo->prepare(48000.0);         // 2.5: FLUXO
     fluxo->onLine = [this](const px::Line& l) { fluxLog.push_back(l); while (fluxLog.size() > 400) fluxLog.pop_front(); ++fluxLogGen; };
     fluxo->onAction = [this](const px::Action& a) { patcherAction(a); };
     fluxoCompile(true);
-    engine.fluxo.store(fluxo.get());
+    if (kMaxParts) engine.fluxo.store(fluxo.get());
     patcherPump.startTimerHz(200);
     // 2.0: the DRUM MACHINE's kits are made in the background (the samples decoded, the classic machines modelled)
     juce::Thread::launch([this] { auto* b = DrumKits::bank(); engine.drumMachine.bank.store(b); });

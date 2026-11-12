@@ -17,6 +17,9 @@
 #include "../Engine/Fluxo.h"
 
 namespace arco {
+// 2.5: the Max parts (FLUXO and the PATCHER) are kept in the code but hidden from the app, and silent, while this is false
+constexpr bool kMaxParts = false;
+
 
 class AudioHost : public juce::AudioIODeviceCallback, public juce::MidiInputCallback, private juce::MidiKeyboardState::Listener, private juce::AsyncUpdater, private juce::Timer {
 public:

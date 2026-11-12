@@ -606,8 +606,8 @@ public:
         if (readOnly) return;
         auto* ed = new juce::TextEditor(); ed->setText(juce::String(get(), dec)); ed->setBounds(getLocalBounds());
         ed->setFont(Theme::font(fsize, 1)); ed->setJustification(juce::Justification::centred); ed->selectAll();
-        ed->onReturnKey = [this, ed] { set(juce::jlimit(lo, hi, ed->getText().getDoubleValue())); juce::MessageManager::callAsync([ed] { delete ed; }); repaint(); };
-        ed->onFocusLost = ed->onEscapeKey = [ed] { juce::MessageManager::callAsync([ed] { delete ed; }); };
+        ed->onReturnKey = [this, ed] { set(juce::jlimit(lo, hi, ed->getText().getDoubleValue())); juce::MessageManager::callAsync([sp = juce::Component::SafePointer<juce::TextEditor>(ed)] { delete sp.getComponent(); }); repaint(); };
+        ed->onFocusLost = ed->onEscapeKey = [ed] { juce::MessageManager::callAsync([sp = juce::Component::SafePointer<juce::TextEditor>(ed)] { delete sp.getComponent(); }); };
         addAndMakeVisible(ed); ed->grabKeyboardFocus();
     }
 private:

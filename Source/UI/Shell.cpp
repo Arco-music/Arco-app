@@ -571,8 +571,8 @@ void TopBar::mouseDoubleClick(const juce::MouseEvent& e) {
     if (!bpmR.contains(e.getPosition())) return;
     auto* ed = new juce::TextEditor(); ed->setText(juce::String(shell.tempo(), 1)); ed->setBounds(bpmR.reduced(4));
     ed->setFont(Theme::font(14.0f, 2)); ed->setJustification(juce::Justification::centred); ed->selectAll();
-    ed->onReturnKey = [this, ed] { shell.setTempo(ed->getText().getDoubleValue()); juce::MessageManager::callAsync([ed] { delete ed; }); };
-    ed->onFocusLost = ed->onEscapeKey = [ed] { juce::MessageManager::callAsync([ed] { delete ed; }); };
+    ed->onReturnKey = [this, ed] { shell.setTempo(ed->getText().getDoubleValue()); juce::MessageManager::callAsync([sp = juce::Component::SafePointer<juce::TextEditor>(ed)] { delete sp.getComponent(); }); };
+    ed->onFocusLost = ed->onEscapeKey = [ed] { juce::MessageManager::callAsync([sp = juce::Component::SafePointer<juce::TextEditor>(ed)] { delete sp.getComponent(); }); };
     addAndMakeVisible(ed); ed->grabKeyboardFocus();
 }
 
@@ -592,6 +592,7 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
         { Screen::Fluxo, "FLUXO", juce::String::fromUTF8("Make anything from blocks you read like sentences: instruments, effects, rhythms, music that plays itself."), 4 },
         { Screen::Speakers, "SPEAKERS", juce::String::fromUTF8("Outputs, speakers round the audience, sound placed all around you."), 3 },
     };
+    if (!kMaxParts) cards.erase(std::remove_if(cards.begin(), cards.end(), [](const auto& c) { return c.screen == Screen::Fluxo || c.screen == Screen::Patcher; }), cards.end());
     auto mk = [&](const juce::String& t, std::function<void()> f) { auto* p = new Pill(t, [] { return Theme::btn(); }, 9.0f, 12.0f); p->onClick = std::move(f);
         p->textColour = [] { return Theme::txt(); }; owned.add(p); addAndMakeVisible(p); return p; };
     lookBtn = std::make_unique<Pill>("", [] { return Theme::btn(); }, 10.0f, 12.0f); lookBtn->icon = 12; lookBtn->textColour = [] { return Theme::txt(); };
