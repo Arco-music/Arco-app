@@ -547,6 +547,17 @@ bool AudioHost::saveSong(const juce::File& folder) {
     sess->setProperty("samplerate", engine.sr);
     root.getDynamicObject()->setProperty("session", juce::var(sess));
     root.getDynamicObject()->setProperty("app", "ARCO 1.0");
+    {   // 2.6: what the SESSIONS library shows without opening the song
+        auto* meta = new juce::DynamicObject(); auto now = juce::Time::getCurrentTime();
+        auto old = juce::JSON::parse(folder.getChildFile(name + "-settings.json"));
+        meta->setProperty("created", old["meta"]["created"].isString() ? old["meta"]["created"].toString() : now.toISO8601(true));
+        meta->setProperty("saved", now.toISO8601(true));
+        double bpm = engine.snap("smask").v.load() > 0 ? std::round(engine.snap("ebpm").v.load() * 10) / 10 : model.get("bpm");
+        meta->setProperty("bpm", bpm); meta->setProperty("beats", (int) model.get("beats")); meta->setProperty("den", (int) model.get("beatden"));
+        int loops = 0; for (int i = 0; i < 4; ++i) if (engine.snap(std::string("sv_len") + std::to_string(i)).v.load() > 0) ++loops;
+        meta->setProperty("loops", loops); meta->setProperty("clips", (int) studio.song.clips.size()); meta->setProperty("tracks", (int) studio.song.lanes.size());
+        root.getDynamicObject()->setProperty("meta", juce::var(meta));
+    }
     if (!folder.getChildFile(name + "-settings.json").replaceWithText(juce::JSON::toString(root))) { status = "could not write the song"; return false; }
     const char* L[4] = { "A", "B", "C", "D" };
     for (int i = 0; i < 4; ++i) {

@@ -822,7 +822,7 @@ void FluxoView::timerCallback() {
     if (auto* b = [&]() -> Pill* { for (auto* c : owned) if (c->getComponentID() == "fluxo:back") return dynamic_cast<Pill*>(c); return nullptr; }()) if (b->isVisible() != !path.empty()) { b->setVisible(!path.empty()); resized(); }
 }
 void FluxoView::paint(juce::Graphics& g) {
-    Theme::backdrop(g, getLocalBounds());
+    Theme::backdrop(g, getLocalBounds()); drawSoftShades(g, *this);
     juce::String title = "FLUXO"; { FluxDoc* d = &root(); for (int p : path) { auto* b = d->block(p); if (!b || !b->own) break; title << U8("  ›  ") << U8(b->own->name.c_str()); d = b->own->inner.get(); } }
     ftxt(g, title, { barR.getX(), barR.getY() + 2, 260, 26 }, 13.0f, Theme::txt(), 2);
     ftxt(g, path.empty() ? juce::String("make anything from blocks") : juce::String("inside your plug-in"), { barR.getX(), barR.getY() + 28, 260, 16 }, 8.0f, Theme::sub(), 0);

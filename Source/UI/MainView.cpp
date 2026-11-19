@@ -8,6 +8,7 @@
 #include "SpatialPanel.h"
 #include "InstrumentPanels.h"
 #include "StudioView.h"
+#include "Sessions.h"
 #include "../App/FxPresets.h"
 #include "../Engine/StripMix.h"
 
@@ -1426,6 +1427,48 @@ void Canvas::doSave(bool askName) {
    #endif
 }
 
+// ===================================================================== 2.6: SESSIONS
+double Canvas::tempoNow() { return host.engine.snap("smask").v.load() > 0 ? std::round(host.engine.snap("ebpm").v.load() * 10) / 10 : host.model.get("bpm"); }
+void Canvas::saveSession(std::function<void()> after) {
+    if (host.songFolder.isDirectory()) { if (host.saveSong(host.songFolder) && after) after(); return; }
+    saveNewSession(std::move(after));
+}
+void Canvas::saveNewSession(std::function<void()> after) {
+    auto suggestion = host.songFolder.isDirectory() ? host.songFolder.getFileName() + " 2" : sessions::suggestName(tempoNow());
+    auto* w = new juce::AlertWindow("Save the session", "It goes into your SESSIONS (on the home screen). Its name:", juce::MessageBoxIconType::NoIcon);
+    w->addTextEditor("name", suggestion);
+    w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey)); w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    if (auto* ed = w->getTextEditor("name")) ed->selectAll();
+    w->enterModalState(true, juce::ModalCallbackFunction::create([this, w, after](int r) {
+        auto n = juce::File::createLegalFileName(w->getTextEditorContents("name").trim());
+        if (r != 1) return;
+        if (n.isEmpty()) n = sessions::suggestName(tempoNow());
+        if (host.saveSong(sessions::uniqueFolder(n)) && after) after(); }), true);
+}
+void Canvas::saveMenu(juce::Component* from) {
+    juce::PopupMenu m;
+    bool has = host.songFolder.isDirectory();
+    m.addSectionHeader(has ? juce::String("Session: ") + host.songFolder.getFileName() : juce::String("A new session"));
+    m.addItem(1, has ? juce::String::fromUTF8("Save session") : juce::String::fromUTF8("Save session…"), true, false);
+    m.addItem(2, juce::String::fromUTF8("Save as a new session…"));
+    m.addItem(3, juce::String::fromUTF8("Save as… (anywhere on your computer)"));
+    m.addSeparator();
+    m.addItem(4, juce::String::fromUTF8("Open SESSIONS ▸"));
+    juce::Component::SafePointer<Canvas> safe(this);
+    auto opts = juce::PopupMenu::Options(); if (from) opts = opts.withTargetComponent(from);
+    m.showMenuAsync(opts, [safe](int r) { if (!safe) return;
+        if (r == 1) safe->saveSession(); else if (r == 2) safe->saveNewSession(); else if (r == 3) safe->doSave(true);
+        else if (r == 4) safe->command(cmdSessions); });
+}
+void Canvas::askSaveThen(std::function<void()> then) {
+    if (!host.unsavedLoops()) { then(); return; }
+    auto opts = juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::QuestionIcon).withTitle("Save the session first?")
+                    .withMessage("Your loops are not saved yet.").withButton("Save").withButton("Don't save").withButton("Cancel");
+    juce::Component::SafePointer<Canvas> safe(this);
+    juce::AlertWindow::showAsync(opts, [safe, then](int r) { if (!safe) return;
+        if (r == 2) then(); else if (r == 1) safe->saveSession(then); });
+}
+
 // keys and page-turner pedals (they send arrow / page keys): the hands stay on the instrument
 bool Canvas::keyPressed(const juce::KeyPress& k) {
     const auto code = k.getKeyCode(); const bool cmd = k.getModifiers().isCommandDown(), shift = k.getModifiers().isShiftDown();
@@ -1441,7 +1484,7 @@ bool Canvas::keyPressed(const juce::KeyPress& k) {
     if (cmd && code == ',') { command(cmdSetup); return true; }
     if (cmd && k.getModifiers().isCtrlDown() && code == 'F') { command(cmdFullScreen); return true; }
     if (anyOverlay()) return false;
-    if (cmd && code == 'S') { doSave(k.getModifiers().isShiftDown()); return true; }
+    if (cmd && code == 'S') { if (k.getModifiers().isShiftDown()) doSave(true); else saveSession(); return true; }
     if (cmd && code == 'O') { doOpen(); return true; }
     if (cmd && code == 'Z') { host.doAction(AudioHost::ActUndo); return true; }
     if (cmd) return false;

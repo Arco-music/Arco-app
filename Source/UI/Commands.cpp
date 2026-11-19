@@ -97,7 +97,7 @@ void Canvas::command(int id) {
                         .withMessage("Your loops are not saved yet.").withButton("Save").withButton("Don't save").withButton("Cancel");
         juce::AlertWindow::showAsync(opts, [this, then](int r) {
             if (r == 2) then();
-            else if (r == 1) { if (host.songFolder.isDirectory()) { host.saveSong(host.songFolder); then(); } else doSave(true); }
+            else if (r == 1) saveSession(then);
         });
     };
     if (id >= cmdPalette && id < cmdPalette + 50) { Theme::setPalette(id - cmdPalette); host.saveSetup(); themeChanged(); return; }
@@ -110,8 +110,10 @@ void Canvas::command(int id) {
     switch (id) {
         case cmdNewSong: askThen([this] { host.newSong(); }); break;
         case cmdOpen: askThen([this] { doOpen(); }); break;
-        case cmdSave: doSave(false); break;
+        case cmdSave: saveSession(); break;
+        case cmdSaveNew: saveNewSession(); break;
         case cmdSaveAs: doSave(true); break;
+        case cmdSessions: if (onOpenSessions) onOpenSessions(); break;
         case cmdExport: exportSheet->setVisible(true); exportSheet->toFront(true); break;
         case cmdRecordShow: doRecShow(); break;
         case cmdStudio: openStudio(); break;

@@ -508,4 +508,5 @@ void RoutingView::oneEach() {
  #include "../Engine/Fluxo.cpp"
  #include "../Engine/FluxoBlocks.cpp"
  #include "FluxoView.cpp"
+ #include "LibraryView.cpp"
 #endif

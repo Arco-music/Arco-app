@@ -2,6 +2,7 @@
 // ARCO --selftest: plays a test tone into the real engine and checks recording, looping, scenes,
 // scene memory, saving / opening a song, importing a file and the show recorder. Prints a report, returns failures.
 #include "AudioHost.h"
+#include "../UI/Sessions.h"
 #include "../UI/SynthPanel.h"
 #include "../UI/MainView.h"
 #include "../UI/LearnOverlay.h"
@@ -145,6 +146,32 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
     m.press("st_looper", "playall");
     { float best = 0; for (int i = 0; i < 40 && best < 0.01f; ++i) best = run(0.1, 0);
       check(best > 0.01f, "  PLAY: it sounds", e.snap("transport").v.load() + 10 * trk(0) + 100 * e.snap("sv_len0").v.load()); }
+    // 5b 2.6: SESSIONS - saved inside ARCO, a name made for it, renamed, duplicated, opened again
+    {
+        auto sv = juce::JSON::parse(song.getChildFile("selftest song-settings.json"));
+        check(sv["meta"].isObject() && (double) sv["meta"]["bpm"] > 0 && (int) sv["meta"]["loops"] >= 1, "SESSIONS: the song says what is in it (tempo, loops)", (double) sv["meta"]["loops"]);
+        auto name = sessions::suggestName(92.0);
+        check(name.startsWith("ARC-") && name.endsWith("92 BPM"), "SESSIONS: a new session gets a name like ARC-001 - 92 BPM");
+        auto f = sessions::uniqueFolder(name);
+        check(h.saveSong(f), "SESSIONS: SAVE SESSION puts it in the library");
+        auto has = [&](const juce::File& x) { for (auto& i : sessions::list()) if (i.folder == x) return true; return false; };
+        bool listed = false; int lp = 0; for (auto& i : sessions::list()) if (i.folder == f) { listed = true; lp = i.loops; }
+        check(listed && lp >= 1, "SESSIONS: the library lists it, with its loops", lp);
+        check(sessions::uniqueFolder(name) != f, "SESSIONS: the same name twice makes a second one, never overwrites");
+        check(sessions::list().empty() == false && sessions::list()[0].folder == f, "SESSIONS: the newest is first");
+        juce::File rn; bool ok = sessions::rename(f, "selftest renamed", rn);
+        check(ok && rn.isDirectory() && !f.exists() && rn.getChildFile("selftest renamed-settings.json").existsAsFile() && rn.getChildFile("selftest renamed-A.wav").existsAsFile(),
+              "SESSIONS: RENAME renames the folder and its files");
+        m.press("st_looper", "rstall"); run(0.5, 0);
+        check(h.openSong(rn) && waitFor([&] { return trk(0) == 3; }, 4.0), "SESSIONS: the renamed session opens with its loop", trk(0));
+        check(h.saveSong(rn) && rn.findChildFiles(juce::File::findFiles, false, "*-settings.json").size() == 1, "SESSIONS: saved again, it is still one song");
+        juce::File cp; check(sessions::duplicate(rn, cp) && cp.getChildFile(cp.getFileName() + "-settings.json").existsAsFile() && has(cp), "SESSIONS: DUPLICATE makes a copy that opens on its own");
+        juce::File clash; check(!sessions::rename(cp, "selftest renamed", clash), "SESSIONS: renaming onto another session's name is refused");
+        cp.deleteRecursively(); rn.deleteRecursively();
+        check(!has(rn) && !has(cp), "SESSIONS: gone from the library when deleted");
+        m.press("st_looper", "rstall"); run(0.5, 0); h.openSong(song); waitFor([&] { return trk(0) == 3; }, 4.0);      // back to the song the next tests use
+        m.press("st_looper", "playall"); { for (int i = 0; i < 40; ++i) if (run(0.1, 0) > 0.01f) break; }
+    }
     // 6 import a file into track 2
     {
         auto wav = dir.getChildFile("selftest tone.wav");

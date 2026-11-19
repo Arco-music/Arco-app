@@ -73,6 +73,7 @@ target_sources(ARCO PRIVATE
     Source/UI/ModularPanel.cpp
     Source/UI/PatcherView.cpp
     Source/UI/FluxoView.cpp
+    Source/UI/LibraryView.cpp
     Source/UI/Shell.cpp
     Source/UI/DrumView.cpp
     Source/UI/PhraseView.cpp

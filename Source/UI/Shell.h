@@ -30,7 +30,7 @@ public:
 };
 
 // ---------------------------------------------------------------- the screens
-enum class Screen { Home, Workstation, Loops, Studio, Drums, Synth, Keys, Phrase, Modular, Speakers, Patcher, Fluxo };
+enum class Screen { Home, Workstation, Loops, Studio, Drums, Synth, Keys, Phrase, Modular, Speakers, Patcher, Fluxo, Library };
 const char* screenTitle(Screen s);
 
 class TopBar : public juce::Component, private juce::Timer {
@@ -83,6 +83,7 @@ class PhraseView;
 class LoopsView;
 class PatcherView;
 class FluxoView;
+class LibraryView;
 
 class AppShell : public juce::Component, private juce::Timer {
 public:
@@ -97,6 +98,7 @@ public:
     std::unique_ptr<LoopsView> loops;
     std::unique_ptr<PatcherView> patcher;     // 2.4
     std::unique_ptr<FluxoView> fluxo;         // 2.5
+    std::unique_ptr<LibraryView> library;     // 2.6: SESSIONS
     Screen screen = Screen::Home;
     void show(Screen s);
     void setLayout(bool tall, int w, int h);

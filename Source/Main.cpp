@@ -185,7 +185,7 @@ public:
             if (phoneOnly) { arco::MainComponent::phoneSized = true; sizes = { { 750, 390 }, { 844, 390 }, { 667, 375 }, { 812, 375 } }; }
             for (auto wh : sizes) {
                 for (int t : { 1, 4, 8 }) lcfg.push_back({ Screen::Workstation, wh.first, wh.second, t, pal, {} });
-                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys, Screen::Patcher, Screen::Fluxo })
+                for (auto sc : { Screen::Home, Screen::Loops, Screen::Studio, Screen::Drums, Screen::Synth, Screen::Phrase, Screen::Keys, Screen::Patcher, Screen::Fluxo, Screen::Library })
                     lcfg.push_back({ sc, wh.first, wh.second, 4, pal, {} });
             }
         }
@@ -294,7 +294,7 @@ public:
             if (cmd.contains("synth")) sc = Screen::Synth;
             auto nm = cmd.fromFirstOccurrenceOf("screen=", false, false).upToFirstOccurrenceOf(" ", false, false);
             const std::pair<const char*, Screen> S[] = { { "home", Screen::Home }, { "workstation", Screen::Workstation }, { "loops", Screen::Loops }, { "studio", Screen::Studio },
-                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers }, { "patcher", Screen::Patcher }, { "fluxo", Screen::Fluxo } };
+                { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers }, { "patcher", Screen::Patcher }, { "fluxo", Screen::Fluxo }, { "sessions", Screen::Library } };
             for (auto& p : S) if (nm == p.first) sc = p.second;
             mc->shell.show(sc);
             if (sc == Screen::Patcher) mc->shell.patcher->demo(cmd);

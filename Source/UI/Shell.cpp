@@ -1,6 +1,7 @@
 #include "Shell.h"
 #include "PatcherView.h"
 #include "FluxoView.h"
+#include "LibraryView.h"
 #include "ShellViews.h"
 #include "StudioView.h"
 #include "SynthPanel.h"
@@ -19,7 +20,7 @@ const char* screenTitle(Screen s) {
         case Screen::Home: return "ARCO"; case Screen::Workstation: return "WORKSTATION"; case Screen::Loops: return "LIVE LOOPS";
         case Screen::Studio: return "STUDIO"; case Screen::Drums: return "DRUM MACHINE"; case Screen::Synth: return "SYNTH";
         case Screen::Keys: return "KEYBOARD"; case Screen::Phrase: return "PHRASE"; case Screen::Modular: return "MODULAR";
-        case Screen::Speakers: return "SPEAKERS"; case Screen::Patcher: return "PATCHER"; case Screen::Fluxo: return "FLUXO"; default: return "";
+        case Screen::Speakers: return "SPEAKERS"; case Screen::Patcher: return "PATCHER"; case Screen::Fluxo: return "FLUXO"; case Screen::Library: return "SESSIONS"; default: return "";
     }
 }
 
@@ -109,6 +110,8 @@ AppShell::AppShell(AudioHost& h) : host(h), canvas(h) {
     loops = std::make_unique<LoopsView>(*this); addChildComponent(loops.get());
     patcher = std::make_unique<PatcherView>(*this); addChildComponent(patcher.get());
     fluxo = std::make_unique<FluxoView>(*this); addChildComponent(fluxo.get());
+    library = std::make_unique<LibraryView>(*this); addChildComponent(library.get());
+    canvas.onOpenSessions = [this] { show(Screen::Library); };
     canvas.layoutHeader();
     host.onSaveExtra = [this](const juce::File& f) { loops->save(f); };
     host.onOpenExtra = [this](const juce::File& f) { loops->load(f); };
@@ -136,7 +139,7 @@ void AppShell::setLayout(bool tall, int w, int h) {
     if (auto* held = stationVp.getViewedComponent(); held != nullptr && (! scroll || held != cur)) {
         bool vis = held->isVisible(); stationVp.setViewedComponent(nullptr, false); addChildComponent(held, 0); held->setVisible(vis); }
     canvas.setBounds(c);
-    for (juce::Component* v : { (juce::Component*) drums.get(), (juce::Component*) phrase.get(), (juce::Component*) loops.get(), (juce::Component*) patcher.get(), (juce::Component*) fluxo.get() }) if (v) v->setBounds(c);
+    for (juce::Component* v : { (juce::Component*) drums.get(), (juce::Component*) phrase.get(), (juce::Component*) loops.get(), (juce::Component*) patcher.get(), (juce::Component*) fluxo.get(), (juce::Component*) library.get() }) if (v) v->setBounds(c);
     if (scroll) {
         if (stationVp.getParentComponent() != this) { addChildComponent(stationVp, 0); stationVp.setScrollBarsShown(false, false);
                                                       stationVp.setScrollOnDragMode(juce::Viewport::ScrollOnDragMode::all); }
@@ -161,6 +164,7 @@ void AppShell::show(Screen s) {
     loops->setVisible(s == Screen::Loops);
     patcher->setVisible(s == Screen::Patcher);
     fluxo->setVisible(s == Screen::Fluxo);
+    library->setVisible(s == Screen::Library);
     bool station = s == Screen::Workstation || s == Screen::Synth || s == Screen::Keys || s == Screen::Modular || s == Screen::Speakers;
     canvas.setVisible(station);
     canvas.showStation(s == Screen::Workstation);
@@ -377,7 +381,7 @@ TopBar::TopBar(AppShell& s) : shell(s) {
     count->tint = true;
     undo = mk("", [] { return Theme::btn(); }, [this] { shell.undo(); }, 4, 10.0f);
     undo->textColour = [] { return Theme::txt(); }; undo->setTooltip("undo");
-    save = mk("SAVE", [] { return Theme::btn(); }, [this] { shell.canvas.doSave(false); }, 0, 8.5f);
+    save = mk("SAVE", [] { return Theme::btn(); }, [this] { shell.canvas.saveMenu(save); }, 0, 8.5f);
     save->textColour = [] { return Theme::txt(); };
     setup = mk("SETUP", [] { return Theme::btn(); }, [this] { shell.show(Screen::Workstation); shell.canvas.openSetup(true); }, 0, 8.5f);
     setup->textColour = [] { return Theme::txt(); };
@@ -582,6 +586,7 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
     setWantsKeyboardFocus(true);
     cards = {
         { Screen::Workstation, "WORKSTATION", juce::String::fromUTF8("Loop live: four scenes, eight tracks, your instruments in, effects on every strip."), 3 },
+        { Screen::Library, "SESSIONS", juce::String::fromUTF8("Your sessions, saved inside ARCO. Open one, rename it, duplicate it."), 3 },
         { Screen::Loops, "LIVE LOOPS", juce::String::fromUTF8("Cells of loops in rows. Record straight into a cell, drop audio or a station loop in, launch them in time."), 1 },
         { Screen::Studio, "STUDIO", juce::String::fromUTF8("Arrange, record, edit and mix the song on a timeline. Export it."), 2 },
         { Screen::Drums, "DRUM MACHINE", juce::String::fromUTF8("Real drums and the classic machines. Steps, swing, chance, repeats - in tempo."), 0 },
@@ -599,7 +604,7 @@ HomeScreen::HomeScreen(AppShell& s) : shell(s) {
     lookBtn->onClick = [this] { shell.canvas.command(cmdToggleLight); }; lookBtn->setComponentID("home:look"); addAndMakeVisible(*lookBtn);
     mk("NEW SONG", [this] { shell.canvas.command(cmdNewSong); });
     mk("OPEN SONG", [this] { shell.canvas.doOpen(); });
-    mk("SAVE", [this] { shell.canvas.doSave(false); });
+    auto* homeSave = mk("SAVE", nullptr); homeSave->onClick = [this, homeSave] { shell.canvas.saveMenu(homeSave); };
     mk("SETUP", [this] { shell.show(Screen::Workstation); shell.canvas.openSetup(true); });
     mk("HELP", [this] { shell.show(Screen::Workstation); shell.canvas.command(cmdHelp); });
     startTimerHz(60);
@@ -744,6 +749,14 @@ void HomeScreen::drawArt(juce::Graphics& g, int i, juce::Rectangle<float> r, juc
             int pairs[3][2] = { { 0, 6 }, { 1, 4 }, { 3, 5 } };
             for (int k = 0; k < 3; ++k) { auto a = jack(pairs[k][0]), b = jack(pairs[k][1]); juce::Path p; p.startNewSubPath(a);
                 p.cubicTo(a.x, a.y + 70, b.x, b.y + 70, b.x, b.y); g.setColour(acc(k * 2 + 1)); g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
+            break; }
+        case Screen::Library: {         // the sessions: cards stacked, the top one with its four loops
+            for (int k = 0; k < 3; ++k) { auto r = juce::Rectangle<float>(in.getX() + in.getWidth() * (0.08f + 0.06f * k), in.getY() + in.getHeight() * (0.06f + 0.16f * k), in.getWidth() * 0.72f, in.getHeight() * 0.5f);
+                g.setColour(Theme::card().brighter(0.05f * k)); g.fillRoundedRectangle(r, 12.0f); g.setColour(k == 2 ? c : line); g.drawRoundedRectangle(r, 12.0f, 1.6f);
+                if (k == 2) { auto lr = r.reduced(r.getWidth() * 0.09f, r.getHeight() * 0.18f);
+                    for (int q = 0; q < 4; ++q) { g.setColour(q < 3 ? acc(q) : line); g.fillRoundedRectangle(lr.getX() + q * lr.getHeight() * 0.42f, lr.getY(), lr.getHeight() * 0.3f, lr.getHeight() * 0.3f, 3.0f); }
+                    g.setColour(Theme::sub().withAlpha(0.6f)); g.fillRoundedRectangle(lr.getX(), lr.getY() + lr.getHeight() * 0.5f, lr.getWidth() * 0.7f, lr.getHeight() * 0.16f, 3.0f);
+                    g.setColour(Theme::sub().withAlpha(0.35f)); g.fillRoundedRectangle(lr.getX(), lr.getY() + lr.getHeight() * 0.8f, lr.getWidth() * 0.45f, lr.getHeight() * 0.14f, 3.0f); } }
             break; }
         case Screen::Fluxo: {           // blocks in a chain, a cable of each kind
             auto blk = [&](float fx, float fy, float w, float h) { return juce::Rectangle<float>(in.getX() + fx * in.getWidth(), in.getY() + fy * in.getHeight(), w * in.getWidth(), h * in.getHeight()); };

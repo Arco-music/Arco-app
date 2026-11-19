@@ -627,8 +627,10 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         for (int i = 0; i < h.recentSongs.size(); ++i) rec.addItem(item(cmdRecent + i, juce::File(h.recentSongs[i]).getFileName()));
         m.addSubMenu("Open Recent", rec, h.recentSongs.size() > 0);
         m.addSeparator();
-        m.addItem(item(cmdSave, "Save", CMDKEY + "S"));
-        m.addItem(item(cmdSaveAs, juce::String::fromUTF8("Save As…"), juce::String::fromUTF8("⇧") + CMDKEY + "S"));
+        m.addItem(item(cmdSave, "Save Session", CMDKEY + "S"));
+        m.addItem(item(cmdSaveNew, juce::String::fromUTF8("Save as a New Session…"), ""));
+        m.addItem(item(cmdSaveAs, juce::String::fromUTF8("Save As… (anywhere)"), juce::String::fromUTF8("⇧") + CMDKEY + "S"));
+        m.addItem(item(cmdSessions, juce::String::fromUTF8("Sessions…"), ""));
         m.addSeparator();
         juce::PopupMenu imp; for (int t = 0; t < 8; ++t) imp.addItem(item(cmdImport1 + t, "into Track " + juce::String(t + 1)));
         m.addSubMenu("Import Audio File", imp);

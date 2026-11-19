@@ -43,8 +43,14 @@ public:
     void synthPreset(int i); int synthPresetIndex() const;
     void openMic(bool show);
     bool keyPressed(const juce::KeyPress& k) override;
-    void doSave(bool askName);
+    void doSave(bool askName);                           // askName: SAVE AS... anywhere on the computer
     void doOpen();
+    // 2.6: SESSIONS - saved inside ARCO
+    void saveSession(std::function<void()> after = {});  // the open session (a new one: asks its name, into the library)
+    void saveNewSession(std::function<void()> after = {});   // a new session in the library, with a new name
+    void saveMenu(juce::Component* from);                // what SAVE offers
+    void askSaveThen(std::function<void()> then);        // unsaved changes? ask first
+    double tempoNow();
     void doRecShow();
     static juce::File songsDir();
     juce::String flash; double flashUntil = 0;     // a short word after a pedal / key (REC, PLAY ...)
@@ -89,6 +95,7 @@ public:
     bool stationShown = true;
     bool synthOpen() const; bool keyboardOpen() const; bool modularOpen() const; bool spatialOpen() const;
     std::function<void()> onOpenStudio;
+    std::function<void()> onOpenSessions;                            // 2.6: the SESSIONS library
     std::function<void(int lane, int device)> onEditPatcher;        // 2.4: a STUDIO device's PATCHER program, opened in its screen
 private:
     struct HK { juce::Component* c; int grp; juce::Rectangle<int> rel; };
