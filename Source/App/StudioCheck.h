@@ -495,6 +495,21 @@ inline int runStudioCheck(AudioHost& h) {
         int c2 = S.importAudio(plan(writeTestFile(dir, "r2.wav", sine(500.0, 2.0, 48000, 0.3f, 1), 48000)), -1, 0, false, why);
         int l1 = S.song.clips[(size_t) c1].lane, l2 = S.song.clips[(size_t) c2].lane;
         juce::AudioBuffer<float> before; render(before);
+        {   // the keys of each track, heard: M, S, its fader and its pan
+            long a0 = (long) (0.2 * sr), e0 = (long) (1.8 * sr);
+            auto rmsC = [&](const juce::AudioBuffer<float>& b, int ch) { double s2 = 0; long n = 0; for (long i = a0; i < juce::jmin(e0, (long) b.getNumSamples()); ++i) { double x = b.getSample(ch, (int) i); s2 += x * x; ++n; } return n ? std::sqrt(s2 / n) : 0.0; };
+            auto& L1 = S.song.lanes[(size_t) l1]; auto& L2 = S.song.lanes[(size_t) l2];
+            L2.mute = true; juce::AudioBuffer<float> m2; render(m2); L2.mute = false;
+            L1.solo = true; juce::AudioBuffer<float> s1; render(s1); L1.solo = false;
+            double qms = snr(m2.getReadPointer(0) + a0, s1.getReadPointer(0) + a0, (int) (e0 - a0));
+            check(rmsC(m2, 0) > 0.01 && rmsC(m2, 0) < rmsC(before, 0) && qms > 90, "TRACK keys: M silences that track, S plays only its own (the same sound)", qms);
+            L1.mute = L2.mute = true; juce::AudioBuffer<float> none; render(none); L1.mute = L2.mute = false;
+            check(rmsC(none, 0) < 1e-6, "  M on every track: silence", rmsC(none, 0));
+            L1.solo = true; L1.vol = -6.0206f; juce::AudioBuffer<float> h1; render(h1); L1.vol = 0;
+            check(std::abs(rmsC(h1, 0) / rmsC(s1, 0) - 0.5) < 0.01, "  its fader: -6 dB = half", rmsC(h1, 0) / rmsC(s1, 0));
+            L1.pan = -1.0f; juce::AudioBuffer<float> pl; render(pl); L1.pan = 0.0f; L1.solo = false;
+            check(pl.getNumChannels() > 1 && rmsC(pl, 1) < 0.05 * rmsC(pl, 0), "  its pan: all the way left, the right side is quiet", rmsC(pl, 1) / juce::jmax(1e-9, rmsC(pl, 0)));
+        }
         int bus = S.addBus("DRUMS", { l1, l2 }); l1 = S.song.clips[(size_t) c1].lane; l2 = S.song.clips[(size_t) c2].lane;
         juce::AudioBuffer<float> through; render(through);
         long a = (long) (0.2 * sr), e = (long) (1.8 * sr);
