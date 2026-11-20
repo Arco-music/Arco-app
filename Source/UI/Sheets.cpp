@@ -215,7 +215,7 @@ void ImportSheet::run() {
     juce::String err;
     ImportPlan p;
     bool ok = false;
-    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err); }
+    try { ok = prepareImport(file, cv.engine().sr, p, cv.host.formatManager(), err, piece.beats); }
     catch (...) { err = "the file is too big to read"; ok = false; }
     if (!ok) { error = err; jobDone = true; return; }
     cv.host.listenKey(piece);
@@ -262,7 +262,7 @@ void ImportSheet::doImport() {
     if (stage != Ready) return;
     if (!match || (!plan.matchTempo && (plan.semitones == 0 || !plan.matchKey))) {
         // as it is: the looper reads the file itself
-        cv.host.importFile(file, track);
+        cv.host.importKeep(plan, track);
         setVisible(false); plan = {}; stage = Idle; return;
     }
     stage = Rendering; wantRender = true; progress = 0.02f; jobDone = false;
@@ -303,13 +303,13 @@ void ImportSheet::paintContent(juce::Graphics& g) {
     text(g, fl, 130, 168, 330, 10.5f, Theme::txt(), 2, 1);
     if (plan.fileBpm > 0) text(g, "not right?", 392, 172, 80, 7.5f, Theme::sub(), 0, 1);
     text(g, "THE PIECE", 24, 214, 120, 9.0f, Theme::sub(), 2, 1);
-    juce::String pl = juce::String(piece.bpm, 1) + " BPM  ·  " + juce::String(piece.beats) + "/4  ·  " + pieceKey;
+    juce::String pl = juce::String(piece.bpm, 1) + juce::String::fromUTF8(" BPM  ·  ") + juce::String(piece.beats) + juce::String::fromUTF8("/4  ·  ") + pieceKey;
     if (piece.loopLen > 0) pl << juce::String::fromUTF8("  ·  this scene loops ") << (int) std::round(piece.loopLen / (piece.beatLen * piece.beats)) << " bars";
     else if (!piece.hasLoops) pl << juce::String::fromUTF8("  ·  nothing recorded yet");
     text(g, pl, 130, 212, 640, 10.5f, Theme::txt(), 2, 1);
     // the two choices
     auto card = [&](juce::Rectangle<int> r, bool on, const juce::String& head, const juce::StringArray& lines) {
-        g.setColour(on ? Theme::sel().withAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
+        g.setColour(on ? Theme::sel().withMultipliedAlpha(Theme::lightMode() ? 0.35f : 0.45f) : Theme::card()); g.fillRoundedRectangle(r.toFloat(), 14.0f);
         g.setColour(on ? Theme::ink(Theme::sel()) : Theme::line()); g.drawRoundedRectangle(r.toFloat().reduced(0.5f), 14.0f, on ? 2.2f : 1.0f);
         g.setColour(Theme::ink(Theme::txt())); g.setFont(Theme::font(13.0f, 2));
         g.drawText((on ? juce::String::fromUTF8("●  ") : juce::String::fromUTF8("○  ")) + head, r.getX() + 18, r.getY() + 14, r.getWidth() - 30, 24, juce::Justification::centredLeft);
@@ -627,8 +627,10 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         for (int i = 0; i < h.recentSongs.size(); ++i) rec.addItem(item(cmdRecent + i, juce::File(h.recentSongs[i]).getFileName()));
         m.addSubMenu("Open Recent", rec, h.recentSongs.size() > 0);
         m.addSeparator();
-        m.addItem(item(cmdSave, "Save", CMDKEY + "S"));
-        m.addItem(item(cmdSaveAs, juce::String::fromUTF8("Save As…"), juce::String::fromUTF8("⇧") + CMDKEY + "S"));
+        m.addItem(item(cmdSave, "Save Session", CMDKEY + "S"));
+        m.addItem(item(cmdSaveNew, juce::String::fromUTF8("Save as a New Session…"), ""));
+        m.addItem(item(cmdSaveAs, juce::String::fromUTF8("Save As… (anywhere)"), juce::String::fromUTF8("⇧") + CMDKEY + "S"));
+        m.addItem(item(cmdSessions, juce::String::fromUTF8("Sessions…"), ""));
         m.addSeparator();
         juce::PopupMenu imp; for (int t = 0; t < 8; ++t) imp.addItem(item(cmdImport1 + t, "into Track " + juce::String(t + 1)));
         m.addSubMenu("Import Audio File", imp);
@@ -640,16 +642,10 @@ juce::PopupMenu AppMenu::getMenuForIndex(int index, const juce::String&) {
         m.addItem(item(cmdUndo, "Undo Last Recording", CMDKEY + "Z", cv.snap("undoav") > 0.5f));
         m.addItem(item(cmdResetAll, juce::String::fromUTF8("Clear All Loops…"), {}, loops));
         m.addSeparator();
-        m.addItem(item(cmdAutoMix, juce::String::fromUTF8("AUTO MIX…"), juce::String::fromUTF8("⇧") + CMDKEY + "M", loops));
-        m.addItem(item(cmdAB, "Compare Before / After AUTO MIX", {}, cv.autoMixAvailable()));
         m.addSeparator();
         m.addItem(item(cmdMidiLearn, cv.midiLearnActive() ? "Stop MIDI Learn" : juce::String::fromUTF8("MIDI Learn…"), CMDKEY + "L", true, cv.midiLearnActive()));
         m.addItem(item(cmdMidiClear, "Forget All MIDI Connections"));
     } else if (index == 2) {
-        auto& P = Theme::palettes();
-        juce::PopupMenu pal;
-        for (int i = 0; i < (int) P.size(); ++i) pal.addItem(item(cmdPalette + i, juce::String(P[(size_t) i].name) + (P[(size_t) i].light ? " (light)" : " (dark)"), {}, true, i == Theme::paletteIndex()));
-        m.addSubMenu("Colours", pal);
         m.addItem(item(cmdToggleLight, Theme::lightMode() ? "Dark Mode" : "Light Mode", juce::String::fromUTF8("⇧") + CMDKEY + "L"));
         m.addItem(item(cmdLook, juce::String::fromUTF8("Choose Effects…")));
         m.addSeparator();

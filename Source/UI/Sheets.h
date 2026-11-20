@@ -164,6 +164,7 @@ enum Command {
     cmdUndo = 20, cmdResetAll, cmdMidiLearn, cmdMidiClear, cmdAutoMix, cmdAB,
     cmdToggleLight = 40, cmdLook, cmdSynth, cmdSetup, cmdFullScreen, cmdMinimise, cmdMicView, cmdSpatial, cmdKeyboard, cmdModular,
     cmdHelp = 60, cmdShortcuts, cmdWhatsNew, cmdUpdates, cmdAbout,
+    cmdSessions = 70, cmdSaveNew,          // 2.6
     cmdPalette = 100,   // + index
     cmdRecent = 200     // + index
 };

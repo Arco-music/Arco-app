@@ -3,6 +3,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#if ! defined (_WIN32)
+ #include <sys/mman.h>
+#endif
 #include <vector>
 #include <string>
 namespace arco {
@@ -29,7 +32,43 @@ inline double dl_write(DL* d, double x) { d->b[d->w] = x; return 0.0; }
 inline double dl_read(DL* d, double t) { if (t < 0) t = 0; if (t > d->n - 2) t = d->n - 2; double p = d->w - t; while (p < 0) p += d->n;
     long i = (long) std::floor(p); double f = p - i; return d->b[i] * (1 - f) + d->b[(i + 1) % d->n] * f; }
 // a shared audio buffer (like Max's buffer~): float samples, channel-major
-struct SharedBuffer { std::vector<float> data; long len = 0; long ch = 1; std::string name;
+// 2.2: big buffers take memory only where sound is written (the Mac's tracks hold 6 minutes; an empty track costs nothing)
+struct LazyFloats {
+    float* p = nullptr; size_t n = 0; bool mapped = false;
+    LazyFloats() = default;
+    LazyFloats(const LazyFloats&) = delete; LazyFloats& operator=(const LazyFloats&) = delete;
+    LazyFloats(LazyFloats&& o) noexcept { *this = std::move(o); }
+    LazyFloats& operator=(LazyFloats&& o) noexcept { if (this != &o) { release(); p = o.p; n = o.n; mapped = o.mapped; o.p = nullptr; o.n = 0; o.mapped = false; } return *this; }
+    ~LazyFloats() { release(); }
+    void release() {
+        if (p == nullptr) return;
+       #if ! defined (_WIN32)
+        if (mapped) munmap(p, n * sizeof(float)); else
+       #endif
+        std::free(p);
+        p = nullptr; n = 0; mapped = false; }
+    void assign(size_t count, float) {
+        release(); n = count; if (n == 0) return;
+       #if ! defined (_WIN32)
+        if (n * sizeof(float) >= (1u << 20)) {     // fresh zero pages from the system: used only when written
+            void* m = mmap(nullptr, n * sizeof(float), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            if (m != MAP_FAILED) { p = (float*) m; mapped = true; return; } }
+       #endif
+        p = (float*) std::calloc(n, sizeof(float)); if (p == nullptr) n = 0; }
+    // all zero again, and the memory given back (the same address: the engine keeps its pointer)
+    void zero() {
+        if (p == nullptr) return;
+       #if ! defined (_WIN32)
+        if (mapped && mmap(p, n * sizeof(float), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0) != MAP_FAILED) return;
+       #endif
+        std::memset(p, 0, n * sizeof(float)); }
+    float* data() { return p; } const float* data() const { return p; }
+    size_t size() const { return n; }
+    float* begin() { return p; } float* end() { return p + n; }
+    const float* begin() const { return p; } const float* end() const { return p + n; }
+    float& operator[](size_t i) { return p[i]; } const float& operator[](size_t i) const { return p[i]; }
+};
+struct SharedBuffer { LazyFloats data; long len = 0; long ch = 1; std::string name;
     void resize(long frames, long chans) { len = frames; ch = chans; data.assign((size_t) frames * chans, 0.0f); }
     float* chan(long c) { return data.data() + c * len; } };
 // ---------------------------------------------------------------- Listen
@@ -1592,7 +1631,7 @@ struct Looper {
         v_isc = H_g_iscn;
         v_ch2 = ((double)CH_imp);
         v_ed = (((4.0))*SR/1000.0);
-        for (v_j = (0.0); ((double)((v_j) < ((512.0)))) != 0.0; v_j = v_j + ((1.0))) {
+        for (v_j = (0.0); ((double)((v_j) < ((8192.0)))) != 0.0; v_j = v_j + ((1.0))) {
           v_ip = H_g_ipos;
           if (((double)((v_ip) < (H_g_ilen))) != 0.0) {
             v_sp = (v_ip * H_g_irate);

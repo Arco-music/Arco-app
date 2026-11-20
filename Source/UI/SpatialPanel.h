@@ -33,7 +33,7 @@ private:
 class SpatialPanel : public juce::Component, private juce::Timer {
 public:
     explicit SpatialPanel(Canvas& c);
-    void showTab(int t);                                           // 0 OUTPUTS, 1 SPEAKERS & SPACE
+    void showTab(int t);                                           // 0 OUTPUTS, 1 SPEAKERS & SURROUND, 2 ROOM & DISTANCE
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
@@ -43,7 +43,7 @@ private:
     Canvas& cv;
     void timerCallback() override { if (isShowing()) repaint(); }
     juce::Rectangle<int> box { 40, 28, 1360, 826 };
-    juce::Point<float> centre { 390, 455 }; float radius = 325;
+    juce::Point<float> centre { 390, 440 }; float radius = 305;
     float roomM() const;                                    // metres to the edge of the circle
     juce::Point<float> at(float az, float dist) const;
     void fromPoint(juce::Point<float> p, float& az, float& dist) const;
@@ -54,6 +54,11 @@ private:
     void preset(int which);
     std::vector<std::pair<juce::Rectangle<int>, int>> srcRows;
     int tab = 1;
+    // 2.4: the room tab
+    void buildRoom(); void paintRoomSide(juce::Graphics& g); void speakersOnWalls();
+    juce::Point<float> toPx(float x, float y) const;
+    std::vector<juce::Component*> roomKids; juce::OwnedArray<juce::Component> roomKidsOwned;
+    bool dragLis = false; juce::Point<float> lis0, drag0;
     std::unique_ptr<RoutingView> routing;
     std::vector<juce::Component*> tabPills;
     juce::OwnedArray<juce::Component> kidsTabs;

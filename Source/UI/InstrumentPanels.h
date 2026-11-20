@@ -56,24 +56,33 @@ private:
     bool dragging = false; int dragY0 = 0, dragScroll0 = 0;
 };
 
+// 2.3: MODULAR - modules screwed into rails, cables, a guide and ready-made patches; a library of ~60 modules on shelves.
+// (Writing your own programs and effects: PATCHER, its own screen.)
 class ModularPanel : public juce::Component, private juce::Timer {
 public:
     explicit ModularPanel(Canvas& c);
     ~ModularPanel() override;
     void paint(juce::Graphics& g) override;
     void visibilityChanged() override;
+    bool keyPressed(const juce::KeyPress& k) override;
     void rebuild();                     // the modules changed: lay them out again
     Canvas& cv;
-    struct Rack;
+    struct Rack; struct Library; struct Guide;
+    void showGuide(bool on); void demoState(const juce::String& cmd);   // (screenshots)
+    void addModule(int type);           // from the library: into the rack, or the lab's middle
+    void loadExample(int which, bool insert);
+    juce::String message;
 private:
     void timerCallback() override;
     juce::Rectangle<int> box { 40, 28, 1360, 826 };
     juce::OwnedArray<juce::Component> kids;
     template <typename T, typename... A> T* add(juce::Rectangle<int> r, A&&... a) {
         auto* c = new T(std::forward<A>(a)...); kids.add(c); addAndMakeVisible(c); c->setBounds(r.translated(box.getX(), box.getY())); return c; }
-    juce::Viewport view;
+    juce::Viewport rackView;
     std::unique_ptr<Rack> rack;
-    int patchIndex = 0;
+    std::unique_ptr<Library> library;
+    std::unique_ptr<Guide> guide;
+    int patchIndex = 0; juce::String lastShape;
     std::unique_ptr<juce::MidiKeyboardComponent> kb;     // 1.4: play it right here
     std::unique_ptr<KeyPad> surface;
     std::unique_ptr<juce::Component> held;

@@ -44,7 +44,11 @@ bool Renderer::renderMix(const RenderSnapshot& snp, const ExportOptions& o, juce
     for (const char* L : { "A", "B", "C", "D" }) {
         for (auto* nm : { "st_loops", "st_pitch" }) {
             auto& a = src.buffer(std::string(nm) + L); auto& b = e2->buffer(std::string(nm) + L);
-            if (a.data.size() == b.data.size()) std::copy(a.data.begin(), a.data.end(), b.data.begin());
+            if (a.data.size() != b.data.size()) continue;
+            // only the part of each track that holds sound (a 6-minute track buffer is mostly empty)
+            long used = std::string(nm) == "st_loops" ? (long) src.snap(std::string("sv_len") + std::to_string(L[0] - 'A')).v.load() + 4096 : a.len;
+            used = std::min(used, a.len);
+            for (long c = 0; c < a.ch; ++c) std::memcpy(b.chan(c), a.chan(c), sizeof(float) * (size_t) used);
         }
     }
     // recording the main mix
@@ -150,8 +154,8 @@ bool Renderer::write(juce::AudioBuffer<float> buf, double rate, const ExportOpti
     w->writeFromAudioSampleBuffer(buf, 0, buf.getNumSamples());
     w.reset();
     int secs = (int) (buf.getNumSamples() / rate);
-    report = juce::String(after, 1) + " LUFS  ·  peak <= -1 dBTP  ·  " + juce::String(secs / 60) + ":" + juce::String(secs % 60).paddedLeft('0', 2)
-             + "  ·  " + juce::String((int) rate) + " Hz / " + juce::String(bits) + (bits == 32 ? "-bit float" : "-bit") + (o.flac ? " FLAC" : " WAV");
+    report = juce::String(after, 1) + juce::String::fromUTF8(" LUFS  ·  peak <= -1 dBTP  ·  ") + juce::String(secs / 60) + ":" + juce::String(secs % 60).paddedLeft('0', 2)
+             + juce::String::fromUTF8("  ·  ") + juce::String((int) rate) + " Hz / " + juce::String(bits) + (bits == 32 ? "-bit float" : "-bit") + (o.flac ? " FLAC" : " WAV");
     return true;
 }
 

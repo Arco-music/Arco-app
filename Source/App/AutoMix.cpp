@@ -739,7 +739,7 @@ AutoMixResult run(AutoMixJob& j, std::function<bool(float)> progress) {
             fxLines.add("SPACE: one room, decay " + juce::String(want, 1) + " s (" + (want >= barSec * 0.9 ? "about a bar" : juce::String(want / beatSec, 1) + " beats") + "), " + (tone < 45 ? "darker so it stays clear" : "natural tone"));
         }
     }
-    if (!fxLines.isEmpty()) r.report.push_back({ "EFFECTS", "in tempo, one room", fxLines.joinIntoString("  ·  "), -1, 0 });
+    if (!fxLines.isEmpty()) r.report.push_back({ "EFFECTS", "in tempo, one room", fxLines.joinIntoString(juce::String::fromUTF8("  ·  ")), -1, 0 });
 
     // 6. the master: tonal balance, glue, loudness - rendered and measured
     if (O.master) {

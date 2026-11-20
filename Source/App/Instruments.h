@@ -27,6 +27,7 @@ public:
     bool takesNotes() const { return kind.load() != KSynth; }
     // ---- audio thread
     void render(float* L, float* R, int n, double sampleRate, double bpm, double beat) override;
+    void setInputs(const float* const* l4, const float* mL, const float* mR) override { for (int j = 0; j < 4; ++j) modular.live[j] = l4[j]; modular.mixL = mL; modular.mixR = mR; }
     void prepare(double sampleRate);
     std::atomic<float> level { 0 };
 
@@ -62,7 +63,7 @@ public:
     juce::KnownPluginList known;
     std::unique_ptr<juce::AudioPluginInstance> plugin;
     juce::String pluginName;
-    juce::String loadPlugin(const juce::PluginDescription& d);   // empty = ok, otherwise why not
+    juce::String loadPlugin(const juce::PluginDescription& d, bool openWindow = true);   // empty = ok, otherwise why not; 2.4: its window opens
     void unloadPlugin();
     void scanPlugins(std::function<void(const juce::String&)> progress);
     juce::Array<juce::PluginDescription> instrumentPlugins() const;
