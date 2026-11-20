@@ -260,7 +260,7 @@ void LoopsView::paint(juce::Graphics& g) {
     if (dragItem >= 0 && dragItem < (int) bitems.size()) {
         auto r = juce::Rectangle<float>((float) dragNow.x - 10, (float) dragNow.y - 14, 150, 28);
         g.setColour(Theme::sel().withMultipliedAlpha(0.92f)); g.fillRoundedRectangle(r, 8.0f);
-        say(g, juce::String::charToString((juce::juce_wchar) ('A' + bitems[(size_t) dragItem].scene)) + " · TRACK " + juce::String(bitems[(size_t) dragItem].track + 1), r.toNearestInt().reduced(10, 0), 8.5f, Theme::textOn(Theme::sel()), 2);
+        say(g, juce::String::charToString((juce::juce_wchar) ('A' + bitems[(size_t) dragItem].scene)) + juce::String::fromUTF8(" · TRACK ") + juce::String(bitems[(size_t) dragItem].track + 1), r.toNearestInt().reduced(10, 0), 8.5f, Theme::textOn(Theme::sel()), 2);
     }
     // the bottom bar
     for (auto* c : owned) { if (c->getComponentID() == "lv:len") { if (Theme::softUI()) { g.setColour(Theme::sub()); g.setFont(Theme::mono(7.0f)); g.drawText("RECORD", juce::Rectangle<int>(c->getX() + 14, c->getY() - 20, 200, 14), juce::Justification::centredLeft); } else say(g, "RECORD", { c->getX(), c->getY() - 22, 200, 16 }, 8.0f, Theme::sub(), 2); }
@@ -406,7 +406,7 @@ bool LoopsView::takeStationLoop(int scene, int track, int row, int col) {
     cl->l.assign(src, src + len); cl->r = cl->l; cl->len = len;
     cl->beats = juce::jmax(1.0, std::round(len / bl));
     setClip(row, col, cl);
-    names[row][col] = juce::String(SC[scene]) + " · TRACK " + juce::String(track + 1);
+    names[row][col] = juce::String(SC[scene]) + juce::String::fromUTF8(" · TRACK ") + juce::String(track + 1);
     message = juce::String::fromUTF8("✓ ") + names[row][col] + " in row " + juce::String(row + 1);
     return true;
 }

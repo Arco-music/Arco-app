@@ -303,7 +303,7 @@ void ImportSheet::paintContent(juce::Graphics& g) {
     text(g, fl, 130, 168, 330, 10.5f, Theme::txt(), 2, 1);
     if (plan.fileBpm > 0) text(g, "not right?", 392, 172, 80, 7.5f, Theme::sub(), 0, 1);
     text(g, "THE PIECE", 24, 214, 120, 9.0f, Theme::sub(), 2, 1);
-    juce::String pl = juce::String(piece.bpm, 1) + " BPM  ·  " + juce::String(piece.beats) + "/4  ·  " + pieceKey;
+    juce::String pl = juce::String(piece.bpm, 1) + juce::String::fromUTF8(" BPM  ·  ") + juce::String(piece.beats) + juce::String::fromUTF8("/4  ·  ") + pieceKey;
     if (piece.loopLen > 0) pl << juce::String::fromUTF8("  ·  this scene loops ") << (int) std::round(piece.loopLen / (piece.beatLen * piece.beats)) << " bars";
     else if (!piece.hasLoops) pl << juce::String::fromUTF8("  ·  nothing recorded yet");
     text(g, pl, 130, 212, 640, 10.5f, Theme::txt(), 2, 1);

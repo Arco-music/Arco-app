@@ -118,7 +118,7 @@ void PhraseView::paint(juce::Graphics& g) {
     }
     drawCaption(g, "INPUT", { src->getX(), src->getY() - 22, 200, 18 });
     drawCaption(g, "RECORD", { len->getX(), len->getY() - 22, 200, 18 });
-    drawCaption(g, Theme::softUI() ? "HOW FAST  ·  ON THE METRONOME" : "HOW FAST (on the metronome)", { rate->getX() + (Theme::softUI() ? 2 : 0), rate->getY() - 22, 400, 18 });
+    drawCaption(g, Theme::softUI() ? juce::String::fromUTF8("HOW FAST  ·  ON THE METRONOME") : "HOW FAST (on the metronome)", { rate->getX() + (Theme::softUI() ? 2 : 0), rate->getY() - 22, 400, 18 });
     drawCaption(g, "IN WHAT ORDER", { order->getX(), order->getY() - 22, 400, 18 });
     if (!knobs.empty()) drawCaption(g, "SHAPE", { 18, knobs[0]->getY() - 22, 200, 18 });
     drawPanel(g, buildR.toFloat(), 18);

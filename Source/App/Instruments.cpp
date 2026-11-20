@@ -352,7 +352,7 @@ void InstrumentRack::poll() {
         int st = d.state.load();
         if (st == 2) { auto f = X.sfz(d.entry); downloadStatus = X.title(d.entry) + juce::String::fromUTF8(" installed ✓"); indexDownload.reset(); indexDownloading = -1; downloadId.clear(); loadSfz(f); }
         else if (st == 3) { { const juce::ScopedLock sl(d.lock); downloadStatus = d.error; } indexDownload.reset(); indexDownloading = -1; downloadId.clear(); if (onChange) onChange(); }
-        else downloadStatus = "downloading " + X.title(d.entry) + "  ·  " + juce::String(k) + " of " + juce::String(n) + " files  ·  " + juce::String(d.bytes.load() / 1000000) + " MB";
+        else downloadStatus = "downloading " + X.title(d.entry) + juce::String::fromUTF8("  ·  ") + juce::String(k) + " of " + juce::String(n) + juce::String::fromUTF8(" files  ·  ") + juce::String(d.bytes.load() / 1000000) + " MB";
     }
     if (download) {
         int st = download->state.load();

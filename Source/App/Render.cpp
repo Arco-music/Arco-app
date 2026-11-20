@@ -154,8 +154,8 @@ bool Renderer::write(juce::AudioBuffer<float> buf, double rate, const ExportOpti
     w->writeFromAudioSampleBuffer(buf, 0, buf.getNumSamples());
     w.reset();
     int secs = (int) (buf.getNumSamples() / rate);
-    report = juce::String(after, 1) + " LUFS  ·  peak <= -1 dBTP  ·  " + juce::String(secs / 60) + ":" + juce::String(secs % 60).paddedLeft('0', 2)
-             + "  ·  " + juce::String((int) rate) + " Hz / " + juce::String(bits) + (bits == 32 ? "-bit float" : "-bit") + (o.flac ? " FLAC" : " WAV");
+    report = juce::String(after, 1) + juce::String::fromUTF8(" LUFS  ·  peak <= -1 dBTP  ·  ") + juce::String(secs / 60) + ":" + juce::String(secs % 60).paddedLeft('0', 2)
+             + juce::String::fromUTF8("  ·  ") + juce::String((int) rate) + " Hz / " + juce::String(bits) + (bits == 32 ? "-bit float" : "-bit") + (o.flac ? " FLAC" : " WAV");
     return true;
 }
 

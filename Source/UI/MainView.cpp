@@ -1414,7 +1414,7 @@ void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthW
 
 static void saveFailed(AudioHost& host) {
     juce::AlertWindow::showAsync(juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::WarningIcon).withTitle("The session was not saved")
-                                     .withMessage(host.status + "\n\nNothing was lost: it is still open. Try again, or Save as… somewhere else.").withButton("OK"), nullptr);
+                                     .withMessage(host.status + juce::String::fromUTF8("\n\nNothing was lost: it is still open. Try again, or Save as… somewhere else.")).withButton("OK"), nullptr);
 }
 void Canvas::doSave(bool askName) {
     if (!askName && host.songFolder.isDirectory()) { if (!host.saveSong(host.songFolder)) saveFailed(host); return; }

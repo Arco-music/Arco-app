@@ -239,7 +239,7 @@ void DrumView::paint(juce::Graphics& g) {
     drawCaption(g, "PATTERN", { lx, py, 200, 20 });
     if (D.queuedPat.load() >= 0) say(g, juce::String::fromUTF8("next: ") + juce::String::charToString((juce::juce_wchar) ('A' + D.queuedPat.load())), { lx + 90, py, 150, 20 }, 8.5f, Theme::ink(Theme::amber()), 2);
     for (auto* c : owned) if (auto* s = dynamic_cast<Segments*>(c)) {
-        if (s == lenSeg) drawCaption(g, Theme::softUI() ? "LENGTH  ·  STEPS" : "LENGTH (steps)", { s->getX() + (Theme::softUI() ? 2 : 0), s->getY() - 22, 200, 18 });
+        if (s == lenSeg) drawCaption(g, Theme::softUI() ? juce::String::fromUTF8("LENGTH  ·  STEPS") : "LENGTH (steps)", { s->getX() + (Theme::softUI() ? 2 : 0), s->getY() - 22, 200, 18 });
         else if (s->items[0] == "1/8") drawCaption(g, "STEP", { s->getX() + (Theme::softUI() ? 2 : 0), s->getY() - 22, 200, 18 });
     }
     if (!kitBtns.empty()) {

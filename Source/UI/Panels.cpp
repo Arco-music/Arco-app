@@ -104,8 +104,8 @@ void AudioBox::paint(juce::Graphics& g) {
     if (d != nullptr) {
         auto s = cv.host.devices.getAudioDeviceSetup();
         st = U("✓ playing: ") + s.outputDeviceName + (s.inputDeviceName.isNotEmpty() ? U("  ·  listening: ") + s.inputDeviceName : juce::String("  ·  no input"))
-           + "\n" + juce::String((int) d->getCurrentSampleRate()) + " Hz  ·  " + juce::String(d->getCurrentBufferSizeSamples()) + " samples  ·  "
-           + juce::String(d->getActiveInputChannels().countNumberOfSetBits()) + " inputs, " + juce::String(d->getActiveOutputChannels().countNumberOfSetBits()) + " outputs  ·  delay about "
+           + "\n" + juce::String((int) d->getCurrentSampleRate()) + juce::String::fromUTF8(" Hz  ·  ") + juce::String(d->getCurrentBufferSizeSamples()) + juce::String::fromUTF8(" samples  ·  ")
+           + juce::String(d->getActiveInputChannels().countNumberOfSetBits()) + " inputs, " + juce::String(d->getActiveOutputChannels().countNumberOfSetBits()) + juce::String::fromUTF8(" outputs  ·  delay about ")
            + juce::String(juce::roundToInt((d->getInputLatencyInSamples() + d->getOutputLatencyInSamples() + 2 * d->getCurrentBufferSizeSamples()) * 1000.0 / d->getCurrentSampleRate())) + " ms";
     } else { st = "no sound card open - choose an OUTPUT above"; sc = Theme::amber(); }
     L(st, 0, 118, 520, 36, 8.0f, sc, 1);

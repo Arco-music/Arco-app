@@ -1367,7 +1367,7 @@ void StudioView::addDeviceMenu(int li) {
     juce::PopupMenu chains;
     static const char* CH[6] = { "Voice  ·  EQ, compressor, a little reverb", "Instrument  ·  EQ, compressor", "Drums  ·  compressor, saturation",
                                  "Warm  ·  tape saturation, EQ", "Wide echo  ·  delay, chorus", "Big room  ·  reverb" };
-    for (int c = 0; c < 6; ++c) chains.addItem(100 + c, CH[c]);
+    for (int c = 0; c < 6; ++c) chains.addItem(100 + c, U8(CH[c]));
     m.addSubMenu(U8("Ready-made (one tap)"), chains);
     m.addSeparator();
     m.addSectionHeader(U8("STUDIO EFFECTS"));
@@ -1666,7 +1666,7 @@ void StudioView::copySel(bool cut) {
 }
 
 void StudioView::paste() {
-    if (studio.clipboard.empty()) { report = "copy a clip first (⌘C)"; repaint(); return; }
+    if (studio.clipboard.empty()) { report = juce::String::fromUTF8("copy a clip first (⌘C)"); repaint(); return; }
     auto got = studio.pasteClips(studio.pos.load(), selLane);
     if (got.empty()) { report = "nothing could be pasted here"; repaint(); return; }
     selClips = got; selClip = got.back(); detail = DClip;

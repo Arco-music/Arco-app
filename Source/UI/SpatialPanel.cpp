@@ -413,7 +413,7 @@ void RoutingView::paint(juce::Graphics& g) {
               "one channel each on the room's mixing desk, a monitor for a musician, a recorder. Turn ROOM off and it goes only where you send it."),
         { 0, 0, getWidth(), 40 }, 8.5f, Theme::sub());
     juce::String dev = "no sound card";
-    if (auto* d = cv.host.devices.getCurrentAudioDevice()) dev = d->getName() + "  ·  " + juce::String(no) + " outputs";
+    if (auto* d = cv.host.devices.getCurrentAudioDevice()) dev = d->getName() + juce::String::fromUTF8("  ·  ") + juce::String(no) + " outputs";
     lab(g, dev, { 540, 44, getWidth() - 540, 28 }, 9.0f, Theme::txt(), 2, juce::Justification::centredRight);
     if (no <= 2) lab(g, U8("This sound card has 2 outputs. Connect an interface with more (on the iPad: USB, through the adapter) and they appear here."), { 0, 78, getWidth(), 18 }, 8.5f, Theme::amber());
     // the column heads

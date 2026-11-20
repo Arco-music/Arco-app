@@ -64,7 +64,7 @@ void PhoneRemote::stop() {
    #endif
 }
 void PhoneRemote::rename() {
-    auto* w = new juce::AlertWindow("This phone's name", "The station shows it (SETUP → iPHONES):", juce::MessageBoxIconType::NoIcon);
+    auto* w = new juce::AlertWindow("This phone's name", juce::String::fromUTF8("The station shows it (SETUP → iPHONES):"), juce::MessageBoxIconType::NoIcon);
     w->addTextEditor("name", myName);
     w->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey)); w->addButton("Cancel", 0);
     w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
