@@ -187,6 +187,7 @@ public:
     bool redo();
     // save / open next to the song
     bool save(const juce::File& folder);
+    juce::var songToVar(const StudioSong& s) const;     // the arrangement as JSON (saving, tests)
     bool load(const juce::File& folder);
     // effects printed: a lane replaced by its sound through the station's effects
     bool printEffects(int lane, std::function<bool(float)> progress);

@@ -1409,15 +1409,42 @@ int StudioView::pressEverything(juce::StringArray& bad) {
         if (studio.laneStrip.size() != S.lanes.size() || studio.laneScene.size() != S.lanes.size()) b.add(what + ": lane lists out of step");
         if (selLane >= (int) S.lanes.size()) b.add(what + ": the chosen lane is gone"); };
     int pressed = 0;
-    for (int pass = 0; pass < 2; ++pass) {                       // the second time with a clip chosen (its buttons)
-        if (pass == 1) { for (int i = 0; i < (int) studio.song.clips.size(); ++i) if (!studio.song.clips[(size_t) i].isMidi()) { selClip = i; detail = DClip; break; } builtFor = -2; resized(); }
+    // 2.6: did the press do anything? (the song, what the screen shows, the app's values, a menu or a window opened)
+    auto shotDir = juce::File(juce::SystemStats::getEnvironmentVariable("STUDIOAUDIT", {}));
+    auto sig = [this] { juce::String v = juce::JSON::toString(studio.songToVar(studio.song), true);
+        v << "|" << selLane << "," << selClip << "," << (int) detail << "," << (int) mixView << (int) showBrowser << (int) showDetail << "," << fxBrowse << "," << fxGroup << "," << fxPage << "," << grid << "," << pxPerSec << "," << scrollSec << "," << scrollY
+          << "," << (juce::int64) studio.pos << "," << (int) studio.playing.load() << (int) studio.recording.load() << "," << rollTopPitch << "," << rollRowH << "," << rollPx << "," << report << "," << hint << "," << (int) selClips.size();
+        v << juce::JSON::toString(cv.host.model.songState(), true);
+        for (auto* k : detailKids) v << (k->isVisible() ? "v" : "h");
+        return v; };
+    auto openedSomething = [] { bool m = juce::PopupMenu::dismissAllActiveMenus(); auto* mm = juce::ModalComponentManager::getInstance(); return m || (mm && mm->getNumModalComponents() > 0); };
+    auto idleCheck = [&](const juce::String& before, const juce::String& what, juce::Rectangle<int> r) {
+        if (shotDir == juce::File()) return;
+        bool opened = openedSomething();
+        if (!opened && sig() == before) { bad.add("NOTHING: " + what);
+            shotDir.createDirectory(); auto im = createComponentSnapshot(r.expanded(40, 16).getIntersection(getLocalBounds()), false, 1.0f);
+            juce::FileOutputStream os(shotDir.getChildFile("idle-" + juce::String(bad.size()) + ".png")); if (os.openedOk()) juce::PNGImageFormat().writeImageToStream(im, os); } };
+    // the passes: as it opens; a clip chosen; a MIDI clip (the piano roll); the master; the mixer; the effects to choose
+    for (int pass = 0; pass < 6; ++pass) {
+        selClip = -1; detail = DLane; mixView = false; fxBrowse = -2;
+        if (pass == 1) { for (int i = 0; i < (int) studio.song.clips.size(); ++i) if (!studio.song.clips[(size_t) i].isMidi()) { selClip = i; detail = DClip; break; } }
+        if (pass == 2) { int li = -1; for (int i = 0; i < (int) studio.song.lanes.size(); ++i) if (studio.song.lanes[(size_t) i].kind == LaneInstrument) li = i;
+            if (li >= 0) { bool has = false; for (int i = 0; i < (int) studio.song.clips.size(); ++i) if (studio.song.clips[(size_t) i].isMidi()) { selClip = i; has = true; break; }
+                if (!has) { selLane = li; newMidiClip(li, 0); for (int i = 0; i < (int) studio.song.clips.size(); ++i) if (studio.song.clips[(size_t) i].isMidi()) selClip = i; }
+                if (selClip >= 0) { selLane = studio.song.clips[(size_t) selClip].lane; detail = DClip; } } }
+        if (pass == 3) detail = DMaster;
+        if (pass == 4) mixView = true;
+        if (pass == 5) { fxBrowse = selLane; fxPage = 0; showDetail = true; }
+        builtFor = -2; resized(); timerCallback();
         draw();
         std::vector<juce::Rectangle<float>> rects; for (auto& h : hits) if (h.click) rects.push_back(h.r);
         for (auto& r : rects) {
             draw();
             for (auto& h : hits) if (h.click && h.r == r) {
                 auto f = h.click; juce::String what = "the button at " + r.toNearestInt().toString();
+                auto before = sig();
                 try { f(); } catch (...) { bad.add(what + " threw"); }
+                idleCheck(before, what, r.toNearestInt());
                 ++pressed; settle(); draw(); consistent(what, bad);
                 break;
             }
@@ -1426,12 +1453,28 @@ int StudioView::pressEverything(juce::StringArray& bad) {
         for (auto* k : kids) if (auto* p = dynamic_cast<Pill*>(k)) {
             auto id = p->getComponentID();
             if (!p->isVisible() || !p->onClick || id == "studio:export" || id == "studio:close" || id == "studio:home" || id == "studio:save") continue;
+            auto before = sig();
             try { p->onClick(); } catch (...) { bad.add(id + " threw"); }
+            idleCheck(before, id + " '" + p->text + "'", p->getBounds());
             ++pressed; settle(); draw(); consistent(id, bad);
             if (id == "studio:mixer" || id == "studio:arrange") { try { p->onClick(); } catch (...) {} settle(); }
         }
+        // the bottom panel's keys (effects, where it goes, CLIP / LANE / MASTER ...): found again each time (the panel is rebuilt)
+        draw(); timerCallback();
+        std::vector<std::pair<juce::String, juce::Rectangle<int>>> dk; for (auto* k : detailKids) if (auto* p = dynamic_cast<Pill*>(k)) if (p->isVisible() && p->onClick) dk.push_back({ p->text, p->getBounds() });
+        for (auto& want : dk) {
+            timerCallback(); draw();
+            for (auto* k : detailKids) if (auto* p = dynamic_cast<Pill*>(k)) if (p->isVisible() && p->onClick && p->getBounds() == want.second && p->text == want.first) {
+                if (p->text.containsIgnoreCase("import") || p->text.containsIgnoreCase("load a file")) break;
+                auto before = sig();
+                try { p->onClick(); } catch (...) { bad.add("panel key '" + p->text + "' threw"); }
+                idleCheck(before, "panel key '" + want.first + "' (pass " + juce::String(pass) + ")", want.second);
+                ++pressed; settle(); timerCallback(); draw(); consistent(want.first, bad);
+                break; }
+        }
         mixView = false; studio.stop(); settle();
     }
+    selClip = -1; detail = DLane; mixView = false; fxBrowse = -2; builtFor = -2; resized();
     return pressed;
 }
 

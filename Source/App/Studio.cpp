@@ -1312,21 +1312,7 @@ static std::vector<StudioAuto> autosFromVar(const juce::var& v) { std::vector<St
     if (auto* a = v.getArray()) for (auto& x : *a) { StudioAuto A; A.param = x["param"].toString().toStdString(); if (auto* p = x["pts"].getArray()) for (int i = 0; i + 1 < p->size(); i += 2) A.pts.push_back({ (double) (*p)[i], (float) (*p)[i + 1] }); out.push_back(A); }
     return out; }
 
-bool Studio::save(const juce::File& folder) {
-    auto dir = folder.getChildFile("studio"); dir.createDirectory();
-    juce::WavAudioFormat wav;
-    StudioSong s; { const juce::ScopedLock sl(lock); s = song; }
-    juce::StringArray keep;
-    for (auto& sp : s.sources) {
-        if (!sp) continue;
-        auto f = dir.getChildFile("src-" + sp->id + ".wav"); keep.add(f.getFileName());
-        if (f.existsAsFile()) continue;                    // already written (sources never change)
-        std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(new juce::FileOutputStream(f), s.sr, sp->r.empty() ? 1 : 2, 32, {}, 0));
-        if (!w) return false;
-        const float* ch[2] = { sp->l.data(), sp->r.empty() ? sp->l.data() : sp->r.data() };
-        w->writeFromFloatArrays(ch, sp->r.empty() ? 1 : 2, (int) sp->l.size());
-    }
-    for (auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.wav")) if (!keep.contains(f.getFileName())) f.deleteFile();
+juce::var Studio::songToVar(const StudioSong& s) const {
     auto* o = new juce::DynamicObject();
     o->setProperty("version", 3);
     o->setProperty("sr", s.sr); o->setProperty("bpm", s.bpm); o->setProperty("beats", s.beats); o->setProperty("den", s.den); o->setProperty("master", s.masterDb); o->setProperty("glue", s.glue);
@@ -1359,7 +1345,26 @@ bool Studio::save(const juce::File& folder) {
     for (auto& d : s.master) mdev.add(devToVar(d));
     o->setProperty("sources", srcs); o->setProperty("clips", clips); o->setProperty("lanes", lanes); o->setProperty("markers", mk); o->setProperty("masterDevices", mdev);
     o->setProperty("masterAutos", autosToVar(s.masterAutos));
-    return dir.getChildFile("studio.json").replaceWithText(juce::JSON::toString(juce::var(o)));
+    return juce::var(o);
+}
+
+bool Studio::save(const juce::File& folder) {
+    auto dir = folder.getChildFile("studio"); dir.createDirectory();
+    juce::WavAudioFormat wav;
+    StudioSong s; { const juce::ScopedLock sl(lock); s = song; }
+    juce::StringArray keep;
+    for (auto& sp : s.sources) {
+        if (!sp) continue;
+        auto f = dir.getChildFile("src-" + sp->id + ".wav"); keep.add(f.getFileName());
+        if (f.existsAsFile()) continue;                    // already written (sources never change)
+        std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(new juce::FileOutputStream(f), s.sr, sp->r.empty() ? 1 : 2, 32, {}, 0));
+        if (!w) return false;
+        const float* ch[2] = { sp->l.data(), sp->r.empty() ? sp->l.data() : sp->r.data() };
+        w->writeFromFloatArrays(ch, sp->r.empty() ? 1 : 2, (int) sp->l.size());
+    }
+    for (auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.wav")) if (!keep.contains(f.getFileName())) f.deleteFile();
+    auto o = songToVar(s);
+    return dir.getChildFile("studio.json").replaceWithText(juce::JSON::toString(o));
 }
 
 bool Studio::load(const juce::File& folder) {
