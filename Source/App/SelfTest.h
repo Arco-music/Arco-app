@@ -165,6 +165,17 @@ inline int runSelfTest(AudioHost& h, const juce::File& dir) {
         m.press("st_looper", "rstall"); run(0.5, 0);
         check(h.openSong(rn) && waitFor([&] { return trk(0) == 3; }, 4.0), "SESSIONS: the renamed session opens with its loop", trk(0));
         check(h.saveSong(rn) && rn.findChildFiles(juce::File::findFiles, false, "*-settings.json").size() == 1, "SESSIONS: saved again, it is still one song");
+        {   // STUDIO's arrangement: kept when the session is opened and saved again without going into STUDIO; an emptied STUDIO stays empty
+            auto& St = h.studio;
+            { const juce::ScopedLock sl(St.lock); St.song = StudioSong(); St.song.sr = e.sr; std::vector<float> l((size_t) e.sr, 0.1f);
+              St.song.sources.push_back(St.makeSource("keep", std::move(l))); StudioLane ln; St.song.lanes.push_back(ln);
+              StudioClip c; c.lane = 0; c.source = 0; c.start = 0; c.length = (long) e.sr; St.song.clips.push_back(c); }
+            bool a = h.saveSong(rn) && h.openSong(rn) && St.song.clips.size() == 1;
+            bool b = a && h.saveSong(rn) && h.openSong(rn) && St.song.clips.size() == 1;
+            { const juce::ScopedLock sl(St.lock); St.song = StudioSong(); }
+            bool c2 = h.saveSong(rn) && h.openSong(rn) && St.song.clips.empty();
+            check(a && b && c2, "SESSIONS: STUDIO's song is kept by every save, and an emptied STUDIO stays empty", (double) a + 2 * b + 4 * c2);
+        }
         juce::File cp; check(sessions::duplicate(rn, cp) && cp.getChildFile(cp.getFileName() + "-settings.json").existsAsFile() && has(cp), "SESSIONS: DUPLICATE makes a copy that opens on its own");
         juce::File clash; check(!sessions::rename(cp, "selftest renamed", clash), "SESSIONS: renaming onto another session's name is refused");
         cp.deleteRecursively(); rn.deleteRecursively();

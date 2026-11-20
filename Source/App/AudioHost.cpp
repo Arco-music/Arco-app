@@ -532,7 +532,9 @@ juce::String AudioHost::loopsSignature() {
 
 bool AudioHost::saveSong(const juce::File& folder) {
     if (!folder.createDirectory()) { status = "could not make the folder"; return false; }
-    if (!studio.song.clips.empty()) studio.save(folder);           // STUDIO's arrangement goes with the song
+    // STUDIO's arrangement goes with the song (an emptied STUDIO too: its old arrangement must not come back on opening)
+    if (!studio.song.clips.empty() || !studio.song.lanes.empty()) { if (!studio.save(folder)) { status = "could not write the STUDIO song (is the disk full?)"; return false; } }
+    else folder.getChildFile("studio").getChildFile("studio.json").deleteFile();
     saveDrums(folder);                                             // 2.0: the drum machine's patterns
     if (onSaveExtra) onSaveExtra(folder);                          // ... and LIVE LOOPS
     auto name = folder.getFileName();
@@ -613,6 +615,8 @@ bool AudioHost::openSong(const juce::File& sel) {
     for (int i = 0; i < 15; ++i) engine.set("st_looper", RS[i], (double) s[SV[i]]);
     model.press("st_looper", "rs_go");
     songFolder = folder;
+    // STUDIO's arrangement comes in now (not only when STUDIO opens): a save before STUDIO was opened keeps it
+    if (studio.load(folder)) studio.matchRate(engine.sr);
     addRecent(folder);
     sigSettle = 20;                          // the loops arrive in the engine over the next moments
     status = "\"" + base + U("\" ✓");

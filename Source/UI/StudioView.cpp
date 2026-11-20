@@ -13,6 +13,7 @@ static void txtOn(juce::Graphics& g, const juce::String& t, juce::Rectangle<int>
     g.setColour(Theme::textOn(bg)); g.setFont(Theme::font(fs, w)); g.drawFittedText(t, r, juce::Justification::centredLeft, 1, 0.8f);
 }
 static juce::String noteName(int p) { return juce::MidiMessage::getMidiNoteName(p, true, true, 4); }
+static juce::String dbText(float v) { return juce::String(std::abs(v) < 0.05f ? 0.0f : v, 1) + " dB"; }
 static const char* GRID[5] = { "OFF", "BAR", "1/4", "1/8", "1/16" };
 
 // ================================================================== building
@@ -39,11 +40,10 @@ void StudioView::buildTop() {
         { "count", "COUNT-IN", [this] { studio.song.countIn = !studio.song.countIn; }, [this] { return studio.song.countIn ? Theme::amber() : Theme::btn(); } },
         { "undo", U8("↶"), [this] { if (studio.undo()) { selClip = -1; selClips.clear(); repaint(); } }, nullptr },
         { "redo", U8("↷"), [this] { if (studio.redo()) { selClip = -1; selClips.clear(); repaint(); } }, nullptr },
-        { "arrange", "ARRANGE", [this] { mixView = false; repaint(); }, [this] { return !mixView ? Theme::sel() : Theme::btn(); } },
-        { "mixer", "MIXER", [this] { mixView = true; repaint(); }, [this] { return mixView ? Theme::sel() : Theme::btn(); } },
+        { "arrange", "ARRANGE", [this] { mixView = false; repaint(); }, [this] { return !mixView ? Theme::blue() : Theme::btn(); } },
+        { "mixer", "MIXER", [this] { mixView = true; repaint(); }, [this] { return mixView ? Theme::blue() : Theme::btn(); } },
         { "export", "EXPORT", [this] { doExport(); }, [] { return Theme::blue(); } },
-        { "save", "SAVE", [this] { if (cv.host.songFolder.isDirectory()) { cv.host.saveSong(cv.host.songFolder); report = studio.save(cv.host.songFolder) ? U8("✓ STUDIO saved with the song") : U8("could not save"); }
-                                   else report = "save the song on the station first (File > Save) - STUDIO is kept inside it"; }, nullptr },
+        { "save", "SAVE", [this] { cv.saveSession([sp = juce::Component::SafePointer<StudioView>(this)] { if (sp) { sp->report = U8("✓ saved - STUDIO goes with the session"); sp->repaint(); } }); }, nullptr },
         { "close", U8("✕"), [this] { studio.stop(); if (onClose) onClose(); }, nullptr },
     };
     for (auto& b : bs) {
@@ -53,6 +53,7 @@ void StudioView::buildTop() {
         if (b.id == "play") { p->text = ""; p->iconFn = [this] { return studio.playing.load() ? 2 : 1; }; }
         if (b.id == "home") { p->text = ""; p->icon = 11; }
         if (b.id == "rec") { p->text = ""; p->icon = 3; }
+        if (b.id == "arrange" || b.id == "mixer") p->tint = true;        // the view you are in: pressed in, with its light
         if (b.id == "undo") p->setTooltip("undo (Cmd Z)"); if (b.id == "redo") p->setTooltip("redo (Shift Cmd Z)");
         p->setComponentID("studio:" + b.id);
         p->onClick = b.f;
@@ -228,7 +229,8 @@ static void studioKey(juce::Graphics& g, juce::Rectangle<float> r, const juce::S
     float rad = juce::jmin(r.getHeight() * 0.5f, 14.0f);
     if (Theme::softUI()) {
         softKeyLite(g, r, rad, on, c, on ? 0.9f : 0.0f);
-        txt(g, Theme::keyCase(t), r.toNearestInt(), fs * 1.12f, on ? Theme::ink(c) : Theme::txt(), 1, juce::Justification::centred);
+        if (on) { g.setColour(Theme::textOn(Theme::btn().interpolatedWith(c, Theme::lightMode() ? 0.7f : 0.8f))); g.setFont(Theme::font(fs * 1.12f, 1)); g.drawFittedText(Theme::keyCase(t), r.toNearestInt(), juce::Justification::centred, 1, 0.9f); }
+        else txt(g, Theme::keyCase(t), r.toNearestInt(), fs * 1.12f, Theme::txt(), 1, juce::Justification::centred);
         return;
     }
     g.setColour(on ? c : Theme::btn()); g.fillRoundedRectangle(r, 5);
@@ -406,7 +408,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
         txt(g, juce::String(std::abs(L.vol) < 0.05f ? 0.0f : L.vol, 1) + " dB", { (int) vb.getRight() + 4, (int) ry - 2, 44, 16 }, 7.0f, Theme::sub(), 1);
         hits.push_back({ vb.expanded(0, 6), [this, li] { selLane = li; detail = DLane; selClip = -1; },
             [this, li](juce::Point<float> d, const juce::MouseEvent& e) { const juce::ScopedLock sl(studio.lock); auto& l = studio.song.lanes[(size_t) li]; l.vol = juce::jlimit(-60.0f, 6.0f, l.vol + d.x * (e.mods.isShiftDown() ? 0.02f : 0.25f)); }, nullptr });
-        btn({ (float) ha.getX() + headW - 36, ry - 3, 26, 18 }, U8("⋯"), L.showAuto >= 0, Theme::amber(), [this, li] { laneMenu(li); });
+        btn({ (float) ha.getX() + headW - 36, ry - 4, 26, 16 }, U8("⋯"), L.showAuto >= 0, Theme::amber(), [this, li] { laneMenu(li); });
         if (h >= 62 && !ret) {
             juce::String sub;
             if (L.kind == LaneAudio) sub = (L.input < 0 ? U8("Records the station") : L.input < 4 ? "Records Live " + juce::String(L.input + 1) : "Records input " + juce::String(L.input - 3)) + (L.monitor ? U8(" · hearing it") : juce::String()) + U8(" ▾");
@@ -416,7 +418,7 @@ void StudioView::paintLanes(juce::Graphics& g) {
             if (L.kind == LaneAudio) hits.push_back({ sr2, [this, li] { inputMenu(li); }, nullptr, nullptr });
             // the effects of this track: one tap (none yet: the menu opens)
             int nOn = 0; for (auto& dv : L.devices) nOn += dv.on;
-            auto fxr = juce::Rectangle<float>((float) ha.getX() + headW - 64, y + 44, 54, 20);
+            auto fxr = juce::Rectangle<float>((float) ha.getX() + headW - 64, y + 47, 54, 19);
             btn(fxr, nOn > 0 ? "FX " + juce::String(nOn) : juce::String("+ FX"), nOn > 0, Theme::violet(), [this, li] {
                 selLane = li; selClip = -1; detail = DLane; showDetail = true; builtFor = -2;
                 if (studio.song.lanes[(size_t) li].devices.empty()) fxBrowse = li;
@@ -615,7 +617,7 @@ void StudioView::paintMixer(juce::Graphics& g) {
         hits.push_back({ fr.expanded(10, 4), [this, li] { if (li >= 0) { selLane = li; detail = DLane; } else detail = DMaster; },
             [this, li, fr](juce::Point<float> d, const juce::MouseEvent& e) { const juce::ScopedLock sl(studio.lock); float dv = -d.y / fr.getHeight() * 66.0f * (e.mods.isShiftDown() ? 0.1f : 1.0f);
                 if (li < 0) studio.song.masterDb = juce::jlimit(-60.0f, 6.0f, studio.song.masterDb + dv); else { auto& l = studio.song.lanes[(size_t) li]; l.vol = juce::jlimit(-60.0f, 6.0f, l.vol + dv); } }, nullptr });
-        txt(g, juce::String(vol, 1) + " dB", { r.getX(), r.getBottom() - 52, r.getWidth(), 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
+        txt(g, dbText(vol), { r.getX(), r.getBottom() - 52, r.getWidth(), 14 }, 7.5f, Theme::txt(), 1, juce::Justification::centred);
         if (!master) {
             auto b = [&](juce::Rectangle<float> rr, const juce::String& tt, bool on, juce::Colour c, std::function<void()> f) {
                 studioKey(g, rr, tt, on, c, 8.0f); hits.push_back({ rr, f, nullptr, nullptr }); };
@@ -700,7 +702,7 @@ void StudioView::rebuildDetail() {
             knob({ x, y, 40, 40 }, [clip] { auto* c = clip(); return c ? (double) c->gainDb : 0.0; }, [this, clip](double v) { const juce::ScopedLock sl(studio.lock); if (auto* c = clip()) c->gainDb = (float) v; }, -36, 18, 0, Theme::amber());
             knob({ x + 56, y, 40, 40 }, [this, clip] { auto* c = clip(); return c ? c->fadeIn / studio.song.sr * 1000.0 : 0.0; }, [this, clip](double v) { const juce::ScopedLock sl(studio.lock); if (auto* c = clip()) c->fadeIn = (float) juce::jmin((double) c->length / 2, v / 1000.0 * studio.song.sr); }, 0, 8000, 4, Theme::amber());
             knob({ x + 112, y, 40, 40 }, [this, clip] { auto* c = clip(); return c ? c->fadeOut / studio.song.sr * 1000.0 : 0.0; }, [this, clip](double v) { const juce::ScopedLock sl(studio.lock); if (auto* c = clip()) c->fadeOut = (float) juce::jmin((double) c->length / 2, v / 1000.0 * studio.song.sr); }, 0, 8000, 4, Theme::amber());
-            label({ x - 10, y + 42, 60, 12 }, [clip] { auto* c = clip(); return c ? juce::String(c->gainDb, 1) + " dB" : juce::String(); });
+            label({ x - 10, y + 42, 60, 12 }, [clip] { auto* c = clip(); return c ? dbText(c->gainDb) : juce::String(); });
             label({ x + 46, y + 42, 60, 12 }, [] { return juce::String("FADE IN"); }); label({ x + 102, y + 42, 60, 12 }, [] { return juce::String("FADE OUT"); });
             int px = 190, py = y0 + 34;
             pill({ px, py, 84, 24 }, "LOOP", [this, clip] { studio.snapshot(); const juce::ScopedLock sl(studio.lock); if (auto* c = clip()) c->loop = !c->loop; }, [clip] { auto* c = clip(); return c && c->loop ? Theme::amber() : Theme::btn(); });
@@ -768,7 +770,7 @@ void StudioView::rebuildDetail() {
         label({ 16, y0 + 8, 400, 18 }, [lane] { auto* l = lane(); return l ? Theme::nameCase(l->name) + U8("  ·  ") + Theme::keyCase(l->kind == LaneInstrument ? "INSTRUMENT" : l->kind == LaneReturn ? "RETURN" : l->kind == LaneBus ? "BUS" : "AUDIO") : juce::String(); }, true);
     } else {
         knob({ x, y, 44, 44 }, [this] { return (double) studio.song.masterDb; }, [this](double v) { const juce::ScopedLock sl(studio.lock); studio.song.masterDb = (float) v; }, -60, 6, 0, Theme::txt());
-        label({ x - 8, y + 46, 60, 12 }, [this] { return juce::String(studio.song.masterDb, 1) + " dB"; });
+        label({ x - 8, y + 46, 60, 12 }, [this] { return dbText(studio.song.masterDb); });
         label({ 16, y0 + 8, 300, 18 }, [] { return juce::String("MASTER"); }, true);
     }
     int dx = 240;
@@ -778,7 +780,9 @@ void StudioView::rebuildDetail() {
     if (fxBrowse == li) return;          // 2.3: the effects to choose fill the panel (painted)
     for (int di = 0; di < (int) devs.size(); ++di) {
         auto& I = devInfoOf(devs[(size_t) di]);
-        int np = (int) I.p.size(), cols = (np + 1) / 2;
+        int np = (int) I.p.size();
+        bool keyed = devs[(size_t) di].type == DevComp || devs[(size_t) di].type == DevGate;
+        int cols = (np + (keyed ? 1 : 0) + 1) / 2;          // a SIDECHAIN key takes a slot of the grid, like a knob
         int w = devs[(size_t) di].type == DevPlugin || devs[(size_t) di].type == DevPatcher ? 200 : 18 + cols * 54;
         auto box = juce::Rectangle<int>(dx, y0 + 30, w, (int) detailH - 40);
         devBoxes.push_back({ box, di, master });
@@ -791,10 +795,14 @@ void StudioView::rebuildDetail() {
                 auto* dv = devRef(di); return dv && dv->slot ? U8("Open its window ▸") : U8("Opening …"); };
         if (devs[(size_t) di].type == DevPatcher)       // 2.4: a PATCHER program: open it in its screen
             pill({ box.getX() + 14, box.getY() + 46, box.getWidth() - 28, 34 }, U8("Edit in Patcher ▸"), [this, li, di] { if (cv.onEditPatcher) cv.onEditPatcher(li, di); });
-        if (devs[(size_t) di].type == DevComp || devs[(size_t) di].type == DevGate)      // 2.3: SIDECHAIN
-            pill({ box.getX() + 10, box.getBottom() - 28, juce::jmin(150, box.getWidth() - 20), 22 }, "KEY", [this, li, di] { keyMenu(li, di); })->dynText = [this, devRef, di] {
-                auto* dv = devRef(di); auto& LL = studio.song.lanes;
-                return dv && dv->side >= 0 && dv->side < (int) LL.size() ? U8("Key: ") + Theme::nameCase(LL[(size_t) dv->side].name) + U8(" ▾") : U8("Key: its own sound ▾"); };
+        if (keyed) {      // 2.3: SIDECHAIN - in the grid with the knobs: what it listens to
+            int kx = box.getX() + 12 + (np % cols) * 54, ky = box.getY() + 30 + (np / cols) * 76;
+            auto* kp = pill({ kx + 2, ky + 7, 48, 24 }, U8("Key ▾"), [this, li, di] { keyMenu(li, di); });
+            kp->setTooltip("SIDECHAIN: what it listens to - its own sound, or another track (the kick ducks the bass)");
+            label({ kx - 4, ky + 40, 60, 11 }, [] { return juce::String("KEY"); });
+            label({ kx - 4, ky + 51, 60, 11 }, [this, devRef, di] { auto* dv = devRef(di); auto& LL = studio.song.lanes;
+                return dv && dv->side >= 0 && dv->side < (int) LL.size() ? Theme::nameCase(LL[(size_t) dv->side].name) : juce::String("its own"); });
+        }
         for (int k = 0; k < np; ++k) {
             auto P = I.p[(size_t) k];
             int kx = box.getX() + 12 + (k % cols) * 54, ky = box.getY() + 30 + (k / cols) * 76;
@@ -806,15 +814,16 @@ void StudioView::rebuildDetail() {
             label({ kx - 4, ky + 40, 60, 11 }, [nm] { return nm; });
             label({ kx - 4, ky + 51, 60, 11 }, [devRef, di, k, unit, choices, nc] { auto* dv = devRef(di); if (!dv) return juce::String(); float v = dv->p[(size_t) k];
                 if (choices) return juce::String(choices[juce::jlimit(0, nc - 1, (int) std::lround(v))]);
-                return (std::abs(v) >= 100 ? juce::String((int) std::lround(v)) : juce::String(v, std::abs(v) < 10 ? 1 : 0)) + " " + unit; });
+                return (std::abs(v) >= 100 ? juce::String((int) std::lround(v)) : juce::String(v, std::abs(v) < 10 ? 1 : 0)) + (unit.isEmpty() || unit.startsWith(":") || unit == "%" ? "" : " ") + unit; });
         }
         dx += w + 8;
     }
     pill({ dx, y0 + 30, 120, 30 }, "+ EFFECT", [this, li] { openBrowser(li); }, [] { return Theme::sel(); });
     bool anyOn = false; for (auto& dv : devs) anyOn |= dv.on;
-    if (li >= 0 && anyOn) pill({ dx, y0 + 68, 120, 30 }, U8("● PRINT FX"), [this, li] { printFx(li); }, [] { return Theme::red(); });
+    if (li >= 0 && anyOn) { auto* pf = pill({ dx, y0 + 68, 120, 30 }, U8("● PRINT FX"), [this, li] { printFx(li); }, [] { return Theme::red(); });
+                            pf->setTooltip("records the track with its effects, so they cost nothing (UNDO brings it back)");
+                            label({ dx + 4, y0 + 102, 116, 14 }, [] { return U8("undo brings it back"); }); }
     if (devs.empty()) label({ dx + 132, y0 + 34, 420, 26 }, [] { return U8("ready-made chains (voice, drums, warm …) or one effect at a time · every knob can be automated"); });
-    else if (li >= 0) label({ dx + 132, y0 + 72, 380, 26 }, [] { return U8("PRINT FX: the track recorded with its effects (UNDO brings it back)"); });
 }
 
 void StudioView::paintDetail(juce::Graphics& g) {
@@ -853,7 +862,7 @@ void StudioView::paintDetail(juce::Graphics& g) {
     }
     for (auto& l : persistentLabels) {
         auto t = l.text();
-        bool caption = Theme::softUI() && !l.title && t.isNotEmpty() && t == t.toUpperCase() && t.length() < 16;   // a knob's name: small mono, as on the station
+        bool caption = Theme::softUI() && !l.title && t.isNotEmpty() && t == t.toUpperCase() && t.length() < 16 && t.containsAnyOf("ABCDEFGHIJKLMNOPQRSTUVWXYZ");   // a knob's name: small mono, as on the station
         if (caption) { g.setColour(Theme::sub()); g.setFont(Theme::mono(6.5f)); g.drawFittedText(t, l.r, juce::Justification::centred, 1, 0.8f); }
         else txt(g, t, l.r, l.title ? 10.0f : 7.0f, l.title ? Theme::txt() : Theme::sub(), l.title ? 2 : 1, l.title ? juce::Justification::centredLeft : juce::Justification::centred);
     }

@@ -14,9 +14,22 @@ LoopGrid& LoopsView::lg() { return shell.host.engine.loopGrid; }
 
 LoopsView::LoopsView(AppShell& s) : shell(s) {
     getProperties().set("softShades", true);
-    static const int BARS[5] = { 1, 2, 4, 8, 0 };
-    auto* len = add<Segments>(juce::StringArray { "1 BAR", "2 BARS", "4 BARS", "8 BARS", "FREE" }, [this] { int b = lg().recBars.load(); for (int i = 0; i < 5; ++i) if (BARS[i] == b) return i; return 1; },
-                              [this](int i) { lg().recBars.store(BARS[i]); }, [] { return Theme::red(); });
+    // RECORD: 1, 2, 4, 8 bars at a tap; "More" picks any number up to what a take can hold at this tempo; Free: as long as you play
+    static const int BARS[6] = { 1, 2, 4, 8, -1, 0 };
+    auto* len = add<Segments>(juce::StringArray { "1 bar", "2 bars", "4 bars", "8 bars", "More", "Free" },
+                              [this] { int b = lg().recBars.load(); for (int i = 0; i < 6; ++i) if (BARS[i] == b) return i; return 4; },
+                              [this](int i) {
+                                  if (BARS[i] >= 0) { lg().recBars.store(BARS[i]); return; }
+                                  auto* seg = byIdComp("lv:len");
+                                  pickBars(seg, lg().recBars.load(), maxBars(), false, [this](int n) { lg().recBars.store(juce::jlimit(1, maxBars(), n)); repaint(); });
+                              }, [] { return Theme::red(); });
+    len->itemText = [this](int i) {
+        static const char* T[6] = { "1 bar", "2 bars", "4 bars", "8 bars", "", "Free" };
+        if (i != 4) return juce::String(T[i]);
+        int b = lg().recBars.load(); bool custom = b > 0 && b != 1 && b != 2 && b != 4 && b != 8;
+        return custom ? juce::String(b) + juce::String::fromUTF8(" bars ▾") : juce::String::fromUTF8("More ▾");
+    };
+    len->onWheel = [this](int d) { int b = lg().recBars.load(); lg().recBars.store(juce::jlimit(1, maxBars(), (b <= 0 ? 1 : b) + d)); };
     len->setComponentID("lv:len");
     auto* q = add<Segments>(juce::StringArray { "ON THE BAR", "ON THE BEAT" }, [this] { return lg().quant.load(); }, [this](int i) { lg().quant.store(i); }, [] { return Theme::blue(); });
     q->setComponentID("lv:quant");
@@ -30,6 +43,8 @@ LoopsView::LoopsView(AppShell& s) : shell(s) {
     mv->setComponentID("lv:vol");
     startTimerHz(30);
 }
+juce::Component* LoopsView::byIdComp(const juce::String& id) { for (auto* c : owned) if (c->getComponentID() == id) return c; return this; }
+int LoopsView::maxBars() { return lg().maxBars(shell.tempo(), juce::jmax(1.0, shell.host.model.get("beats"))); }
 LoopsView::~LoopsView() { pool.removeAllJobs(true, 4000); }
 
 void LoopsView::resized() {
@@ -55,7 +70,7 @@ void LoopsView::resized() {
     if (auto* c = byId("lv:len")) c->setBounds(narrow ? 168 : 240, y + 6, narrow ? 380 : 430, 36);
     if (auto* c = byId("lv:quant")) c->setBounds(narrow ? 562 : 690, y + 6, narrow ? 230 : 250, 36);
     if (auto* c = byId("lv:browser")) c->setBounds(W - 18 - 160, y, 160, 46);
-    if (auto* c = byId("lv:vol")) c->setBounds(W - 18 - 160 - 90, y - 14, 80, 74);
+    if (auto* c = byId("lv:vol")) c->setBounds(W - 18 - 160 - 86, y - 6, 74, 62);
 }
 juce::Rectangle<int> LoopsView::colHead(int col) const {
     float w = gridR.getWidth() / (float) LoopGrid::COLS;
@@ -240,7 +255,7 @@ void LoopsView::paint(juce::Graphics& g) {
             }
             y += 6;
         }
-        if (bitems.empty()) { g.setColour(Theme::sub()); g.setFont(Theme::font(7.6f)); g.drawFittedText("the loops you record on the WORKSTATION show here, to drag onto a cell", { browR.getX() + 16, y - 4, browR.getWidth() - 32, 40 }, juce::Justification::topLeft, 3); }
+        if (bitems.empty()) { g.setColour(Theme::sub()); g.setFont(Theme::font(9.0f)); g.drawFittedText("The loops you record on the WORKSTATION show here, to drag onto a cell.", { browR.getX() + 16, y - 2, browR.getWidth() - 32, 48 }, juce::Justification::topLeft, 4, 1.0f); }
     }
     if (dragItem >= 0 && dragItem < (int) bitems.size()) {
         auto r = juce::Rectangle<float>((float) dragNow.x - 10, (float) dragNow.y - 14, 150, 28);

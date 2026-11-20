@@ -25,13 +25,18 @@ public:
     Segments(juce::StringArray items, std::function<int()> get, std::function<void(int)> set, ColourFn col);
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { if (onWheel && w.deltaY != 0) { onWheel(w.deltaY > 0 ? 1 : -1); repaint(); } }
     juce::StringArray items; std::function<int()> get; std::function<void(int)> set; ColourFn col; float fsize = 9.0f;
+    std::function<juce::String(int)> itemText;   // a segment whose words change ("12 bars ▾")
+    std::function<void(int)> onWheel;
     SoftSpring glide;          // 2.3: where the raised capsule is (it slides to the choice, pushing the skin)
 };
 
 // ---------------------------------------------------------------- the screens
 enum class Screen { Home, Workstation, Loops, Studio, Drums, Synth, Keys, Phrase, Modular, Speakers, Patcher, Fluxo, Library };
 const char* screenTitle(Screen s);
+// any number of bars from 1 to the limit: a grid of numbers (plus Free), and "Type a number…"
+void pickBars(juce::Component* target, int now, int maxBars, bool free, std::function<void(int)> done);
 
 class TopBar : public juce::Component, private juce::Timer {
 public:

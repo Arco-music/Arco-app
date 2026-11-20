@@ -200,6 +200,14 @@ inline int runProbe(AudioHost& h) {
         for (int b = 0; b < (int) (1.0 * 48000 / N); ++b) { h.audioDeviceIOCallbackWithContext(ins, NI, outs, NO, N, ctx); h.model.tick(); for (int i = 0; i < N; ++i) lp = juce::jmax(lp, std::abs(ob[0][(size_t) i])); }
         check(G.playing[0].load() == 0 && lp > 0.05f, "LIVE LOOPS: it plays at once, looping", lp);
         G.stopAll(); G.recState.store(0);
+        // any number of bars up to what a take holds: 5 bars at 120 (10 s); the limit at 120 BPM in 4/4 is 48 bars
+        check(G.maxBars(120, 4) == 48 && G.maxBars(60, 4) == 24, "LIVE LOOPS: the bar limit follows the tempo", G.maxBars(120, 4));
+        G.cell[0][1].store(nullptr); G.recBars.store(5); G.record(0, 1);
+        for (int b = 0; b < (int) (14.0 * 48000 / N) && G.recState.load() != 3; ++b) {
+            for (int i = 0; i < N; ++i) { ib[0][(size_t) i] = 0.3f * (float) std::sin(ph[0]); ph[0] += 2 * M_PI * 220 / 48000.0; }
+            h.audioDeviceIOCallbackWithContext(ins, NI, outs, NO, N, ctx); h.model.tick(); }
+        check(G.recState.load() == 3 && std::abs(G.recClip.len - 480000) < 600 && std::abs(G.recClip.beats - 20.0) < 0.01, "LIVE LOOPS: 5 bars (any number) recorded", (double) G.recClip.len);
+        G.stopAll(); G.recState.store(0); G.cell[0][1].store(nullptr); G.recBars.store(2); for (auto& v : ib) std::fill(v.begin(), v.end(), 0.0f);
     }
     // ---- SYNTH: LFO 1 dropped on the cutoff moves it (the knob on the screen follows the same value)
     {

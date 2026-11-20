@@ -1356,11 +1356,16 @@ bool Studio::save(const juce::File& folder) {
     for (auto& sp : s.sources) {
         if (!sp) continue;
         auto f = dir.getChildFile("src-" + sp->id + ".wav"); keep.add(f.getFileName());
-        if (f.existsAsFile()) continue;                    // already written (sources never change)
-        std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(new juce::FileOutputStream(f), s.sr, sp->r.empty() ? 1 : 2, 32, {}, 0));
-        if (!w) return false;
-        const float* ch[2] = { sp->l.data(), sp->r.empty() ? sp->l.data() : sp->r.data() };
-        w->writeFromFloatArrays(ch, sp->r.empty() ? 1 : 2, (int) sp->l.size());
+        if (f.existsAsFile() && f.getSize() > 44) continue;      // already written (sources never change)
+        // written beside it first, then put in place: a save that is cut short never leaves half a file that looks whole
+        auto part = dir.getChildFile("src-" + sp->id + ".part"); part.deleteFile();
+        {
+            std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(new juce::FileOutputStream(part), s.sr, sp->r.empty() ? 1 : 2, 32, {}, 0));
+            if (!w) { part.deleteFile(); return false; }
+            const float* ch[2] = { sp->l.data(), sp->r.empty() ? sp->l.data() : sp->r.data() };
+            if (!w->writeFromFloatArrays(ch, sp->r.empty() ? 1 : 2, (int) sp->l.size())) { w.reset(); part.deleteFile(); return false; }
+        }
+        if (!part.moveFileTo(f)) { part.deleteFile(); return false; }
     }
     for (auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.wav")) if (!keep.contains(f.getFileName())) f.deleteFile();
     auto o = songToVar(s);

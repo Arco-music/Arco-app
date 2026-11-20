@@ -236,7 +236,7 @@ public:
                 if (solid) {               // the colour shining up through the skin
                     juce::ColourGradient gl(c.withAlpha(0.34f), b.getCentreX(), b.getCentreY(), c.withAlpha(0.0f), b.getRight() + 4, b.getCentreY(), true);
                     g.setGradientFill(gl); g.fillRoundedRectangle(b, sr);
-                    ink = Theme::ink(c);
+                    ink = Theme::ensure(Theme::ink(c), Theme::btn().interpolatedWith(Theme::flat(c), 0.3f), 4.5f);      // readable on the lit face
                 } else ink = on && !tint ? Theme::ink(c) : Theme::txt();
                 led = on && tint && icon == 0 && !solid;
             }
@@ -286,8 +286,14 @@ public:
             g.setColour(tc); g.setFont(Theme::font(fsize, weight)); g.drawText(txt, box, juce::Justification::centredLeft); return;
         }
         g.setColour(tc);
-        g.setFont(mono && Theme::softUI() ? Theme::mono(fsize) : Theme::font(fsize, weight));
-        g.drawFittedText(mono && Theme::softUI() ? txt.toUpperCase() : txt, box, juce::Justification::centred, 1, 0.7f);
+        // the words stay inside the key: a smaller size when they are long (never squashed letters), then "…"
+        auto shown = mono && Theme::softUI() ? txt.toUpperCase() : txt;
+        auto f = mono && Theme::softUI() ? Theme::mono(fsize) : Theme::font(fsize, weight);
+        auto room = (float) getWidth() - juce::jmax(10.0f, r.getHeight() * (Theme::softUI() ? 0.45f : 0.3f));
+        float tw = juce::GlyphArrangement::getStringWidth(f, shown);
+        if (tw > room && tw > 0) f = f.withHeight(f.getHeight() * juce::jmax(0.78f, room / tw));
+        g.setFont(f);
+        g.drawText(shown, juce::Rectangle<float>(r.getCentreX() - room * 0.5f, r.getY(), room, r.getHeight()), juce::Justification::centred, true);
     }
     // 1 play  2 stop  3 rec dot  4 undo  5 headphones  6 folder  7 clear (x)  8 power  9 play/stop
     static void drawIcon(juce::Graphics& g, int k, juce::Rectangle<float> b, juce::Colour c) {

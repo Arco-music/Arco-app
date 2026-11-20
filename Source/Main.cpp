@@ -296,7 +296,10 @@ public:
             const std::pair<const char*, Screen> S[] = { { "home", Screen::Home }, { "workstation", Screen::Workstation }, { "loops", Screen::Loops }, { "studio", Screen::Studio },
                 { "drums", Screen::Drums }, { "synth", Screen::Synth }, { "keys", Screen::Keys }, { "phrase", Screen::Phrase }, { "modular", Screen::Modular }, { "speakers", Screen::Speakers }, { "patcher", Screen::Patcher }, { "fluxo", Screen::Fluxo }, { "sessions", Screen::Library } };
             for (auto& p : S) if (nm == p.first) sc = p.second;
+            if (sc == Screen::Studio && cmd.contains("studiodemo")) studioDemoSong(cmd);
             mc->shell.show(sc);
+            if (sc == Screen::Studio && cmd.contains("studiodemo")) { host->studio.pos = 48000 * 12;
+                if (cmd.contains("studiomix")) if (auto* sv = mc->shell.studioView()) sv->keyPressed(juce::KeyPress(juce::KeyPress::tabKey)); }
             if (sc == Screen::Patcher) mc->shell.patcher->demo(cmd);
             if (sc == Screen::Fluxo) mc->shell.fluxo->demo(cmd);
             if (cmd.contains("demo2")) demo2(mc, sc);
@@ -347,20 +350,8 @@ public:
                 "i song Morning Etude\ni cards eq,dly,rev,spc,flg\ni phone1 Paulo's iPhone\np vol4 64\np pan5 -20\np spc4 30\ns lv4 0.5\ns lv0 0.7"));
             int pg = cmd.fromFirstOccurrenceOf("page=", false, false).getIntValue(); mc->phone.setPage(pg);
         }
-        if (cmd.contains("studiodemo")) {
-            auto& S = host->studio.song; S = arco::StudioSong(); S.sr = 48000; S.bpm = 96;
-            const char* nm[4] = { "TRACK 1", "TRACK 2", "TRACK 3", "TRACK 4" };
-            for (int t = 0; t < 4; ++t) {
-                arco::StudioLane L; L.name = nm[t]; L.colour = 4 + t; L.vol = -3.0f * t; L.pan = t == 2 ? -0.4f : 0.0f; S.lanes.push_back(L);
-                std::vector<float> l((size_t) (48000 * 10));
-                for (size_t i = 0; i < l.size(); ++i) { double tt = i / 48000.0; double env = std::exp(-std::fmod(tt, 0.625 * (t + 1)) * 3.0); l[i] = (float) (0.6 * env * std::sin(2 * M_PI * (110.0 * (t + 1)) * tt)); }
-                S.sources.push_back(host->studio.makeSource(juce::String("scene A - track ") + juce::String(t + 1), std::move(l)));
-                arco::StudioClip c; c.lane = t; c.source = t; c.start = (long) (t == 3 ? 48000 * 10 : 0); c.length = 48000 * (t == 3 ? 20 : 40); c.fadeIn = 2000; c.fadeOut = t == 0 ? 96000 : 200; S.clips.push_back(c);
-            }
-            host->studio.laneStrip = { 4, 5, 6, 7 }; host->studio.laneScene = { 1, 1, 1, 1 };
-            { auto eq = arco::StudioDevice::make(arco::DevEQ); eq.p[0] = 80; eq.p[3] = -3; eq.p[6] = 2; S.lanes[0].devices.push_back(eq); S.lanes[0].devices.push_back(arco::StudioDevice::make(arco::DevComp));
-              S.lanes[0].sendA = 0.25f; S.lanes[1].autos.push_back({ "vol", { { 0, -12.0f }, { 48000 * 6.0, 0.0f }, { 48000 * 14.0, -6.0f } } }); S.lanes[1].showAuto = 0; }
-            if (cmd.contains("studioempty")) { S.clips.clear(); for (auto& L : S.lanes) { L.autos.clear(); L.showAuto = -1; } }
+        if (cmd.contains("studiodemo") && !cmd.contains("screen=")) {
+            studioDemoSong(cmd);
             auto* sv = new arco::StudioView(mc->canvas); sv->setSize(1360, 820); host->studio.pos = 48000 * 12;
             sv->open();
             if (cmd.contains("studiomix")) sv->keyPressed(juce::KeyPress(juce::KeyPress::tabKey));
@@ -380,6 +371,22 @@ public:
             auto img = mc->createComponentSnapshot(mc->getLocalBounds(), true, 2.0f);
             juce::PNGImageFormat png; juce::FileOutputStream os(out); os.setPosition(0); os.truncate(); png.writeImageToStream(img, os);
             delete mc; quit(); });
+    }
+
+    void studioDemoSong(const juce::String& cmd) {
+        auto& S = host->studio.song; S = arco::StudioSong(); S.sr = 48000; S.bpm = 96;
+        const char* nm[4] = { "TRACK 1", "TRACK 2", "TRACK 3", "TRACK 4" };
+        for (int t = 0; t < 4; ++t) {
+            arco::StudioLane L; L.name = nm[t]; L.colour = 4 + t; L.vol = -3.0f * t; L.pan = t == 2 ? -0.4f : 0.0f; S.lanes.push_back(L);
+            std::vector<float> l((size_t) (48000 * 10));
+            for (size_t i = 0; i < l.size(); ++i) { double tt = i / 48000.0; double env = std::exp(-std::fmod(tt, 0.625 * (t + 1)) * 3.0); l[i] = (float) (0.6 * env * std::sin(2 * M_PI * (110.0 * (t + 1)) * tt)); }
+            S.sources.push_back(host->studio.makeSource(juce::String("scene A - track ") + juce::String(t + 1), std::move(l)));
+            arco::StudioClip c; c.lane = t; c.source = t; c.start = (long) (t == 3 ? 48000 * 10 : 0); c.length = 48000 * (t == 3 ? 20 : 40); c.fadeIn = 2000; c.fadeOut = t == 0 ? 96000 : 200; S.clips.push_back(c);
+        }
+        host->studio.laneStrip = { 4, 5, 6, 7 }; host->studio.laneScene = { 1, 1, 1, 1 };
+        { auto eq = arco::StudioDevice::make(arco::DevEQ); eq.p[0] = 80; eq.p[3] = -3; eq.p[6] = 2; S.lanes[0].devices.push_back(eq); S.lanes[0].devices.push_back(arco::StudioDevice::make(arco::DevComp));
+          S.lanes[0].sendA = 0.25f; S.lanes[1].autos.push_back({ "vol", { { 0, -12.0f }, { 48000 * 6.0, 0.0f }, { 48000 * 14.0, -6.0f } } }); S.lanes[1].showAuto = 0; }
+        if (cmd.contains("studioempty")) { S.clips.clear(); for (auto& L : S.lanes) { L.autos.clear(); L.showAuto = -1; } }
     }
 
     // 2.0 screenshots: something on every new screen (a groove, a recorded phrase, loops in the grid, a song in STUDIO)

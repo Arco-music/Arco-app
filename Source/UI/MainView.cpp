@@ -1412,25 +1412,29 @@ bool Canvas::modularOpen() const { return modularWin && modularWin->isVisible();
 bool Canvas::spatialOpen() const { return spatial && spatial->isVisible(); }
 void Canvas::openSynth(bool show) { synthWin->setVisible(show); if (show) synthWin->toFront(true); }
 
+static void saveFailed(AudioHost& host) {
+    juce::AlertWindow::showAsync(juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::WarningIcon).withTitle("The session was not saved")
+                                     .withMessage(host.status + "\n\nNothing was lost: it is still open. Try again, or Save as… somewhere else.").withButton("OK"), nullptr);
+}
 void Canvas::doSave(bool askName) {
-    if (!askName && host.songFolder.isDirectory()) { host.saveSong(host.songFolder); return; }
+    if (!askName && host.songFolder.isDirectory()) { if (!host.saveSong(host.songFolder)) saveFailed(host); return; }
    #if JUCE_IOS
     auto* w = new juce::AlertWindow("Save the song", "Its name:", juce::MessageBoxIconType::NoIcon);
     w->addTextEditor("name", host.songFolder.isDirectory() ? host.songFolder.getFileName() : juce::String("my song"));
     w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey)); w->addButton("Cancel", 0);
     w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
         auto n = juce::File::createLegalFileName(w->getTextEditorContents("name").trim());
-        if (r == 1 && n.isNotEmpty()) host.saveSong(songsDir().getChildFile(n)); }), true);
+        if (r == 1 && n.isNotEmpty() && !host.saveSong(songsDir().getChildFile(n))) saveFailed(host); }), true);
    #else
     chooseFile("Save the song: choose a name (a folder with that name is made)", "*", true,
-               [this](juce::File f) { host.saveSong(f.withFileExtension("")); });
+               [this](juce::File f) { if (!host.saveSong(f.withFileExtension(""))) saveFailed(host); });
    #endif
 }
 
 // ===================================================================== 2.6: SESSIONS
 double Canvas::tempoNow() { return host.engine.snap("smask").v.load() > 0 ? std::round(host.engine.snap("ebpm").v.load() * 10) / 10 : host.model.get("bpm"); }
 void Canvas::saveSession(std::function<void()> after) {
-    if (host.songFolder.isDirectory()) { if (host.saveSong(host.songFolder) && after) after(); return; }
+    if (host.songFolder.isDirectory()) { if (host.saveSong(host.songFolder)) { if (after) after(); } else saveFailed(host); return; }
     saveNewSession(std::move(after));
 }
 void Canvas::saveNewSession(std::function<void()> after) {
@@ -1443,7 +1447,7 @@ void Canvas::saveNewSession(std::function<void()> after) {
         auto n = juce::File::createLegalFileName(w->getTextEditorContents("name").trim());
         if (r != 1) return;
         if (n.isEmpty()) n = sessions::suggestName(tempoNow());
-        if (host.saveSong(sessions::uniqueFolder(n)) && after) after(); }), true);
+        if (host.saveSong(sessions::uniqueFolder(n))) { if (after) after(); } else saveFailed(host); }), true);
 }
 void Canvas::saveMenu(juce::Component* from) {
     juce::PopupMenu m;

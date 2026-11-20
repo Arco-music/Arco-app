@@ -31,6 +31,8 @@ public:
     std::atomic<float> progress[ROWS];               // where the playing loop is (0..1)
     // recording (one cell at a time)
     std::atomic<int> recRow { -1 }, recCol { -1 }, recState { 0 };   // 0 none, 1 waiting for the line, 2 recording, 3 done (the message thread takes it)
+    double takeSeconds() const { return sr > 0 && !recClip.l.empty() ? (double) recClip.l.size() / sr : 96.0; }   // the longest take
+    int maxBars(double bpm, double bpb) const { return juce::jlimit(1, 64, (int) std::floor(takeSeconds() / (juce::jmax(1.0, bpb) * 60.0 / juce::jmax(20.0, bpm)) + 1e-6)); }
     std::atomic<int> recBars { 2 };                   // 0 = free: until the cell is tapped again
     std::atomic<bool> recStopAsked { false };
     std::atomic<int> quant { 0 };                     // 0 bar, 1 beat
@@ -43,7 +45,7 @@ public:
         for (auto& r : cell) for (auto& c : r) c.store(nullptr);
         for (int i = 0; i < ROWS; ++i) { playing[i].store(-1); queued[i].store(-2); vol[i].store(0.8f); level[i].store(0); src[i].store(i < 4 ? i : SrcDrums); mute[i].store(0); progress[i].store(0); }
     }
-    void init(double rate) { sr = rate; recClip.l.assign((size_t) (rate * 64.0), 0.0f); recClip.r.assign(recClip.l.size(), 0.0f); recClip.len = 0; for (auto& p : ph) p = 0; }
+    void init(double rate) { sr = rate; recClip.l.assign((size_t) (rate * 96.0), 0.0f); recClip.r.assign(recClip.l.size(), 0.0f); recClip.len = 0; for (auto& p : ph) p = 0; }
 
     // ---- message thread
     void launch(int row, int col) { queued[row].store(col); }

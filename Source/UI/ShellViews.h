@@ -67,6 +67,8 @@ class LoopsView : public juce::Component, public juce::FileDragAndDropTarget, pr
 public:
     explicit LoopsView(AppShell& s);
     ~LoopsView() override;
+    juce::Component* byIdComp(const juce::String& id);
+    int maxBars();
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;

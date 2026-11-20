@@ -40,6 +40,7 @@ Segments::Segments(juce::StringArray it, std::function<int()> g, std::function<v
     setMouseCursor(juce::MouseCursor::PointingHandCursor); }
 void Segments::paint(juce::Graphics& g) {
     auto r = getLocalBounds().toFloat();
+    if (itemText) for (int i = 0; i < items.size(); ++i) items.set(i, itemText(i));
     if (Theme::softUI()) {          // 2.3: a groove in the skin; the raised capsule slides to the choice, the skin bulging round it as it goes
         softWell(g, r, r.getHeight() * 0.5f);
         int n = juce::jmax(1, items.size()), on = get ? get() : -1; float w = r.getWidth() / n;
@@ -81,6 +82,32 @@ void Segments::paint(juce::Graphics& g) {
                say(g, items[i], c.toNearestInt(), fsize, Theme::sub(), 2, juce::Justification::centred); }
     }
 }
+void pickBars(juce::Component* target, int now, int maxBars, bool free, std::function<void(int)> done) {
+    juce::PopupMenu m;
+    m.addSectionHeader("How many bars (up to " + juce::String(maxBars) + ")");
+    if (free) m.addItem(1000, "Free (as long as you play)", true, now == 0);
+    int perCol = maxBars > 32 ? 12 : 8;
+    for (int b = 1; b <= maxBars; ++b) {
+        if (b > 1 && (b - 1) % perCol == 0) m.addColumnBreak();
+        m.addItem(b, juce::String(b) + (b == 1 ? " bar" : " bars"), true, now == b);
+    }
+    m.addSeparator();
+    m.addItem(2000, juce::String::fromUTF8("Type a number…"));
+    juce::Component::SafePointer<juce::Component> sp(target);
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(target), [sp, now, maxBars, done](int r) {
+        if (r == 1000) { done(0); return; }
+        if (r > 0 && r < 1000) { done(r); return; }
+        if (r != 2000) return;
+        auto* aw = new juce::AlertWindow("How many bars?", "Any number from 1 to " + juce::String(maxBars) + ".", juce::MessageBoxIconType::NoIcon);
+        aw->addTextEditor("n", juce::String(juce::jmax(1, now)));
+        if (auto* ed = aw->getTextEditor("n")) ed->setInputRestrictions(3, "0123456789");
+        aw->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey)); aw->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+        aw->enterModalState(true, juce::ModalCallbackFunction::create([aw, maxBars, done](int res) {
+            if (res == 1) { int n = aw->getTextEditorContents("n").getIntValue(); if (n > 0) done(juce::jlimit(1, maxBars, n)); }
+        }), true);
+    });
+}
+
 void Segments::mouseDown(const juce::MouseEvent& e) {
     int n = juce::jmax(1, items.size()); int i = juce::jlimit(0, n - 1, (int) (e.position.x / (getWidth() / (float) n)));
     if (set) set(i); repaint();
@@ -389,10 +416,7 @@ TopBar::TopBar(AppShell& s) : shell(s) {
     look->textColour = [] { return Theme::txt(); }; look->setTooltip("light / dark"); look->setComponentID("shell:look");
     // how many bars the first loop records (0 = free: as long as you play)
     bars = mk("", [] { return Theme::btn(); }, [this] {
-        juce::PopupMenu m; int now = (int) shell.host.model.get("bars");
-        m.addItem(100, "Free (as long as you play)", true, now == 0);
-        for (int b : { 1, 2, 4, 8, 16, 32 }) m.addItem(b, juce::String(b) + (b == 1 ? " bar" : " bars"), true, now == b);
-        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(bars), [this](int r) { if (r > 0) { shell.host.model.set("bars", r == 100 ? 0 : r); bars->repaint(); } });
+        pickBars(bars, (int) shell.host.model.get("bars"), 32, true, [this](int r) { shell.host.model.set("bars", r); bars->repaint(); });
     }, 0, 10.5f);
     bars->dynText = [this] { int b = (int) shell.host.model.get("bars"); return b <= 0 ? juce::String("Free") : juce::String(b) + (b == 1 ? " bar" : " bars"); };
     bars->textColour = [] { return Theme::txt(); }; bars->setComponentID("shell:bars");
